@@ -17,6 +17,7 @@
 ; Keys (win_key): esc / i close any window. Ride/stall: + (or =) / -
 ; price ±$1 (ride_set_price clamps), o open/close (ride_toggle).
 ; Finance: b borrow, r repay (eco_borrow/eco_repay; refusal → ui_msg),
+; h hire handyman, m hire mechanic (stf_hire; result → ui_msg),
 ; + (=) / - entry fee ±$1 clamped 0..ENTRY_FEE_MAX (writes st_entry_fee).
 ; Other keys are not consumed (cursor movement etc. keep working).
 ; A ride window whose ride was demolished, closes itself on the next draw.
@@ -25,7 +26,7 @@
 ; st_cash/loan/value/mon/last_* st_entry_fee.
 ; Calls: ride_at ride_addr ride_name ride_set_price ride_toggle gst_at
 ; gst_addr gst_name gst_thought_text map_index eco_money_text eco_borrow
-; eco_repay ui_msg video_* util_strlen.
+; eco_repay stf_hire stf_count ui_msg video_* util_strlen.
 ; Cost: ~23-28K instructions per frame while a window is open (0 when closed).
 ; ---------------------------------------------------------------------
 
@@ -173,11 +174,40 @@ win_k_fin:                      ; r2 = key
 win_k_frep:
         mov r0, 'r'
         cmp r2, r0
-        brnz win_k_ffee
+        brnz win_k_fhandyman
         bl eco_repay
         cmp r0, 0
         brnz win_k_yes
         lea r0, win_s_norepay
+        bl ui_msg
+        br win_k_yes
+win_k_fhandyman:
+        mov r0, 'h'
+        cmp r2, r0
+        brnz win_k_fmechanic
+        mov r0, SFT_HANDYMAN
+        lea r1, win_s_hired_handyman
+        br win_k_fhire
+win_k_fmechanic:
+        mov r0, 'm'
+        cmp r2, r0
+        brnz win_k_ffee
+        mov r0, SFT_MECHANIC
+        lea r1, win_s_hired_mechanic
+win_k_fhire:
+        bl stf_hire
+        cmp r0, 0
+        brn win_k_fhire_refused
+        mov r0, r1
+        br win_k_fhire_msg
+win_k_fhire_refused:
+        ld r0, st_staff_count
+        mov r1, MAX_STAFF
+        cmp r0, r1
+        lea r0, win_s_staff_full
+        brz win_k_fhire_msg
+        lea r0, win_s_staff_gate
+win_k_fhire_msg:
         bl ui_msg
         br win_k_yes
 win_k_ffee:
@@ -556,6 +586,20 @@ win_draw_fin:
         ld r2, st_last_exp_k
         ld r3, st_last_exp_u
         bl win_fin_block
+        bl win_skip
+        lea r0, win_s_handymen
+        bl win_lbl
+        mov r0, SFT_HANDYMAN
+        bl stf_count
+        bl win_vnum
+        lea r0, win_s_mechanics
+        bl win_lbl
+        mov r0, SFT_MECHANIC
+        bl stf_count
+        bl win_vnum
+        lea r0, win_s_h_hire
+        ld r1, win_a_help
+        bl win_head
         lea r0, win_s_h_fin1
         lea r1, win_s_h_fin2
         bl win_help
@@ -1190,6 +1234,13 @@ win_s_lastmon:   .string "Last month"
 win_s_inc:       .string "  Income"
 win_s_exp:       .string "  Expenses"
 win_s_profit:    .string "  Profit"
+win_s_handymen:  .string "Handymen"
+win_s_mechanics: .string "Mechanics"
+win_s_h_hire:    .string "Hire: h handyman  m mechanic"
+win_s_hired_handyman: .string "Handyman hired."
+win_s_hired_mechanic: .string "Mechanic hired."
+win_s_staff_full: .string "Staff roster is full."
+win_s_staff_gate: .string "Staff cannot reach the gate."
 win_s_h_fin1:    .string "b borrow  r repay  ($1,000)"
 win_s_h_fin2:    .string "+ - entry fee   esc close"
 win_s_noloan:    .string "Loan limit reached."

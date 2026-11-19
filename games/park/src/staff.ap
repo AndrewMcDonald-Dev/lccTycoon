@@ -1,6 +1,6 @@
 ; ---------------------------------------------------------------------
 ; Module: staff (prefix stf_) — owner WP13. Handymen sweep litter/vomit
-; (clear T_LITTER/T_VOMIT bits) and empty bins; mechanics repair broken
+; (clear T_LITTER/T_VOMIT bits); mechanics repair broken
 ; rides (RS_BROKEN → RS_OPEN, restore R_RELIAB). Records in st_staff
 ; (SF_*, SFT_* in defs.ap); wages charged monthly by eco_tick.
 ; All routines: args r0..r4, result r0, all other registers preserved.
@@ -13,24 +13,606 @@
 ;; stf_count      r0=SFT_*         -> r0=number hired of that type
 ; ---------------------------------------------------------------------
 
-; WP0 stub: no staff.
+        .define STF_REPAIR_TICKS 12
+        .define STF_REPAIR_GAIN  30
+
 stf_init:
+        push r0
+        push r1
+        push r2
+        push lr
+        mov r1, 0
+        st r1, st_staff_count
+        st r1, stf_first
+        lea r0, st_staff
+        mov r2, MAX_STAFF*STAFF_SIZE
+        bl util_memset
+        pop lr
+        pop r2
+        pop r1
+        pop r0
         ret
 
 stf_hire:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        cmp r0, SFT_HANDYMAN
+        brz stf_hire_gate
+        cmp r0, SFT_MECHANIC
+        brnz stf_hire_no
+stf_hire_gate:
+        mov r4, r0
+        ld r0, st_gate_x
+        ld r1, st_gate_y
+        bl map_walkable
+        cmp r0, 0
+        brz stf_hire_no
+        lea r2, st_staff
+        mov r0, 0
+        mov r3, MAX_STAFF
+stf_hire_scan:
+        ldr r1, r2, SF_TYPE
+        cmp r1, SFT_NONE
+        brz stf_hire_place
+        add r2, r2, STAFF_SIZE
+        add r0, r0, 1
+        cmp r0, r3
+        brlt stf_hire_scan
+stf_hire_no:
         mov r0, -1
+        br stf_hire_done
+stf_hire_place:
+        str r4, r2, SF_TYPE
+        ld r1, st_gate_x
+        str r1, r2, SF_X
+        ld r1, st_gate_y
+        str r1, r2, SF_Y
+        mov r1, DIR_NONE
+        str r1, r2, SF_DIR
+        mov r1, -1
+        str r1, r2, SF_TARGET
+        ld r1, st_staff_count
+        add r1, r1, 1
+        st r1, st_staff_count
+stf_hire_done:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
         ret
 
 stf_fire:
-        ret
-
-stf_tick:
+        push r0
+        push r1
+        push r2
+        push lr
+        cmp r0, 0
+        brn stf_fire_done
+        mov r1, MAX_STAFF
+        cmp r0, r1
+        brz stf_fire_done
+        brgt stf_fire_done
+        bl stf_addr
+        ldr r1, r0, SF_TYPE
+        cmp r1, SFT_NONE
+        brz stf_fire_done
+        mov r1, 0
+        mov r2, STAFF_SIZE
+        bl util_memset
+        ld r0, st_staff_count
+        sub r0, r0, 1
+        st r0, st_staff_count
+stf_fire_done:
+        pop lr
+        pop r2
+        pop r1
+        pop r0
         ret
 
 stf_at:
-        mov r0, -1
+        push r2
+        push r3
+        push r4
+        lea r2, st_staff
+        mov r3, 0
+stf_at_scan:
+        ldr r4, r2, SF_TYPE
+        cmp r4, SFT_NONE
+        brz stf_at_next
+        ldr r4, r2, SF_X
+        cmp r4, r0
+        brnz stf_at_next
+        ldr r4, r2, SF_Y
+        cmp r4, r1
+        brz stf_at_found
+stf_at_next:
+        add r2, r2, STAFF_SIZE
+        add r3, r3, 1
+        mov r4, MAX_STAFF
+        cmp r4, r3
+        brgt stf_at_scan
+        mov r3, -1
+stf_at_found:
+        mov r0, r3
+        pop r4
+        pop r3
+        pop r2
         ret
 
 stf_count:
+        push r1
+        push r2
+        push r3
+        push r4
+        mov r1, 0
+        cmp r0, SFT_NONE
+        brz stf_count_done
+        lea r2, st_staff
+        mov r3, MAX_STAFF
+stf_count_scan:
+        ldr r4, r2, SF_TYPE
+        cmp r4, r0
+        brnz stf_count_next
+        add r1, r1, 1
+stf_count_next:
+        add r2, r2, STAFF_SIZE
+        sub r3, r3, 1
+        brp stf_count_scan
+stf_count_done:
+        mov r0, r1
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+stf_tick:
+        push r0
+        ld r0, st_staff_count
+        cmp r0, 0
+        brz stf_tick_empty
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        ; All staff get a turn. Permit just one cold mechanic field per
+        ; tick and rotate the first slot so later mechanics also get it.
+        mov r0, 1
+        st r0, stf_cold_route
+        ld r0, stf_first
+        mov r2, r0
+        add r0, r0, 1
+        bl stf_wrap_slot
+        st r0, stf_first
+        mov r3, MAX_STAFF
+stf_tick_scan:
+        mov r0, r2
+        bl stf_addr
+        mov r4, r0
+        ldr r0, r4, SF_TYPE
+        cmp r0, SFT_HANDYMAN
+        brnz stf_tick_mechanic
+        bl stf_handyman
+        br stf_tick_next
+stf_tick_mechanic:
+        cmp r0, SFT_MECHANIC
+        brnz stf_tick_next
+        bl stf_mechanic
+stf_tick_next:
+        add r0, r2, 1
+        bl stf_wrap_slot
+        mov r2, r0
+        sub r3, r3, 1
+        brp stf_tick_scan
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+stf_tick_empty:
+        pop r0
+        ret
+
+; r0=staff index -> address
+stf_addr:
+        push r1
+        sll r0, STAFF_SHIFT
+        lea r1, st_staff
+        add r0, r0, r1
+        pop r1
+        ret
+
+stf_wrap_slot:
+        cmp r0, MAX_STAFF-1
+        brgt stf_wrap_reset
+        ret
+stf_wrap_reset:
         mov r0, 0
         ret
+
+; ---- Handymen ---------------------------------------------------------
+
+; Search for dirty walkable tiles one or two steps away. A clean tile
+; can be the first step when it leads to dirt, including around a corner.
+stf_handyman:
+        push r2
+        push r3
+        push lr
+        ldr r0, r4, SF_X
+        ldr r1, r4, SF_Y
+        bl stf_sweep
+        cmp r0, 0
+        brnz stf_handyman_done
+        ldr r0, r4, SF_X
+        bl stf_dirty_dir
+        cmp r0, DIR_NONE
+        brnz stf_handyman_move
+        mov r2, DIR_N
+stf_handyman_look:
+        ldr r0, r4, SF_X
+        ldr r1, r4, SF_Y
+        bl stf_offset
+        mov r3, r0
+        bl map_walkable
+        cmp r0, 0
+        brz stf_handyman_next
+        mov r0, r3
+        bl stf_dirty_dir
+        cmp r0, DIR_NONE
+        brnz stf_handyman_near
+stf_handyman_next:
+        add r2, r2, 1
+        cmp r2, DIR_W
+        brgt stf_handyman_wander
+        br stf_handyman_look
+stf_handyman_near:
+        mov r0, r2
+        br stf_handyman_move
+stf_handyman_wander:
+        ldr r0, r4, SF_X
+        ldr r1, r4, SF_Y
+        bl pth_random_dir
+stf_handyman_move:
+        bl stf_step
+        ldr r0, r4, SF_X
+        ldr r1, r4, SF_Y
+        bl stf_sweep
+stf_handyman_done:
+        pop lr
+        pop r3
+        pop r2
+        ret
+
+; r0=x r1=y -> direction of an adjacent dirty tile, or DIR_NONE.
+stf_dirty_dir:
+        push r1
+        push r2
+        push r3
+        push lr
+        push r1
+        mov r3, r0
+        mov r2, DIR_N
+stf_dirty_dir_scan:
+        mov r0, r3
+        ldr r1, sp, 0
+        bl stf_offset
+        bl stf_dirty_addr
+        cmp r0, 0
+        brnz stf_dirty_dir_found
+        add r2, r2, 1
+        cmp r2, DIR_W
+        brgt stf_dirty_dir_none
+        br stf_dirty_dir_scan
+stf_dirty_dir_none:
+        mov r2, DIR_NONE
+stf_dirty_dir_found:
+        mov r0, r2
+        add sp, sp, 1
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; r0=x r1=y -> address of a dirty walkable tile, or 0.
+stf_dirty_addr:
+        push r2
+        push r3
+        push lr
+        mov r3, r0
+        bl map_addr
+        cmp r0, 0
+        brz stf_dirty_addr_done
+        ld r2, stf_dirty_mask
+        ; Test the bits before calling map_walkable on clean tiles.
+        push r0
+        ldr r0, r0, 0
+        and r0, r0, r2
+        pop r2
+        brz stf_dirty_addr_done
+        mov r0, r3
+        bl map_walkable
+        cmp r0, 0
+        brz stf_dirty_addr_done
+        mov r0, r2
+stf_dirty_addr_done:
+        pop lr
+        pop r3
+        pop r2
+        ret
+
+; r0=x r1=y -> 1 if swept, 0 otherwise. Walkability is unchanged.
+stf_sweep:
+        push r2
+        push r3
+        push lr
+        bl stf_dirty_addr
+        cmp r0, 0
+        brz stf_sweep_done
+        ldr r2, r0, 0
+        ld r3, stf_clean_mask
+        and r2, r2, r3
+        str r2, r0, 0
+        mov r0, 1
+stf_sweep_done:
+        pop lr
+        pop r3
+        pop r2
+        ret
+
+stf_dirty_mask: .word T_LITTER|T_VOMIT
+stf_clean_mask: .word 0xFFFF & ~(T_LITTER|T_VOMIT)
+
+; ---- Mechanics --------------------------------------------------------
+
+; SF_TARGET is reserved by the first mechanic who claims the ride.
+; SF_SPARE is where this mechanic resumes scanning after an unreachable
+; job, so a disconnected ride cannot hide other broken rides.
+stf_mechanic:
+        push r2
+        push r3
+        push lr
+        ldr r0, r4, SF_X
+        ldr r1, r4, SF_Y
+        bl map_walkable
+        cmp r0, 0
+        brz stf_mechanic_recover
+        ldr r0, r4, SF_TARGET
+        cmp r0, 0
+        brn stf_mechanic_claim
+        bl ride_addr
+        ldr r1, r0, R_STATUS
+        cmp r1, RS_BROKEN
+        brz stf_mechanic_route
+        bl stf_release_job
+stf_mechanic_claim:
+        bl stf_find_job
+        cmp r0, 0
+        brn stf_mechanic_done
+        str r0, r4, SF_TARGET
+        bl ride_addr
+stf_mechanic_route:
+        mov r3, r0
+        ldr r0, r4, SF_X
+        ldr r1, r3, R_ENT_X
+        cmp r0, r1
+        brnz stf_mechanic_walk
+        ldr r0, r4, SF_Y
+        ldr r1, r3, R_ENT_Y
+        cmp r0, r1
+        brz stf_mechanic_work
+stf_mechanic_walk:
+        ldr r0, r3, R_ENT_X
+        ldr r1, r3, R_ENT_Y
+        bl pth_cached
+        cmp r0, 0
+        brnz stf_mechanic_follow
+        ld r0, stf_cold_route
+        cmp r0, 0
+        brz stf_mechanic_done
+        mov r0, 0
+        st r0, stf_cold_route
+stf_mechanic_follow:
+        mov r0, STF_REPAIR_TICKS
+        str r0, r4, SF_TIMER
+        ldr r2, r3, R_ENT_X
+        ldr r3, r3, R_ENT_Y
+        ldr r0, r4, SF_X
+        ldr r1, r4, SF_Y
+        bl pth_next
+        cmp r0, DIR_NONE
+        brnz stf_mechanic_move
+        bl stf_release_job
+        br stf_mechanic_done
+stf_mechanic_move:
+        bl stf_step
+        br stf_mechanic_done
+stf_mechanic_work:
+        ldr r0, r4, SF_TIMER
+        cmp r0, 0
+        brnz stf_mechanic_count
+        mov r0, STF_REPAIR_TICKS
+stf_mechanic_count:
+        sub r0, r0, 1
+        str r0, r4, SF_TIMER
+        brp stf_mechanic_done
+        bl stf_repair
+        br stf_mechanic_done
+stf_mechanic_recover:
+        ; The tile beneath the mechanic may have been demolished.
+        ldr r0, r4, SF_TARGET
+        cmp r0, 0
+        brn stf_mechanic_safe_step
+        bl stf_release_job
+stf_mechanic_safe_step:
+        ldr r0, r4, SF_X
+        ldr r1, r4, SF_Y
+        bl pth_random_dir
+        bl stf_step
+stf_mechanic_done:
+        pop lr
+        pop r3
+        pop r2
+        ret
+
+; r4=mechanic -> r0=unassigned broken ride index, or -1.
+stf_find_job:
+        push r1
+        push r2
+        push r3
+        push lr
+        ldr r2, r4, SF_SPARE
+        mov r3, MAX_RIDES
+stf_find_job_scan:
+        mov r0, r2
+        bl ride_addr
+        ldr r1, r0, R_STATUS
+        cmp r1, RS_BROKEN
+        brnz stf_find_job_next
+        mov r0, r2
+        bl stf_job_taken
+        cmp r0, 0
+        brz stf_find_job_found
+stf_find_job_next:
+        add r2, r2, 1
+        mov r1, MAX_RIDES
+        cmp r2, r1
+        brlt stf_find_job_advance
+        mov r2, 0
+stf_find_job_advance:
+        sub r3, r3, 1
+        brp stf_find_job_scan
+        mov r2, -1
+stf_find_job_found:
+        mov r0, r2
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; r0=ride index -> 1 if assigned, 0 otherwise.
+stf_job_taken:
+        push r1
+        push r2
+        push r3
+        lea r1, st_staff
+        mov r2, MAX_STAFF
+stf_job_taken_scan:
+        ldr r3, r1, SF_TYPE
+        cmp r3, SFT_MECHANIC
+        brnz stf_job_taken_next
+        ldr r3, r1, SF_TARGET
+        cmp r3, r0
+        brz stf_job_taken_yes
+stf_job_taken_next:
+        add r1, r1, STAFF_SIZE
+        sub r2, r2, 1
+        brp stf_job_taken_scan
+        mov r0, 0
+        br stf_job_taken_done
+stf_job_taken_yes:
+        mov r0, 1
+stf_job_taken_done:
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+stf_release_job:
+        ldr r0, r4, SF_TARGET
+        add r0, r0, 1
+        mov r1, MAX_RIDES
+        cmp r0, r1
+        brlt stf_release_save
+        mov r0, 0
+stf_release_save:
+        str r0, r4, SF_SPARE
+        mov r0, -1
+        str r0, r4, SF_TARGET
+        mov r0, 0
+        str r0, r4, SF_TIMER
+        ret
+
+; r3 is the ride, r4 is the mechanic who has finished working at its entrance.
+stf_repair:
+        push lr
+        ldr r0, r3, R_RELIAB
+        mov r1, STF_REPAIR_GAIN
+        add r0, r0, r1
+        mov r1, 100
+        bl util_min
+        str r0, r3, R_RELIAB
+        mov r0, RS_OPEN
+        str r0, r3, R_STATUS
+        mov r0, 0
+        str r0, r3, R_DOWN
+        ldr r0, r4, SF_TARGET
+        bl ride_name
+        mov r1, r0
+        bl util_strlen
+        mov r2, r0
+        lea r0, stf_repair_msg
+        bl util_memcpy
+        add r0, r0, r2
+        lea r1, stf_repaired
+        mov r2, 10             ; " repaired" plus NUL
+        bl util_memcpy
+        lea r0, stf_repair_msg
+        bl ui_msg
+        bl stf_release_job
+        pop lr
+        ret
+
+stf_first:      .word 0
+stf_cold_route: .word 0
+stf_repaired:   .string " repaired"
+stf_repair_msg: .zero MSG_LEN
+
+; ---- Movement ---------------------------------------------------------
+
+; r0=direction, r4=staff record. Call with a walkable step or DIR_NONE.
+stf_step:
+        cmp r0, DIR_NONE
+        brz stf_step_done
+        push r2
+        push lr
+        str r0, r4, SF_DIR
+        mov r2, r0
+        ldr r0, r4, SF_X
+        ldr r1, r4, SF_Y
+        bl stf_offset
+        str r0, r4, SF_X
+        str r1, r4, SF_Y
+        pop lr
+        pop r2
+stf_step_done:
+        ret
+
+; r0=x r1=y r2=direction -> r0/r1=neighbor coordinates.
+stf_offset:
+        push r3
+        lea r3, stf_dx
+        add r3, r3, r2
+        ldr r3, r3, 0
+        add r0, r0, r3
+        lea r3, stf_dy
+        add r3, r3, r2
+        ldr r3, r3, 0
+        add r1, r1, r3
+        pop r3
+        ret
+
+stf_dx: .word 0
+        .word 1
+        .word 0
+        .word -1
+stf_dy: .word -1
+        .word 0
+        .word 1
+        .word 0

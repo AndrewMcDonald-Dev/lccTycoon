@@ -1,0 +1,261 @@
+; Unit scenarios for WP13. Use the real map, path cache, ride records,
+; message UI and economy with small, hand-built parks.
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        bl stf_init
+        bl pth_init
+        bl ride_init
+        bl eco_init
+        mov r0, 10
+        st r0, st_gate_x
+        st r0, st_gate_y
+        nbain r0
+        mov r1, 'a'
+        sub r0, r0, r1
+        brn drv_halt
+        cmp r0, 4
+        brgt drv_halt
+        lea r4, drv_cases
+        add r4, r4, r0
+        ldr r4, r4, 0
+        jmp r4
+drv_halt:
+        halt
+
+drv_cases:
+        .word drv_records
+        .word drv_pool
+        .word drv_sweep
+        .word drv_repair
+        .word drv_wages
+
+drv_gate:
+        mov r0, 10
+        mov r1, 10
+        mov r2, T_GATE
+        br map_set
+
+drv_records:
+        mov r0, SFT_HANDYMAN
+        bl stf_hire             ; no gate tile yet
+        st r0, drv_slots
+        bl drv_gate
+        mov r0, SFT_NONE
+        bl stf_hire
+        st r0, drv_slots+1
+        mov r0, SFT_HANDYMAN
+        bl stf_hire
+        st r0, drv_slots+2
+        mov r0, SFT_MECHANIC
+        bl stf_hire
+        st r0, drv_slots+3
+        mov r0, 10
+        mov r1, 10
+        bl stf_at
+        st r0, drv_slots+4
+        mov r0, SFT_HANDYMAN
+        bl stf_count
+        st r0, drv_slots+5
+        mov r0, 0
+        bl stf_fire
+        bl stf_fire             ; already empty
+        mov r0, -1
+        bl stf_fire
+        mov r0, MAX_STAFF
+        bl stf_fire
+        mov r0, 10
+        mov r1, 10
+        bl stf_at
+        st r0, drv_slots+6
+        mov r0, 11
+        bl stf_at
+        st r0, drv_slots+7
+        mov r0, SFT_HANDYMAN
+        bl stf_count
+        st r0, drv_slots+8
+        mov r0, SFT_MECHANIC
+        bl stf_count
+        st r0, drv_slots+9
+        halt
+
+drv_pool:
+        bl drv_gate
+        mov r4, MAX_STAFF
+drv_pool_hire:
+        mov r0, SFT_HANDYMAN
+        bl stf_hire
+        sub r4, r4, 1
+        brp drv_pool_hire
+        st r0, drv_capacity
+        mov r0, SFT_MECHANIC
+        bl stf_hire
+        st r0, drv_capacity+1
+        mov r0, 7
+        bl stf_fire
+        mov r0, SFT_MECHANIC
+        bl stf_hire
+        st r0, drv_capacity+2
+        mov r0, SFT_HANDYMAN
+        bl stf_count
+        st r0, drv_capacity+3
+        mov r0, SFT_MECHANIC
+        bl stf_count
+        st r0, drv_capacity+4
+        ld r0, st_staff_count
+        st r0, drv_capacity+5
+        bl stf_init
+        mov r0, SFT_MECHANIC
+        bl stf_count
+        st r0, drv_capacity+6
+        halt
+
+; Sweep an adjacent path, then take a second step around a corner.
+drv_sweep:
+        bl drv_gate
+        mov r0, 10
+        mov r1, 9
+        ld r2, drv_dirty_path
+        bl map_set
+        mov r0, 10
+        mov r1, 8
+        mov r2, T_PATH
+        bl map_set
+        mov r0, 11
+        mov r1, 8
+        ld r2, drv_dirty_queue
+        bl map_set
+        mov r0, SFT_HANDYMAN
+        bl stf_hire
+        bl pth_update
+        bl stf_tick
+        mov r0, 10
+        mov r1, 9
+        bl map_get
+        st r0, drv_swept
+        mov r0, 10
+        bl stf_at
+        st r0, drv_swept+1
+        bl stf_tick
+        mov r0, 10
+        mov r1, 8
+        bl stf_at
+        st r0, drv_swept+2
+        bl stf_tick
+        mov r0, 11
+        mov r1, 8
+        bl map_get
+        st r0, drv_swept+3
+        halt
+
+; Entrance (10,8) lies beyond a blocked tile at (10,9).
+; Check exclusive assignment, the detour, the work delay and the repair.
+drv_repair:
+        bl drv_gate
+        mov r0, 11
+        mov r1, 8
+        mov r2, 1
+        mov r3, 3
+        mov r4, T_PATH
+        bl map_fill
+        mov r0, 10
+        mov r1, 8
+        mov r2, T_ENTRANCE
+        bl map_set
+        mov r0, RT_CAROUSEL
+        mov r1, 10
+        mov r2, 5
+        bl ride_new
+        bl ride_addr
+        mov r4, r0
+        mov r0, RS_BROKEN
+        str r0, r4, R_STATUS
+        mov r0, 80
+        str r0, r4, R_RELIAB
+        mov r0, 9
+        str r0, r4, R_DOWN
+        mov r0, SFT_MECHANIC
+        bl stf_hire
+        mov r0, SFT_MECHANIC
+        bl stf_hire
+        bl stf_tick
+        lea r3, st_staff
+        ldr r0, r3, SF_X
+        st r0, drv_walk
+        ldr r0, r3, SF_Y
+        st r0, drv_walk+1
+        ldr r0, r3, SF_TARGET
+        st r0, drv_walk+2
+        ldr r0, r3, STAFF_SIZE+SF_TARGET
+        st r0, drv_walk+3
+        bl stf_tick
+        bl stf_tick
+        bl stf_tick
+        ldr r0, r3, SF_X
+        st r0, drv_walk+4
+        ldr r0, r3, SF_Y
+        st r0, drv_walk+5
+        mov r2, 11
+drv_repair_work:
+        bl stf_tick
+        sub r2, r2, 1
+        brp drv_repair_work
+        ldr r0, r4, R_STATUS
+        st r0, drv_work
+        ldr r0, r3, SF_TIMER
+        st r0, drv_work+1
+        bl stf_tick
+        ldr r0, r4, R_STATUS
+        st r0, drv_work+2
+        ldr r0, r4, R_RELIAB
+        st r0, drv_work+3
+        ldr r0, r4, R_DOWN
+        st r0, drv_work+4
+        ldr r0, r3, SF_TARGET
+        st r0, drv_work+5
+        lea r0, st_screen
+        bl video_bind
+        bl ui_draw
+        bl video_present
+        mov r0, 1
+        sleep r0
+        halt
+
+drv_wages:
+        bl drv_gate
+        mov r0, SFT_HANDYMAN
+        bl stf_hire
+        mov r0, SFT_MECHANIC
+        bl stf_hire
+        mov r0, SFT_MECHANIC
+        bl stf_hire
+        bl stf_fire
+        mov r0, 0
+        st r0, st_loan_k        ; isolate wages from interest
+        mov r0, DAY_TICKS-1
+        st r0, st_tick
+        mov r0, DAYS_PER_MONTH
+        st r0, st_day
+        bl eco_tick
+        halt
+
+drv_slots:       .zero 10
+drv_capacity:    .zero 7
+drv_swept:       .zero 4
+drv_walk:        .zero 6
+drv_work:        .zero 6
+drv_dirty_path:  .word T_PATH|0x0400|T_LITTER|T_VOMIT
+drv_dirty_queue: .word T_QUEUE|T_VOMIT
+
+        .include "../../src/state.ap"
+        .include "../../src/staff.ap"
+        .include "../../src/map.ap"
+        .include "../../src/path.ap"
+        .include "../../src/rides.ap"
+        .include "../../src/economy.ap"
+        .include "../../src/ui.ap"
+        .include "video.ap"
+        .include "util.ap"

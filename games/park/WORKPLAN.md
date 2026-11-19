@@ -21,7 +21,7 @@ domain skill shown.
 | WP10 | Info & finance windows | src/windows.ap, tests/windows.test.json | WP7, WP9, WP3 | lcc-text-graphics | 3 | done |
 | WP11 | Coaster designer (track editing, circuit check) | src/coaster.ap, tests/unit/coaster_* | WP6, WP2 | lcc-text-graphics + lcc-simulation | 4 | done |
 | WP12 | Coaster ratings & train animation | src/coaster.ap (after WP11) | WP11, WP7 | lcc-simulation | 5 | active |
-| WP13 | Staff (handymen, mechanics), litter, breakdowns | src/staff.ap, tests/unit/staff_* | WP9 | lcc-simulation | 5 | active |
+| WP13 | Staff (handymen, mechanics), litter, breakdowns | src/staff.ap, tests/unit/staff_* | WP9 | lcc-simulation | 5 | done |
 | WP14 | Rating, scenario goal, title screen, win/lose | src/scenario.ap, tests/scenario.test.json | WP9, WP4 | lcc-text-graphics + lcc-simulation | 5 | done |
 | WP15 | Sound, polish, balance | (assigned per change) | WP14 | lcc-qa + domain | 6 | done |
 | QA-n | Review + playtest after each wave | tests/ only | wave done | lcc-qa | each | QA-1 done |
@@ -171,6 +171,7 @@ tiles), mechanics walk to broken rides and repair (RS_BROKEN → RS_OPEN, reliab
 restored); hire from the finance window or a key; monthly wages via economy.
 **Acceptance:** unit tests for hire/fire/count, sweep, repair; scenario shows a repair.
 **Log:**
+- 2026-11-18 Codex gpt-6.2-sol: done. Finance window h/m hire, live counts, cap 16. Handymen sweep within 2 path steps; mechanics repair in 12 ticks (+30 reliab). Game run peak 164K instr/frame; dense stress peak 1.44M. Bins don't fill (deferred).
 
 ## WP14 — Rating, scenario, title, win/lose
 **Goal:** `scn_title` (original title art, 2–3 scenario presets), `scn_start` goals,
