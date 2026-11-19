@@ -569,6 +569,7 @@ win_draw_fin:
         lea r0, win_s_value
         bl win_lbl
         bl win_begin
+        bl eco_update_value
         ld r0, st_value_k
         ld r1, st_value_u
         bl win_catmoney

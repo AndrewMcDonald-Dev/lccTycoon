@@ -286,24 +286,24 @@ scn_attraction_loop:
         brz scn_attraction_broken
         cmp r1, RS_OPEN
         brnz scn_attraction_next
-        push r2                 ; preserve the ride pointer and type bitset
-        push r3
-        ldr r0, r2, R_ENT_X
-        ldr r1, r2, R_ENT_Y
-        ld r2, st_gate_x        ; use the pinned gate distance field
-        ld r3, st_gate_y
-        bl pth_dist
-        pop r3
-        pop r2
+        bl ride_type_info
         cmp r0, 0
-        brn scn_attraction_next
+        brz scn_attraction_next
+        push r0                 ; catalog record
+        ldr r1, r0, RTI_GOODS
+        mov r0, r2
+        bl gst_attraction_reachable
+        cmp r0, 0
+        pop r1
+        brz scn_attraction_next
+        ldr r1, r1, RTI_PRICE
+        push r1
         ldr r0, r2, R_TYPE
         mov r1, 25
         add r4, r4, r1
         lea r1, scn_type_bits
         add r1, r1, r0
         ldr r1, r1, 0
-        push r0                 ; type for catalog lookup
         mov r0, r3
         and r0, r0, r1
         brnz scn_attraction_value
@@ -311,9 +311,7 @@ scn_attraction_loop:
         mov r1, 50
         add r4, r4, r1
 scn_attraction_value:
-        pop r0
-        bl ride_type_info
-        ldr r1, r0, RTI_PRICE
+        pop r1
         ldr r0, r2, R_PRICE
         sub r0, r0, r1
         brn scn_attraction_next

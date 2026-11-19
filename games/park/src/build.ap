@@ -709,7 +709,7 @@ bld_demolish_done:
         ret
 
 ; r0=x, r1=y. Return the base refund cost or -1, and in r2 the ride
-; index when this is part of a ride/stall (-1 for a standalone tile).
+; index when this is part of a ride/stall/track (-1 for a standalone tile).
 bld_demolish_info:
         push r3
         push lr
@@ -718,6 +718,8 @@ bld_demolish_info:
         mov r2, -1
         cmp r0, T_GRASS
         brlt bld_demolish_invalid
+        cmp r0, T_TRACK
+        brz bld_demolish_track
         cmp r0, T_RIDE
         brlt bld_demolish_price
         cmp r0, T_STALL
@@ -727,15 +729,19 @@ bld_demolish_info:
         bl ride_at
         cmp r0, 0
         brn bld_demolish_invalid
+        br bld_demolish_ride_info
+bld_demolish_track:
+        mov r0, r3
+        bl map_get
+        sll r0, 16-T_HEIGHT_SHIFT
+        srl r0, 16-T_HEIGHT_SHIFT+T_RIDE_SHIFT
+bld_demolish_ride_info:
         mov r2, r0
+        ld r3, st_cst_ride
+        cmp r3, r0
+        brz bld_demolish_invalid
         bl ride_addr
-        ldr r0, r0, R_TYPE
-        cmp r0, RT_COASTER
-        brz bld_demolish_invalid
-        bl ride_type_info
-        cmp r0, 0
-        brz bld_demolish_invalid
-        ldr r0, r0, RTI_COST
+        bl eco_ride_value
         br bld_demolish_info_done
 bld_demolish_price:
         lea r3, bld_refund_basis
@@ -760,6 +766,11 @@ bld_clear_ride:
         push lr
         mov r4, r0
         bl ride_addr
+        ldr r1, r0, R_TYPE
+        cmp r1, RT_COASTER
+        brnz bld_clear_geometry
+        bl cst_remove_track
+bld_clear_geometry:
         sub sp, sp, BLD_RIDE_GEOMETRY
         add r1, r0, R_X
         mov r0, sp

@@ -19,6 +19,8 @@
 ;; eco_money_text r0=buf r1=k r2=u -> r0=buf   format K/U money as "$12,345" / "-$250" (NUL-terminated, ≤ 10 words)
 ;; eco_cash_text  r0=buf        -> r0=buf   eco_money_text of st_cash_k/u
 ;; eco_date_text  r0=buf        -> r0=buf   "Mar 12, Y1" (NUL-terminated, ≤ 12 words)
+;; eco_ride_value r0=ride record -> r0=$ build cost or -1 for unused/invalid   catalog cost plus each non-station coaster piece
+;; eco_update_value ()          -> -        sum used rides at build cost, without depreciation, into st_value_k/u
 ; ---------------------------------------------------------------------
 
 eco_init:
@@ -225,6 +227,69 @@ eco_month_ledger_p:  .word st_mon_inc_k
 eco_exp_p:           .word st_mon_exp_k
 eco_last_p:          .word st_last_inc_k
 eco_thousand:        .word 1000
+
+eco_ride_value:
+        push r1
+        push r2
+        push lr
+        mov r2, r0
+        ldr r0, r2, R_TYPE
+        bl ride_type_info
+        cmp r0, 0
+        brz eco_ride_value_invalid
+        ldr r0, r0, RTI_COST
+        ldr r1, r2, R_TYPE
+        cmp r1, RT_COASTER
+        brnz eco_ride_value_done
+        ldr r1, r2, R_TRACK_LEN
+        sub r1, r1, 1           ; station is already in the catalog cost
+        mov r2, COST_TRACK
+        mul r1, r2
+        add r0, r0, r1
+        br eco_ride_value_done
+eco_ride_value_invalid:
+        mov r0, -1
+eco_ride_value_done:
+        pop lr
+        pop r2
+        pop r1
+        ret
+
+eco_update_value:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        ld r0, eco_value_p
+        mov r1, 0
+        mov r2, 2
+        bl util_memset
+        lea r3, st_rides
+        mov r4, MAX_RIDES
+eco_value_ride:
+        mov r0, r3
+        bl eco_ride_value
+        cmp r0, 0
+        brn eco_value_next
+        ld r1, eco_thousand
+        mov r2, r0
+        rem r2, r1
+        div r0, r1
+        mov r1, r0
+        ld r0, eco_value_p
+        bl eco_add_pair
+eco_value_next:
+        mov r0, RIDE_SIZE
+        add r3, r3, r0
+        sub r4, r4, 1
+        brp eco_value_ride
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
 
 eco_init_calendar:
         ld r1, eco_tick_p

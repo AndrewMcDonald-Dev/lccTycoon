@@ -62,6 +62,15 @@
       }
     },
     {
+      "name": "an open carousel with an isolated exit draws no queue and earns no rating credit",
+      "clock": 0,
+      "keys": "<enter> p 1 s*3 <space> d*2 w*2 3 <space> o i >> p _85",
+      "expect": {
+        "memory": { "st_rating": 384 },
+        "screen": { "contains": ["Status      Open", "In queue    0 ", "Total rides 0 "] }
+      }
+    },
+    {
       "name": "Switchback Hollow freezes the simulation on the deadline at speed four",
       "clock": 0,
       "keys": "3 p p >> _2000",

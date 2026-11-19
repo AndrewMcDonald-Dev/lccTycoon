@@ -15,6 +15,24 @@
       }
     },
     {
+      "name": "demolishing a coaster station and another coaster's track clears both and refunds half",
+      "clock": 0,
+      "keys": "<enter> p a a 6 <space> 5 <space> 3<space> 1<enter> 3<space> 3<space> 1<space> <enter> D d <space> 3<space> 3<space> 3<space> 1<space> 1<space> <enter> A a x <space> D d d <space>",
+      "expect": {
+        "memory": {
+          "st_ride_count": 0, "st_track_used": 0, "st_cash_k": [9, 380], "st_mon_inc_u": 620,
+          "st_track": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        },
+        "frames": [
+          { "frame": 26, "screen": { "contains": ["$9,085"], "matches": ["^.{29}··.{4}▲═┐"] } }
+        ],
+        "screen": {
+          "contains": ["$9,380", "Cursor  37,40", "Grass"],
+          "notContains": ["▲", "▼", "═┐", "└┘"]
+        }
+      }
+    },
+    {
       "name": "a valid straight preview is green and shows the designer controls",
       "keys": "<enter> p a a 6 <space>",
       "expect": {

@@ -4,6 +4,9 @@
         .define DRV_RIDE_COST   1001
         .define DRV_STALL_COST  201
 
+cst_remove_track:               ; this driver only builds rides and stalls
+        ret
+
 ride_type_info:
         cmp r0, RT_CAROUSEL
         brz drv_catalog_ride

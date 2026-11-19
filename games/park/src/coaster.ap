@@ -31,6 +31,7 @@
 ;; cst_closed     r0=ride          -> r0=1 track is a closed circuit back to the station, else 0     (WP11)
 ;; cst_finish     ()               -> r0=1 done, 0 not closed       validate, rate (cst_rate), status RS_CLOSED, st_cst_ride = -1     (WP11)
 ;; cst_cancel     ()               -> -                             abandon the design (refund, free pieces + ride), st_cst_ride = -1     (WP11)
+;; cst_remove_track r0=ride record -> r0=ride record                clear non-station track tiles and reclaim all its track slots
 ;; cst_rate       r0=ride          -> -                             compute R_EXCITE/R_INTENS/R_NAUSEA from drops, turns, length, speed     (WP12)
 ;; cst_tick       ()               -> -                             advance trains of open coasters (R_TRAIN_POS/SPD)     (WP12)
 ;; cst_draw       ()               -> -                             overlay designer head/ghost piece and trains on the viewport (after ren_draw)     (WP11/WP12)
@@ -362,24 +363,19 @@ cst_cancel:
         cmp r0, 0
         brn cst_cancel_done
         bl ride_addr
-        ldr r3, r0, R_TRACK_LEN
+        ldr r2, r0, R_TRACK_LEN
         ldr r1, r0, R_X
         st r1, st_cur_x
         ldr r1, r0, R_Y
         st r1, st_cur_y
-        mov r2, r3
+        bl eco_ride_value
+        mov r3, r0
 cst_cancel_pop:
         bl cst_pop
         sub r2, r2, 1
         brp cst_cancel_pop
 
-        mov r0, RT_COASTER
-        bl ride_type_info
-        ldr r0, r0, RTI_COST
-        mov r1, COST_TRACK
-        sub r3, r3, 1           ; station was paid at the catalog price
-        mul r3, r1
-        add r0, r0, r3
+        mov r0, r3
         bl eco_earn
         ld r0, st_cst_ride
         bl ride_free
@@ -393,6 +389,85 @@ cst_cancel_done:
         pop r2
         pop r1
         pop r0
+        ret
+
+cst_remove_track:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        push r0
+        ldr r4, r0, R_TRACK_LEN
+        sll r4, TRACK_SHIFT
+        ldr r0, r0, R_TRACK
+        bl cst_track_addr
+        mov r3, r0               ; station (cleared by bld_clear_ride)
+        add r4, r3, r4
+cst_remove_tile:
+        sub r4, r4, TRACK_SIZE
+        cmp r4, r3
+        brz cst_remove_compact
+        ldr r0, r4, TK_X
+        ldr r1, r4, TK_Y
+        mov r2, T_GRASS
+        bl map_set
+        br cst_remove_tile
+
+cst_remove_compact:
+        ldr r0, sp, 0
+        ldr r3, r0, R_TRACK     ; start of the gap
+        ldr r4, r0, R_TRACK_LEN ; length of the gap
+        ld r2, st_track_used
+        sub r2, r2, r4
+        st r2, st_track_used
+        sub r2, r2, r3          ; number of pieces after the gap
+
+        ; Copy forward into the gap, including each piece's parallel data.
+        lea r0, cst_piece_weights
+        add r0, r0, r3
+        add r1, r0, r4
+        bl util_memcpy
+        lea r0, cst_original_tiles
+        add r0, r0, r3
+        add r1, r0, r4
+        bl util_memcpy
+        mov r0, r3
+        bl cst_track_addr
+        mov r1, r4
+        sll r1, TRACK_SHIFT
+        add r1, r0, r1
+        sll r2, TRACK_SHIFT
+        bl util_memcpy
+        add r0, r0, r2          ; new end of the used pool
+        mov r1, 0
+        mov r2, r4
+        sll r2, TRACK_SHIFT
+        bl util_memset
+
+        lea r1, st_rides
+        mov r2, MAX_RIDES
+cst_remove_ride:
+        ldr r0, r1, R_TYPE
+        cmp r0, RT_COASTER
+        brnz cst_remove_next
+        ldr r0, r1, R_TRACK
+        cmp r0, r3
+        brlt cst_remove_next
+        brz cst_remove_next
+        sub r0, r0, r4
+        str r0, r1, R_TRACK
+cst_remove_next:
+        mov r0, RIDE_SIZE
+        add r1, r1, r0
+        sub r2, r2, 1
+        brp cst_remove_ride
+        pop r0
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
         ret
 
         .define CST_MIN_SPEED   4

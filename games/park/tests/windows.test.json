@@ -70,6 +70,16 @@
       }
     },
     {
+      "name": "finance values a newly built carousel at its catalog cost",
+      "clock": 0,
+      "keys": "<enter> p 1 s*3 <space> d*2 w*2 3 <space> f",
+      "expect": {
+        "status": "frames-complete",
+        "memory": { "st_value_k": [0, 900] },
+        "screen": { "contains": ["Park value  $900"] }
+      }
+    },
+    {
       "name": "finance: a full staff roster refuses hiring and keeps the counts",
       "keys": "<enter> p f h*16 m",
       "expect": {
