@@ -58,7 +58,7 @@
         .define RIDE_GREAT         600     ; excitement for TH_GREAT_RIDE
         .define RIDE_FILL          160     ; hunger / thirst removed by one food / drink
         .define RIDE_BUY_HAPPY     6       ; happiness per stall purchase
-        .define RIDE_G_TOILET      G_SPARE ; bladder meter 0..METER_MAX (REQUEST: G_TOILET in defs)
+        .define RIDE_G_TOILET      G_TOILET ; bladder meter 0..METER_MAX
         .define RIDE_EV_ALL        1       ; ride_evict: also drop walkers/buyers targeting the ride
         .define RIDE_EV_HURT       2       ; ride_evict: happiness penalty for riders/queuers
         .define RIDE_MSG_LEN       40

@@ -15,10 +15,10 @@ domain skill shown.
 | WP4 | Economy & calendar | src/economy.ap, tests/unit/eco_* | WP0 | lcc-simulation | 1 | review |
 | WP5 | Input & tools | src/input.ap, tests/input.test.json | WP2, WP3 | lcc-game-dev | 2 | review |
 | WP6 | Construction rules & costs | src/build.ap, tests/unit/build_*, tests/build.test.json | WP1, WP4 | lcc-simulation | 2 | review |
-| WP7 | Ride & stall catalog + operations | src/rides.ap, tests/unit/rides_* | WP1, WP4 | lcc-simulation | 2 | active |
+| WP7 | Ride & stall catalog + operations | src/rides.ap, tests/unit/rides_* | WP1, WP4 | lcc-simulation | 2 | review |
 | WP8 | Pathfinding | src/path.ap, tests/unit/path_* | WP1 | lcc-simulation | 2 | review |
-| WP9 | Guests | src/guests.ap, tests/unit/guests_*, tests/guests.test.json | WP7, WP8, WP4 | lcc-simulation | 3 | todo |
-| WP10 | Info & finance windows | src/windows.ap, tests/windows.test.json | WP7, WP9, WP3 | lcc-text-graphics | 3 | todo |
+| WP9 | Guests | src/guests.ap, tests/unit/guests_*, tests/guests.test.json | WP7, WP8, WP4 | lcc-simulation | 3 | active |
+| WP10 | Info & finance windows | src/windows.ap, tests/windows.test.json | WP7, WP9, WP3 | lcc-text-graphics | 3 | active |
 | WP11 | Coaster designer (track editing, circuit check) | src/coaster.ap, tests/unit/coaster_* | WP6, WP2 | lcc-text-graphics + lcc-simulation | 4 | todo |
 | WP12 | Coaster ratings & train animation | src/coaster.ap (after WP11) | WP11, WP7 | lcc-simulation | 5 | todo |
 | WP13 | Staff (handymen, mechanics), litter, breakdowns | src/staff.ap, tests/unit/staff_* | WP9 | lcc-simulation | 5 | todo |
@@ -112,6 +112,8 @@ income; breakdowns from reliability (RS_BROKEN); stalls sell via `ride_buy`.
 **Acceptance:** unit tests for catalog lookups, new/free/at/name, price clamp, toggle,
 enqueue refusal when closed, a full board→run→unload cycle with income, stall sale.
 **Log:**
+- 2026-11-18 Claude Opus 5.5: done. 9 rides_ops scenarios. Catalog: Merry Spinner, Sky Ring, Whirl Swings, Sky Plunge, Bump Arena, Snack Hut, Fizz Kiosk, Restrooms, Track Coaster. Breakdown % = (100-reliab)^2/100 per cycle. Notes for WP9: riders sit on footprint tiles; unload may land on a demolished exit; boarding is lowest-index-first.
+- ARCH-1 (orchestrator, between waves 2 and 3): G_SPARE → G_TOILET; SPEED_MAX 3 → 4 (speed tests updated); state.ap notes build as R_ENT/R_EXIT writer. check 125/125.
 
 ## WP8 — Pathfinding
 **Goal:** BFS distance fields over walkable tiles with a small cache keyed by target

@@ -51,7 +51,7 @@ drv_guest:
         str r2, r0, G_HUNGER
         str r2, r0, G_THIRST
         str r2, r0, G_ENERGY
-        str r2, r0, G_SPARE
+        str r2, r0, G_TOILET
         mov r2, 0
         str r2, r0, G_NAUSEA
         str r2, r0, G_RIDES
@@ -698,7 +698,7 @@ drv_stall:
         st r1, drv_buy_g0+1
         ldr r1, r0, G_THIRST
         st r1, drv_buy_g0+2
-        ldr r1, r0, G_SPARE
+        ldr r1, r0, G_TOILET
         st r1, drv_buy_g0+3
         ldr r1, r0, G_HAPPY
         st r1, drv_buy_g0+4

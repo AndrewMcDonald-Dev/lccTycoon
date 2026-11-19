@@ -63,7 +63,7 @@
       "expect": { "memory": { "st_entry_fee": 10, "drv_msg_n": -999 } } },
 
     { "name": "speed cycles 1 -> 2 -> SPEED_MAX -> 1 (> and .)", "keys": "> .",
-      "expect": { "memory": { "st_speed": 3 } } },
+      "expect": { "memory": { "st_speed": 4 } } },
     { "name": "speed wraps back to 1", "keys": "> > >",
       "expect": { "memory": { "st_speed": 1 } } },
     { "name": "x selects demolish", "keys": "5 ] x",
