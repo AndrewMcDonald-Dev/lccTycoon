@@ -1,0 +1,99 @@
+; =====================================================================
+; src/state.ap — all shared game state (data only). Owner: architect.
+; Prefix st_. Every cell: units, range, who writes it ("W:" = writers).
+; Modules keep private scratch/static tables in their own file; anything
+; two modules read lives here. Initial values are the new-game values
+; for cells nobody's *_init resets.
+;
+;; (data only — every st_* cell is documented in this file)
+;; st_map     MAP_SIZE tile words, index (y<<MAP_SHIFT)|x        W: map
+;; st_guests  MAX_GUESTS × GUEST_SIZE (G_*)                      W: guests (rides on boarding)
+;; st_rides   MAX_RIDES × RIDE_SIZE (R_*)                        W: rides, coaster, staff
+;; st_track   MAX_TRACK × TRACK_SIZE (TK_*)                      W: coaster
+;; st_staff   MAX_STAFF × STAFF_SIZE (SF_*)                      W: staff
+;; st_msg_text MSG_COUNT × MSG_LEN strings, st_msg_head/st_msg_age  W: ui_msg
+;; st_screen  100x30 display block (header + st_cells), bound by main; regions VIEW_/PANEL_/STATUS_/MSG_/HELP_ in defs.ap
+;; money      st_cash_k/u, st_loan_k/u, st_value_k/u, st_mon_inc/exp_k/u, st_last_inc/exp_k/u  W: economy only
+;; calendar   st_tick st_day st_month st_year st_new_day st_new_month st_ticks_total  W: economy
+;; UI         st_cur_x/y st_view_y st_tool st_tool_item st_sel_ride st_sel_guest st_window st_win_arg st_paused st_speed st_quit_ask st_cst_ride
+; =====================================================================
+
+; ---- game / loop -------------------------------------------------------
+st_game_state:  .word GAME_PLAY     ; GAME_* — W: scenario (main sets PLAY after title)
+st_frame:       .word 0             ; frames since start, wraps — W: main
+st_paused:      .word 0             ; 1 = simulation stopped — W: input
+st_speed:       .word 1             ; ticks per frame 1..SPEED_MAX — W: input
+st_quit_ask:    .word 0             ; 1 = "Quit? y/n" prompt showing — W: input
+st_scenario:    .word 0             ; scenario index chosen on the title screen — W: scenario
+st_goal_guests: .word 60            ; goal: guests in park — W: scenario
+st_goal_rating: .word 600           ; goal: park rating — W: scenario
+st_goal_year:   .word 2             ; goal deadline: end of this year — W: scenario
+
+; ---- calendar ------------------------------------------------------------
+st_tick:        .word 0             ; 0..DAY_TICKS-1 within the day — W: economy
+st_day:         .word 1             ; 1..DAYS_PER_MONTH — W: economy
+st_month:       .word START_MONTH   ; 0..MONTHS_PER_YEAR-1 (0 = Jan) — W: economy
+st_year:        .word 1             ; 1.. — W: economy
+st_new_day:     .word 0             ; 1 during the tick a day starts — W: economy (eco_tick)
+st_new_month:   .word 0             ; 1 during the tick a month starts — W: economy (eco_tick)
+st_ticks_total: .word 0             ; simulation ticks since start, wraps — W: economy
+
+; ---- money (thousands K signed + units U 0..999, see defs.ap) --------------
+st_cash_k:      .word START_CASH_K  ; cash — W: economy only (others call eco_*)
+st_cash_u:      .word 0
+st_loan_k:      .word START_LOAN_K  ; loan owed — W: economy
+st_loan_u:      .word 0
+st_value_k:     .word 0             ; park value (rides at cost, depreciated) — W: economy
+st_value_u:     .word 0
+st_entry_fee:   .word ENTRY_FEE_DEF ; $ 0..ENTRY_FEE_MAX — W: input (via +/- on gate)
+st_mon_inc_k:   .word 0             ; income this month — W: economy
+st_mon_inc_u:   .word 0
+st_mon_exp_k:   .word 0             ; expenses this month — W: economy
+st_mon_exp_u:   .word 0
+st_last_inc_k:  .word 0             ; last month's income (finance window) — W: economy
+st_last_inc_u:  .word 0
+st_last_exp_k:  .word 0             ; last month's expenses — W: economy
+st_last_exp_u:  .word 0
+
+; ---- park ----------------------------------------------------------------
+st_rating:      .word RATING_START  ; park rating 0..RATING_MAX — W: scenario (scn_rate)
+st_guest_count: .word 0             ; guests in park now 0..MAX_GUESTS — W: guests
+st_guests_total: .word 0            ; guests ever admitted (saturates 32767) — W: guests
+st_park_open:   .word 1             ; 1 = gate admits guests — W: input
+st_gate_x:      .word 32            ; park gate tile — W: map (map_init)
+st_gate_y:      .word 47
+st_map_dirty:   .word 1             ; 1 = walkable tiles changed; path recomputes — W: map_set, path clears
+st_ride_count:  .word 0             ; ride records in use — W: rides
+st_staff_count: .word 0             ; staff records in use — W: staff
+
+; ---- UI state ---------------------------------------------------------------
+st_cur_x:       .word 32            ; cursor tile 0..MAP_W-1 — W: input
+st_cur_y:       .word 40            ; cursor tile 0..MAP_H-1 — W: input
+st_view_y:      .word MAP_H-VIEW_ROWS ; first map row shown 0..MAP_H-VIEW_ROWS — W: render
+st_tool:        .word TOOL_NONE     ; TOOL_* — W: input
+st_tool_item:   .word 0             ; ride type (TOOL_RIDE/STALL) or SC_* (scenery) — W: input
+st_sel_ride:    .word -1            ; selected ride index, -1 none — W: input, windows
+st_sel_guest:   .word -1            ; selected guest index, -1 none — W: input, windows
+st_window:      .word WIN_NONE      ; open window WIN_* — W: windows (win_open/win_close)
+st_win_arg:     .word 0             ; window argument (ride/guest/map index) — W: windows
+st_cst_ride:    .word -1            ; coaster being designed, -1 = not in designer — W: coaster
+
+; ---- message ring (W: ui_msg only; read: ui) --------------------------------
+st_msg_head:    .word 0             ; slot of the newest message 0..MSG_COUNT-1
+st_msg_age:     .zero MSG_COUNT     ; frames since each slot was written
+st_msg_text:    .zero MSG_COUNT*MSG_LEN ; slot i at st_msg_text + (i << MSG_SHIFT), NUL-terminated
+
+; ---- tables -----------------------------------------------------------------
+st_map:         .zero MAP_SIZE      ; tile words, index (y << MAP_SHIFT) | x — W: map_set/map_init (+ staff clears litter bits)
+st_guests:      .zero MAX_GUESTS*GUEST_SIZE ; G_* records — W: guests (rides set GS_RIDE/G_TIMER when boarding)
+st_rides:       .zero MAX_RIDES*RIDE_SIZE   ; R_* records — W: rides, coaster (track/train/ratings fields), staff (R_RELIAB, R_STATUS repair)
+st_track:       .zero MAX_TRACK*TRACK_SIZE  ; TK_* pieces — W: coaster
+st_track_used:  .word 0             ; pieces allocated (pool is bump-allocated per coaster) — W: coaster
+st_staff:       .zero MAX_STAFF*STAFF_SIZE  ; SF_* records — W: staff
+
+; ---- display block (100x30), bound once by main -------------------------------
+st_screen:      .word SCR_COLS      ; header: cols, rows, top, left
+                .word SCR_ROWS
+                .word 0
+                .word 0
+st_cells:       .zero SCR_CELLS     ; cell = glyph | fg | bg ; regions in defs.ap

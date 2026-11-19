@@ -1,0 +1,34 @@
+; ---------------------------------------------------------------------
+; Module: windows (prefix win_) — owner WP10. Info windows (ride/stall,
+; guest, tile) and the finance window, drawn over the panel region
+; (PANEL_*) after ui_draw. Only this module writes st_window/st_win_arg.
+; All routines: args r0..r4, result r0, all other registers preserved.
+;
+;; win_open       r0=WIN_* r1=arg   -> -           open a window (arg: ride/guest/map index); sets st_sel_ride/st_sel_guest
+;; win_close      ()                -> -           st_window = WIN_NONE
+;; win_info_at    r0=x r1=y         -> r0=1 opened, 0 nothing there   open the right info window for the tile (ride_at, gst_at, else WIN_TILE)
+;; win_key        r0=key            -> r0=1 consumed, 0 not   keys while a window is open (esc/i close, + - price, o open/close, b/r borrow/repay in finance)
+;; win_draw       ()                -> -           draw the open window over the panel; nothing for WIN_NONE
+; ---------------------------------------------------------------------
+
+; WP0 stub: no windows.
+win_open:
+        ret
+
+win_close:
+        push r0
+        mov r0, WIN_NONE
+        st r0, st_window
+        pop r0
+        ret
+
+win_info_at:
+        mov r0, 0
+        ret
+
+win_key:
+        mov r0, 0
+        ret
+
+win_draw:
+        ret

@@ -1,0 +1,15 @@
+{
+  "game": "input_driver.ap",
+  "scenarios": [
+    { "name": "q arms the prompt, nothing quits", "keys": "q",
+      "expect": { "status": "frames-complete", "memory": { "st_quit_ask": 1, "drv_result": 0 } } },
+    { "name": "q then y reports quit", "keys": "q y",
+      "expect": { "status": "halted", "memory": { "drv_result": 1, "st_quit_ask": 0, "drv_calls": 2 } } },
+    { "name": "q then n cancels", "keys": "q n _",
+      "expect": { "status": "frames-complete", "memory": { "drv_result": 0, "st_quit_ask": 0 } } },
+    { "name": "y without q does nothing", "keys": "y _",
+      "expect": { "status": "frames-complete", "memory": { "drv_result": 0, "st_quit_ask": 0 } } },
+    { "name": "p toggles pause", "keys": "p p p",
+      "expect": { "memory": { "st_paused": 1 } } }
+  ]
+}

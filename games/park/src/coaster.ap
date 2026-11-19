@@ -1,0 +1,56 @@
+; ---------------------------------------------------------------------
+; Module: coaster (prefix cst_) — owner WP11 (designer) then WP12
+; (ratings, train). Track pieces in st_track (TK_*, TP_* in defs.ap),
+; bump-allocated (st_track_used); a coaster is a ride record of type
+; RT_COASTER whose R_TRACK/R_TRACK_LEN name its pieces, status
+; RS_BUILDING while designing. Designer mode: st_cst_ride >= 0.
+; All routines: args r0..r4, result r0, all other registers preserved.
+;
+;; cst_begin      r0=x r1=y        -> r0=ride index, -1 refused   start a coaster: station piece at (x,y), st_cst_ride = index, status RS_BUILDING     (WP11)
+;; cst_key        r0=key           -> r0=1 consumed, 0 not        designer keys while st_cst_ride >= 0 (piece select, place, undo, finish, esc cancel)     (WP11)
+;; cst_add_piece  r0=shape         -> r0=1 placed, 0 refused      append a TP_* piece at the head (map tile T_TRACK, cost COST_TRACK)     (WP11)
+;; cst_undo       ()               -> r0=1 removed, 0 none         remove the last piece (refund)     (WP11)
+;; cst_closed     r0=ride          -> r0=1 track is a closed circuit back to the station, else 0     (WP11)
+;; cst_finish     ()               -> r0=1 done, 0 not closed       validate, rate (cst_rate), status RS_CLOSED, st_cst_ride = -1     (WP11)
+;; cst_cancel     ()               -> -                             abandon the design (refund, free pieces + ride), st_cst_ride = -1     (WP11)
+;; cst_rate       r0=ride          -> -                             compute R_EXCITE/R_INTENS/R_NAUSEA from drops, turns, length, speed     (WP12)
+;; cst_tick       ()               -> -                             advance trains of open coasters (R_TRAIN_POS/SPD)     (WP12)
+;; cst_draw       ()               -> -                             overlay designer head/ghost piece and trains on the viewport (after ren_draw)     (WP11/WP12)
+; ---------------------------------------------------------------------
+
+; WP0 stub: no coasters.
+cst_begin:
+        mov r0, -1
+        ret
+
+cst_key:
+        mov r0, 0
+        ret
+
+cst_add_piece:
+        mov r0, 0
+        ret
+
+cst_undo:
+        mov r0, 0
+        ret
+
+cst_closed:
+        mov r0, 0
+        ret
+
+cst_finish:
+        mov r0, 0
+        ret
+
+cst_cancel:
+        ret
+
+cst_rate:
+        ret
+
+cst_tick:
+        ret
+
+cst_draw:
+        ret

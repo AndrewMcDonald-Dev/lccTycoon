@@ -1,0 +1,24 @@
+{
+  "title": "Park Builder",
+  "entry": "main.ap",
+  "size": "30x100",
+  "budget": { "words": 48000 },
+  "modules": {
+    "main.ap":          { "prefix": "main_", "owner": "architect", "description": "entry, init, frame loop (input, ticks, render, ui, present, sleep), pause/speed", "skills": ["lcc-architect"] },
+    "src/defs.ap":      { "prefix": [],      "owner": "architect", "description": "shared .define constants only: sizes, record layouts, regions, palette, keys, tuning", "skills": ["lcc-architect"] },
+    "src/state.ap":     { "prefix": "st_",   "owner": "architect", "description": "all shared game state (data only) incl. the 100x30 display block", "skills": ["lcc-architect"] },
+    "src/map.ap":       { "prefix": "map_",  "owner": "WP1",  "description": "terrain generation, tile get/set, walkability, area checks", "skills": ["lcc-simulation"] },
+    "src/render.ap":    { "prefix": "ren_",  "owner": "WP2",  "description": "viewport: terrain, rides, track, guests, cursor, scrolling", "skills": ["lcc-text-graphics"] },
+    "src/ui.ap":        { "prefix": "ui_",   "owner": "WP3",  "description": "panel, status bar, messages (ui_msg), help line, quit prompt", "skills": ["lcc-text-graphics"] },
+    "src/economy.ap":   { "prefix": "eco_",  "owner": "WP4",  "description": "money ops (thousands+units), calendar, upkeep, fees, loan, monthly report", "skills": ["lcc-simulation"] },
+    "src/input.ap":     { "prefix": "inp_",  "owner": "WP5",  "description": "key dispatch, cursor movement, tool selection, pause/speed, quit confirm", "skills": ["lcc-game-dev"] },
+    "src/build.ap":     { "prefix": "bld_",  "owner": "WP6",  "description": "placement rules, costs, demolition, refunds", "skills": ["lcc-simulation"] },
+    "src/rides.ap":     { "prefix": "ride_", "owner": "WP7",  "description": "ride/stall catalog, records, operation cycle, queues, income", "skills": ["lcc-simulation"] },
+    "src/path.ap":      { "prefix": "pth_",  "owner": "WP8",  "description": "BFS distance fields, next-step queries", "skills": ["lcc-simulation"] },
+    "src/guests.ap":    { "prefix": "gst_",  "owner": "WP9",  "description": "spawning, needs, decisions, movement, riding/buying, leaving", "skills": ["lcc-simulation"] },
+    "src/windows.ap":   { "prefix": "win_",  "owner": "WP10", "description": "info and finance windows over the panel", "skills": ["lcc-text-graphics"] },
+    "src/coaster.ap":   { "prefix": "cst_",  "owner": "WP11", "description": "track designer, circuit validation (WP11); ratings, train animation (WP12)", "skills": ["lcc-text-graphics", "lcc-simulation"] },
+    "src/staff.ap":     { "prefix": "stf_",  "owner": "WP13", "description": "handymen and mechanics, litter, repairs", "skills": ["lcc-simulation"] },
+    "src/scenario.ap":  { "prefix": "scn_",  "owner": "WP14", "description": "title screen, rating, goals, win/lose", "skills": ["lcc-text-graphics", "lcc-simulation"] }
+  }
+}

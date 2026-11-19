@@ -1,0 +1,119 @@
+; =====================================================================
+; lib/term.ap — ANSI terminal helpers (cursor positioning, colors)
+;
+;   .include "term.ap"        ; put includes AFTER your main code's halt
+;
+; Calling convention for every lib routine:
+;   args in r0..r4, result (if any) in r0, every other register preserved.
+;   Call with `bl name`. Rows/cols are 0-based (row 0 = top line).
+;
+; Routines
+;; term_goto      r0=row r1=col            move cursor
+;; term_color     r0=SGR code              e.g. 31 red, 32 green, 33 yellow,
+;                                           34 blue, 35 magenta, 36 cyan, 37 white,
+;                                           1 bold, 7 reverse, 0 reset
+;; term_reset     (none)                   reset colors/attributes (SGR 0)
+;; term_puts_at   r0=row r1=col r2=str     goto + print NUL-terminated string
+;; term_putc_at   r0=row r1=col r2=char    goto + print one character
+;; term_putn_at   r0=row r1=col r2=value   goto + print signed decimal
+;; term_clear_eol (none)                   erase from cursor to end of line
+;; term_erase     r0=row r1=col r2=len     overwrite len cells with spaces
+;                                           (cursor ends after the span)
+;
+; Note: string escapes can't express ESC (27), so the CSI prefix is built
+; as `.word 27` immediately followed by `.string "["` — sout prints both.
+; =====================================================================
+
+term_goto:
+        push r0
+        push r1
+        push r2
+        mov r2, r0
+        lea r0, term_csi
+        sout r0
+        add r2, r2, 1
+        dout r2
+        mov r0, 59              ; ';'
+        aout r0
+        add r1, r1, 1
+        dout r1
+        mov r0, 72              ; 'H'
+        aout r0
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+term_color:
+        push r0
+        push r1
+        mov r1, r0
+        lea r0, term_csi
+        sout r0
+        dout r1
+        mov r0, 109             ; 'm'
+        aout r0
+        pop r1
+        pop r0
+        ret
+
+term_reset:
+        push r0
+        push lr
+        mov r0, 0
+        bl term_color
+        pop lr
+        pop r0
+        ret
+
+term_puts_at:
+        push lr
+        bl term_goto
+        sout r2
+        pop lr
+        ret
+
+term_putc_at:
+        push lr
+        bl term_goto
+        aout r2
+        pop lr
+        ret
+
+term_putn_at:
+        push lr
+        bl term_goto
+        dout r2
+        pop lr
+        ret
+
+term_clear_eol:
+        push r0
+        lea r0, term_csi
+        sout r0
+        mov r0, 75              ; 'K'
+        aout r0
+        pop r0
+        ret
+
+term_erase:
+        push r2
+        push r3
+        push lr
+        bl term_goto
+        mov r3, 32              ; ' '
+term_erase_lp:
+        cmp r2, 0
+        brz term_erase_done
+        aout r3
+        sub r2, r2, 1
+        br term_erase_lp
+term_erase_done:
+        pop lr
+        pop r3
+        pop r2
+        ret
+
+term_csi:
+        .word 27
+        .string "["

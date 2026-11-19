@@ -1,0 +1,8 @@
+{
+  "scenarios": [
+    { "name": "first frame draws the field and player", "frames": 1,
+      "expect": { "status": "frames-complete", "screen": { "lines": { "0": "┌──────────────────────────────────────┐" }, "contains": ["☺"] } } },
+    { "name": "d moves right", "keys": "d d", "expect": { "memory": { "st_px": 7 } } },
+    { "name": "q quits", "keys": "q", "expect": { "status": "halted" } }
+  ]
+}

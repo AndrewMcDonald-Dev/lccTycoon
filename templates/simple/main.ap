@@ -1,0 +1,167 @@
+; =====================================================================
+; Starter game: move '@' around a walled field with w/a/s/d, q quits.
+;
+;   build:  node tools/lccgame.js build games/<name>/main.ap
+;   run:    node tools/lccgame.js run games/<name>/main.ap --keys "d d s q" --show changed
+;   test:   node tools/lccgame.js test games/<name>
+;
+; Structure: init -> loop { input; update; render; sleep } -> quit
+; Registers: r0-r4 scratch, r5/fp r6/sp r7/lr reserved.
+; =====================================================================
+        .lccplus
+        .start main
+
+
+main:
+        clear
+        mov r0, 0
+        cursor r0               ; hide cursor
+        millis r0
+        srand r0                ; seed RNG (deterministic under the harness)
+game_loop:
+        bl handle_input         ; r0 = 1 if the player asked to quit
+        cmp r0, 0
+        brnz game_quit
+        bl update
+        bl render
+        mov r0, 50
+        sleep r0                ; one frame (~20 fps); also a harness frame boundary
+        br game_loop
+game_quit:
+        clear
+        mov r0, 1
+        cursor r0
+        lea r0, msg_bye
+        sout r0
+        nl
+        halt
+
+; ---------------------------------------------------------------------
+; handle_input() -> r0 = 1 quit / 0 continue. Drains every queued key.
+; ---------------------------------------------------------------------
+handle_input:
+        push r1
+        push r2
+hi_next:
+        nbain r1
+        cmp r1, 0
+        brz hi_none
+        mov r2, 113             ; 'q'
+        cmp r1, r2
+        brz hi_quit
+        mov r2, 119             ; 'w'
+        cmp r1, r2
+        brnz hi_not_w
+        ld r2, py
+        sub r2, r2, 1
+        st r2, py
+hi_not_w:
+        mov r2, 115             ; 's'
+        cmp r1, r2
+        brnz hi_not_s
+        ld r2, py
+        add r2, r2, 1
+        st r2, py
+hi_not_s:
+        mov r2, 97              ; 'a'
+        cmp r1, r2
+        brnz hi_not_a
+        ld r2, px
+        sub r2, r2, 1
+        st r2, px
+hi_not_a:
+        mov r2, 100             ; 'd'
+        cmp r1, r2
+        brnz hi_next
+        ld r2, px
+        add r2, r2, 1
+        st r2, px
+        br hi_next
+hi_quit:
+        mov r0, 1
+        br hi_ret
+hi_none:
+        mov r0, 0
+hi_ret:
+        pop r2
+        pop r1
+        ret
+
+; ---------------------------------------------------------------------
+; update(): clamp the player inside the walls, count frames.
+; ---------------------------------------------------------------------
+update:
+        push lr
+        ld r0, px
+        mov r1, 1
+        bl util_max
+        ld r1, field_w
+        sub r1, r1, 2
+        bl util_min
+        st r0, px
+        ld r0, py
+        mov r1, 1
+        bl util_max
+        ld r1, field_h
+        sub r1, r1, 2
+        bl util_min
+        st r0, py
+        ld r0, ticks
+        add r0, r0, 1
+        st r0, ticks
+        pop lr
+        ret
+
+; ---------------------------------------------------------------------
+; render(): redraw the whole frame from the top-left (no clear = no flicker)
+; ---------------------------------------------------------------------
+render:
+        push lr
+        resetc
+        mov r0, 0
+        mov r1, 0
+        ld r2, field_h
+        ld r3, field_w
+        bl draw_box
+        mov r0, 1
+        mov r1, 1
+        ld r2, field_h
+        sub r2, r2, 2
+        ld r3, field_w
+        sub r3, r3, 2
+        mov r4, 32              ; ' '
+        bl draw_rect            ; erase the interior
+        ld r0, py
+        ld r1, px
+        mov r2, 64              ; '@'
+        bl term_putc_at
+        ; HUD below the field
+        ld r0, field_h
+        mov r1, 0
+        lea r2, msg_pos
+        bl term_puts_at
+        ld r0, px
+        dout r0
+        mov r0, 44              ; ','
+        aout r0
+        ld r0, py
+        dout r0
+        lea r0, msg_pad
+        sout r0
+        pop lr
+        ret
+
+; ------------------------------------------------------------- data
+px:      .word 5
+py:      .word 3
+ticks:   .word 0
+field_w: .word 20
+field_h: .word 8
+msg_pos: .string "pos "
+msg_pad: .string "   "
+msg_bye: .string "Thanks for playing!"
+
+; ------------------------------------------------------------- library
+        .include "term.ap"
+        .include "draw.ap"
+        .include "util.ap"

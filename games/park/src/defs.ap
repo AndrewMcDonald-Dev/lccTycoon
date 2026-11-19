@@ -1,0 +1,368 @@
+; =====================================================================
+; src/defs.ap — shared constants for Park Builder. Defines only: no code,
+; no labels, no data (game.json prefix []). Owner: architect.
+; Included at the top of main.ap (after video_defs.ap) and of every unit
+; driver. Changing a value here is an ARCH WP; adding one is cheap.
+;
+; Units used throughout:
+;   money     $ whole dollars. Big amounts are two words: K = thousands
+;             (signed), U = units 0..999; value = K*1000 + U (also when
+;             negative: -$250 = K -1, U 750).
+;   meters    0..METER_MAX (guest needs), ratings 0..RATING_MAX
+;   time      ticks (simulation steps), DAY_TICKS ticks per day
+;   coords    x = column 0..MAP_W-1, y = row 0..MAP_H-1 (map tiles)
+; =====================================================================
+
+; ---- frame / screen --------------------------------------------------
+        .define FRAME_MS        50      ; 20 fps
+        .define SCR_COLS        100
+        .define SCR_ROWS        30
+        .define SCR_CELLS       SCR_COLS*SCR_ROWS
+
+; ---- screen regions (row/col in the 100x30 display block) ------------
+        .define VIEW_ROW        0       ; viewport onto the map
+        .define VIEW_COL        0
+        .define VIEW_ROWS       24
+        .define VIEW_COLS       64      ; = MAP_W: whole map width visible
+        .define PANEL_ROW       0       ; side panel (tool, cursor info, windows)
+        .define PANEL_COL       64
+        .define PANEL_ROWS      24
+        .define PANEL_COLS      36
+        .define STATUS_ROW      24      ; cash, guests, rating, date, speed
+        .define MSG_ROW         25      ; message log, newest at MSG_ROW
+        .define MSG_ROWS        4
+        .define HELP_ROW        29      ; context key help
+        .define VIEW_MARGIN     3       ; scroll when the cursor is this close to an edge
+
+; ---- map ---------------------------------------------------------------
+        .define MAP_W           64
+        .define MAP_H           48
+        .define MAP_SHIFT       6       ; index = (y << MAP_SHIFT) | x
+        .define MAP_SIZE        MAP_W*MAP_H
+; tile word: bits 0-3 kind, 4-8 ride/stall index, 9-11 height, 14 litter, 15 vomit
+        .define T_KIND_MASK     0x000F
+        .define T_RIDE_SHIFT    4
+        .define T_RIDE_MASK     0x01F0
+        .define T_HEIGHT_SHIFT  9
+        .define T_HEIGHT_MASK   0x0E00
+        .define T_LITTER        0x4000
+        .define T_VOMIT         0x8000
+        .define T_OUT           -1      ; map_get result outside the map
+; tile kinds
+        .define T_GRASS         0
+        .define T_TREE          1
+        .define T_WATER         2
+        .define T_PATH          3
+        .define T_QUEUE         4
+        .define T_GATE          5
+        .define T_RIDE          6       ; ride body (index in bits 4-8)
+        .define T_ENTRANCE      7
+        .define T_EXIT          8
+        .define T_STALL         9       ; stall body (index in bits 4-8)
+        .define T_TRACK         10      ; coaster track (index in bits 4-8)
+        .define T_FLOWERS       11
+        .define T_BENCH         12
+        .define T_BIN           13
+        .define T_FENCE         14
+        .define T_KIND_COUNT    15
+
+; ---- directions ----------------------------------------------------------
+        .define DIR_N           0
+        .define DIR_E           1
+        .define DIR_S           2
+        .define DIR_W           3
+        .define DIR_NONE        -1
+
+; ---- guests: st_guests, MAX_GUESTS records of GUEST_SIZE words ------------
+        .define MAX_GUESTS      128
+        .define GUEST_SIZE      16
+        .define GUEST_SHIFT     4       ; record = st_guests + (index << GUEST_SHIFT)
+        .define G_STATE         0       ; GS_* (0 = free slot)
+        .define G_X             1
+        .define G_Y             2
+        .define G_DIR           3       ; DIR_*
+        .define G_TARGET        4       ; ride index heading to / queued for / riding, -1 none
+        .define G_CASH          5       ; $ in pocket
+        .define G_HAPPY         6       ; meters 0..METER_MAX
+        .define G_HUNGER        7
+        .define G_THIRST        8
+        .define G_ENERGY        9
+        .define G_NAUSEA        10
+        .define G_TIMER         11      ; ticks left in the current state
+        .define G_RIDES         12      ; rides taken
+        .define G_THOUGHT       13      ; TH_* most recent thought
+        .define G_NAME          14      ; name seed (random)
+        .define G_SPARE         15
+; guest states
+        .define GS_FREE         0
+        .define GS_ENTER        1       ; walking in from the gate
+        .define GS_WALK         2       ; wandering / heading to G_TARGET
+        .define GS_QUEUE        3       ; in G_TARGET's queue
+        .define GS_RIDE         4       ; on G_TARGET
+        .define GS_BUY          5       ; at a stall
+        .define GS_REST         6       ; on a bench
+        .define GS_LEAVE        7       ; heading to the gate to leave
+; thoughts
+        .define TH_NONE         0
+        .define TH_HUNGRY       1
+        .define TH_THIRSTY      2
+        .define TH_TIRED        3
+        .define TH_SICK         4
+        .define TH_LITTER       5
+        .define TH_EXPENSIVE    6
+        .define TH_GREAT_RIDE   7
+        .define TH_LOST         8
+        .define TH_NO_MONEY     9
+        .define TH_QUEUE_LONG   10
+        .define TH_TOILET       11
+        .define TH_COUNT        12
+        .define METER_MAX       255
+
+; ---- rides & stalls: st_rides, MAX_RIDES records of RIDE_SIZE words -------
+        .define MAX_RIDES       32
+        .define RIDE_SIZE       32
+        .define RIDE_SHIFT      5       ; record = st_rides + (index << RIDE_SHIFT)
+        .define R_TYPE          0       ; RT_* (0 = free slot)
+        .define R_X             1       ; footprint top-left
+        .define R_Y             2
+        .define R_W             3
+        .define R_H             4
+        .define R_ENT_X         5       ; entrance tile (stalls: serving tile)
+        .define R_ENT_Y         6
+        .define R_EXIT_X        7
+        .define R_EXIT_Y        8
+        .define R_STATUS        9       ; RS_*
+        .define R_PRICE         10      ; $ per ride / item
+        .define R_QUEUE         11      ; guests waiting
+        .define R_RIDERS        12      ; guests on board
+        .define R_TIMER         13      ; ticks left in the current cycle
+        .define R_EXCITE        14      ; 0..RATING_MAX
+        .define R_INTENS        15
+        .define R_NAUSEA        16
+        .define R_INC_K         17      ; lifetime income, thousands
+        .define R_INC_U         18      ; lifetime income, units 0..999
+        .define R_TOTAL         19      ; total riders / customers (saturates at 32767)
+        .define R_RELIAB        20      ; 0..100 %, drops with age, restored by mechanics
+        .define R_AGE           21      ; months since built
+        .define R_TRACK         22      ; coasters: first piece index in st_track
+        .define R_TRACK_LEN     23      ; coasters: number of pieces
+        .define R_TRAIN_POS     24      ; coasters: train position (piece index)
+        .define R_TRAIN_SPD     25      ; coasters: train speed (tenths of piece/tick)
+        .define R_MON_INC       26      ; $ income this month (saturates)
+        .define R_DOWN          27      ; ticks broken down
+        .define R_SPARE         28      ; 28..31 free for later WPs
+; ride status
+        .define RS_CLOSED       0
+        .define RS_OPEN         1
+        .define RS_BROKEN       2
+        .define RS_BUILDING     3       ; coaster under construction
+; ride types (catalog in src/rides.ap, indexed by type)
+        .define RT_NONE         0
+        .define RT_CAROUSEL     1
+        .define RT_WHEEL        2       ; observation wheel
+        .define RT_SWINGS       3
+        .define RT_DROP         4       ; drop tower
+        .define RT_BUMPER       5       ; bumper cars
+        .define RT_FOOD         6       ; food stall
+        .define RT_DRINK        7       ; drink stall
+        .define RT_TOILET       8
+        .define RT_COASTER      9
+        .define RT_COUNT        10
+        .define RT_FIRST_STALL  RT_FOOD ; types RT_FOOD..RT_TOILET are stalls
+        .define RT_LAST_STALL   RT_TOILET
+; catalog record (src/rides.ap, RTI_SIZE words per type)
+        .define RTI_SIZE        16
+        .define RTI_SHIFT       4
+        .define RTI_NAME        0       ; pointer to NUL-terminated name
+        .define RTI_W           1       ; footprint
+        .define RTI_H           2
+        .define RTI_COST        3       ; $ to build
+        .define RTI_UPKEEP      4       ; $ per month
+        .define RTI_PRICE       5       ; default price $
+        .define RTI_CAP         6       ; riders per cycle
+        .define RTI_CYCLE       7       ; ticks per cycle
+        .define RTI_EXCITE      8       ; base ratings 0..RATING_MAX
+        .define RTI_INTENS      9
+        .define RTI_NAUSEA      10
+        .define RTI_CELL        11      ; display cell (glyph|attr)
+        .define RTI_GOODS       12      ; GOODS_* for stalls
+        .define RTI_FLAGS       13      ; RTF_*
+        .define RTF_STALL       1
+        .define RTF_TRACK       2
+; goods sold by stalls
+        .define GOODS_NONE      0
+        .define GOODS_FOOD      1
+        .define GOODS_DRINK     2
+        .define GOODS_TOILET    3
+
+; ---- coaster track: st_track, MAX_TRACK pieces of TRACK_SIZE words ---------
+        .define MAX_TRACK       256
+        .define TRACK_SIZE      4
+        .define TRACK_SHIFT     2
+        .define TK_X            0
+        .define TK_Y            1
+        .define TK_H            2       ; height 0..7
+        .define TK_PIECE        3       ; shape | (dir << TP_DIR_SHIFT); 0 = free
+        .define TP_SHAPE_MASK   0x000F
+        .define TP_DIR_SHIFT    4
+        .define TP_NONE         0
+        .define TP_STATION      1
+        .define TP_STRAIGHT     2
+        .define TP_LEFT         3
+        .define TP_RIGHT        4
+        .define TP_UP           5
+        .define TP_DOWN         6       ; WP11 may add shapes (ARCH request)
+
+; ---- staff: st_staff, MAX_STAFF records of STAFF_SIZE words ---------------
+        .define MAX_STAFF       16
+        .define STAFF_SIZE      8
+        .define STAFF_SHIFT     3
+        .define SF_TYPE         0       ; SFT_* (0 = free)
+        .define SF_X            1
+        .define SF_Y            2
+        .define SF_DIR          3
+        .define SF_STATE        4       ; module-defined
+        .define SF_TARGET       5       ; tile index or ride index, -1 none
+        .define SF_TIMER        6
+        .define SF_SPARE        7
+        .define SFT_NONE        0
+        .define SFT_HANDYMAN    1
+        .define SFT_MECHANIC    2
+
+; ---- tools (st_tool) / windows (st_window) / game state --------------------
+        .define TOOL_NONE       0
+        .define TOOL_PATH       1
+        .define TOOL_QUEUE      2
+        .define TOOL_RIDE       3
+        .define TOOL_STALL      4
+        .define TOOL_SCENERY    5
+        .define TOOL_COASTER    6
+        .define TOOL_DEMOLISH   7
+        .define TOOL_COUNT      8
+; scenery items (st_tool_item with TOOL_SCENERY)
+        .define SC_FLOWERS      0
+        .define SC_BENCH        1
+        .define SC_BIN          2
+        .define SC_TREE         3
+        .define SC_COUNT        4
+        .define WIN_NONE        0
+        .define WIN_RIDE        1       ; st_win_arg = ride index
+        .define WIN_GUEST       2       ; st_win_arg = guest index
+        .define WIN_FINANCE     3
+        .define WIN_TILE        4       ; st_win_arg = map index
+        .define GAME_TITLE      0
+        .define GAME_PLAY       1
+        .define GAME_WON        2
+        .define GAME_LOST       3
+
+; ---- messages: st_msg_text ring of MSG_COUNT strings of MSG_LEN words -----
+        .define MSG_COUNT       4
+        .define MSG_LEN         64      ; incl. NUL (63 chars max; a row is 100 wide)
+        .define MSG_SHIFT       6
+
+; ---- keys ------------------------------------------------------------------
+        .define KEY_QUIT        'q'
+        .define KEY_YES         'y'
+        .define KEY_UP          'w'
+        .define KEY_LEFT        'a'
+        .define KEY_DOWN        's'
+        .define KEY_RIGHT       'd'
+        .define KEY_UP5         'W'
+        .define KEY_LEFT5       'A'
+        .define KEY_DOWN5       'S'
+        .define KEY_RIGHT5      'D'
+        .define KEY_APPLY       ' '
+        .define KEY_INFO        'i'
+        .define KEY_PREV        '['
+        .define KEY_NEXT        ']'
+        .define KEY_PLUS        '+'
+        .define KEY_MINUS       '-'
+        .define KEY_OPEN        'o'
+        .define KEY_FINANCE     'f'
+        .define KEY_PAUSE       'p'
+        .define KEY_SPEED       '>'
+        .define KEY_DEMOLISH    'x'
+        .define KEY_ESC         27
+        .define KEY_ENTER       10
+        .define KEY_CSI         91      ; '[' after ESC in an arrow sequence
+        .define KEY_ARR_UP      65      ; ESC [ A
+        .define KEY_ARR_DOWN    66
+        .define KEY_ARR_RIGHT   67
+        .define KEY_ARR_LEFT    68
+
+; ---- sound slots (sound rN) --------------------------------------------------
+        .define SND_DING        0
+        .define SND_DOINK       1
+        .define SND_BEEP        2
+        .define SND_PING        3
+        .define SND_POP         4
+        .define SND_SOFTBEEP    5
+        .define SND_BOP         6
+        .define SND_BUILD       SND_POP
+        .define SND_CASH        SND_DING
+        .define SND_ERROR       SND_DOINK
+        .define SND_BREAKDOWN   SND_BEEP
+
+; ---- palette: display cells (glyph | FG | BG) -------------------------------
+        .define C_GRASS         G_DOT|FG_GREEN
+        .define C_TREE          G_CLUB|FG_BGREEN
+        .define C_WATER         G_MEDIUM|FG_BLUE|BG_BLUE
+        .define C_PATH          G_LIGHT|FG_YELLOW
+        .define C_QUEUE         G_MEDIUM|FG_CYAN
+        .define C_GATE          G_HOUSE|FG_BWHITE|BG_RED
+        .define C_ENTRANCE      G_TRI_D|FG_BGREEN
+        .define C_EXIT          G_TRI_U|FG_BRED
+        .define C_TRACK         G_CROSS|FG_BWHITE
+        .define C_FLOWERS       G_HEART|FG_BMAGENTA
+        .define C_BENCH         G_SQUARE|FG_YELLOW
+        .define C_BIN           G_BULLET|FG_GRAY
+        .define C_FENCE         G_DHORIZ|FG_WHITE
+        .define C_LITTER        G_BULLET|FG_BYELLOW
+        .define C_VOMIT         G_BULLET|FG_BGREEN
+        .define C_GUEST         G_FACE|FG_BWHITE
+        .define C_HANDYMAN      G_FACE2|FG_BBLUE
+        .define C_MECHANIC      G_FACE2|FG_BRED
+        .define C_TRAIN         G_SQUARE|FG_BRED
+        .define A_CURSOR        FG_BLACK|BG_BYELLOW     ; attr replacing the cursor cell's colors
+        .define A_FRAME         FG_CYAN         ; panel / box outlines
+        .define A_TITLE         FG_BYELLOW
+        .define A_TEXT          FG_WHITE
+        .define A_DIM           FG_GRAY
+        .define A_GOOD          FG_BGREEN
+        .define A_BAD           FG_BRED
+        .define A_STATUS        FG_BWHITE|BG_BLUE       ; status bar
+        .define A_HELP          FG_BLACK|BG_WHITE       ; help line
+        .define A_MSG           FG_BCYAN
+
+; ---- tuning ----------------------------------------------------------------
+        .define DAY_TICKS       40      ; ticks per day
+        .define DAYS_PER_MONTH  20
+        .define MONTHS_PER_YEAR 12      ; st_month 0..11 (0 = January)
+        .define START_MONTH     2       ; March
+        .define SPEED_MAX       3       ; ticks per frame at top speed
+        .define START_CASH_K    10      ; $10,000
+        .define START_LOAN_K    10      ; $10,000 owed
+        .define MAX_LOAN_K      30
+        .define LOAN_STEP_K     1       ; borrow/repay in $1,000 steps
+        .define LOAN_RATE_PCT   12      ; % per year, charged monthly (1 %)
+        .define ENTRY_FEE_DEF   10
+        .define ENTRY_FEE_MAX   99
+        .define PRICE_MAX       20      ; max ride/stall price $
+        .define COST_PATH       10
+        .define COST_QUEUE      12
+        .define COST_FLOWERS    5
+        .define COST_BENCH      20
+        .define COST_BIN        15
+        .define COST_TREE       10
+        .define COST_TRACK      30      ; per coaster piece
+        .define COST_CLEAR_TREE 5       ; building over a tree
+        .define REFUND_PCT      50      ; demolition refund
+        .define WAGE_HANDYMAN   50      ; $ per month
+        .define WAGE_MECHANIC   80
+        .define GUEST_SLICES    4       ; guests updated per tick = MAX_GUESTS/GUEST_SLICES
+        .define GUEST_SPAWN_TICKS 20    ; base ticks between arrivals (scaled by rating)
+        .define GUEST_CASH_MIN  20
+        .define GUEST_CASH_MAX  80
+        .define GUEST_SICK      200     ; nausea above this: vomit chance
+        .define RATING_MAX      999
+        .define RATING_START    500

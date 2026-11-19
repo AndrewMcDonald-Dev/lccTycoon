@@ -1,0 +1,29 @@
+{
+  "host": "github",
+  "languages": ["javascript"],
+  "mode": "fleet",
+  "issueLimit": 50,
+  "pmtools": { "home": "~/code/pmtools", "port": "js" },
+  "enrichment": {
+    "statusCommand": "pmtools status",
+    "claimCommand": "pmtools claim --lane-check --copy-env",
+    "preflightCommand": "pmtools preflight",
+    "closeCommand": "pmtools close"
+  },
+  "advisory": {
+    "clusterFile": "puzzle-clusters.csv",
+    "sequencingDocRef": "docs/learnings/today-i-learned-2026-06-05-dragonfruit.md"
+  },
+  "close": {
+    "autoResolve": {
+      "unionFiles": ["docs/puzzle-clusters.csv"],
+      "markdownIndexes": ["docs/learnings/README.md"]
+    },
+    "updateParentTrackers": true
+  },
+  "storage": {
+    "dbPath": "~/.lccjs/lccjs.db",
+    "velocity": { "enabled": true, "csvMirror": "docs/puzzle-velocity.csv", "logCommand": "pmtools velocity log" },
+    "errors": { "enabled": true, "csvMirror": "docs/errors.csv", "logCommand": "pmtools error log" }
+  }
+}

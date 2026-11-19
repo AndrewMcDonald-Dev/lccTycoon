@@ -1,0 +1,10 @@
+{
+  "name": "lcc-tycoon",
+  "private": true,
+  "description": "An environment for building terminal games in LCC+ assembly (lccjs) with a headless, agent-friendly harness.",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "test": "node tools/lccgame.js test",
+    "lccgame": "node tools/lccgame.js"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "game": "libdemo.ap",
+  "scenarios": [
+    {
+      "name": "every lib routine draws/computes correctly",
+      "expect": {
+        "status": "halted",
+        "screen": {
+          "lines": {
+            "1": "  +--------+",
+            "2": "  | hi!    |",
+            "4": "  +--------+",
+            "6": "###",
+            "9": "00042 12345",
+            "10": "R",
+            "11": "  -7|20.50|-0.05|",
+            "12": "ab   fg"
+          }
+        },
+        "memory": { "buf": [7, 7, 7, 0], "buf2": [7, 7, 7, 0], "len": 3, "absv": 9, "minv": -3, "maxv": 5 }
+      }
+    }
+  ]
+}

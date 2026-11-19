@@ -1,0 +1,135 @@
+; ---------------------------------------------------------------------
+; Module: ui (prefix ui_) — owner WP3. Side panel (PANEL_*), status bar
+; (STATUS_ROW), message log (MSG_ROW, MSG_ROWS), help line (HELP_ROW).
+; ui_draw draws every cell of those regions each frame; win_draw (windows)
+; draws over the panel afterwards when a window is open.
+; All routines: args r0..r4, result r0, all other registers preserved.
+;
+;; ui_draw        ()          -> -       draw panel (tool + item name, cursor tile info), status bar (cash, guests, rating, date, speed, PAUSED), messages (newest at MSG_ROW), help line for st_tool; while st_quit_ask=1 the help line reads "Quit? y = yes, any other key = no"
+;; ui_msg         r0=str      -> -       copy a NUL-terminated string (max MSG_LEN-1 chars, truncated) into the next st_msg_text slot, make it st_msg_head, age 0
+;; ui_msg_num     r0=str r1=n -> -       like ui_msg with " " and signed decimal n appended
+;; ui_tick        ()          -> -       age messages by one frame (call once per frame)
+;; ui_tool_name   r0=tool     -> r0=str  name of a TOOL_* (for panel/help)
+; ---------------------------------------------------------------------
+
+; WP0 stub: placeholder regions so the layout is visible.
+ui_draw:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        ; panel: blank + frame + title
+        mov r0, PANEL_ROW
+        mov r1, PANEL_COL
+        mov r2, PANEL_ROWS
+        mov r3, PANEL_COLS
+        mov r4, G_SPACE
+        bl video_fill
+        ld r4, ui_a_frame
+        bl video_box
+        mov r0, PANEL_ROW+1
+        mov r1, PANEL_COL+2
+        lea r2, ui_s_title
+        ld r3, ui_a_title
+        bl video_text
+        ; status bar
+        mov r0, STATUS_ROW
+        mov r1, 0
+        mov r2, 1
+        mov r3, SCR_COLS
+        ld r4, ui_c_status
+        bl video_fill
+        mov r1, 1
+        lea r2, ui_s_status
+        ld r3, ui_a_status
+        bl video_text
+        mov r1, 9
+        ld r2, st_cash_k
+        bl video_num
+        mov r1, 22
+        ld r2, st_guest_count
+        bl video_num
+        mov r1, 34
+        ld r2, st_rating
+        bl video_num
+        mov r1, 43
+        ld r2, st_day
+        bl video_num
+        mov r1, 54
+        ld r2, st_month
+        add r2, r2, 1
+        bl video_num
+        mov r1, 64
+        ld r2, st_year
+        bl video_num
+        ld r2, st_paused
+        cmp r2, 0
+        brz ui_draw_msgs
+        mov r1, 90
+        lea r2, ui_s_paused
+        bl video_text
+ui_draw_msgs:
+        ; messages: blank rows + placeholder
+        mov r0, MSG_ROW
+        mov r1, 0
+        mov r2, MSG_ROWS
+        mov r3, SCR_COLS
+        mov r4, G_SPACE
+        bl video_fill
+        mov r1, 1
+        lea r2, ui_s_msg
+        ld r3, ui_a_msg
+        bl video_text
+        ; help line
+        mov r0, HELP_ROW
+        mov r1, 0
+        mov r2, 1
+        mov r3, SCR_COLS
+        ld r4, ui_c_help
+        bl video_fill
+        mov r1, 1
+        lea r2, ui_s_help
+        ld r0, st_quit_ask
+        cmp r0, 0
+        brz ui_draw_help
+        lea r2, ui_s_quit
+ui_draw_help:
+        mov r0, HELP_ROW
+        ld r3, ui_a_help
+        bl video_text
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+ui_a_frame:  .word A_FRAME
+ui_a_title:  .word A_TITLE
+ui_a_status: .word A_STATUS
+ui_c_status: .word G_SPACE|A_STATUS
+ui_a_msg:    .word A_MSG
+ui_a_help:   .word A_HELP
+ui_c_help:   .word G_SPACE|A_HELP
+ui_s_title:  .string "PARK BUILDER"
+ui_s_status: .string "Cash k$       Guests      Rating      Day      Month      Year"
+ui_s_paused: .string "PAUSED"
+ui_s_msg:    .string "Welcome to Park Builder!"
+ui_s_help:   .string "q quit   p pause"
+ui_s_quit:   .string "Quit? y = yes, any other key = no"
+
+ui_msg:
+        ret
+
+ui_msg_num:
+        ret
+
+ui_tick:
+        ret
+
+ui_tool_name:
+        lea r0, ui_s_none
+        ret
+ui_s_none:   .string ""

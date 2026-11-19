@@ -1,0 +1,59 @@
+; ---------------------------------------------------------------------
+; Module: map (prefix map_) — owner WP1. Terrain generation, tile access,
+; walkability, footprint checks. Tile word layout: defs.ap (T_*).
+; All routines: args r0..r4, result r0, all other registers preserved.
+;
+;; map_init       ()                          -> -       generate the valley into st_map (grass, tree clusters, lake, T_FENCE border, T_GATE on the south edge + 3 T_PATH tiles north of it); sets st_gate_x/y, st_map_dirty=1. Deterministic for a given rand seed.
+;; map_index      r0=x r1=y                   -> r0=index (y<<MAP_SHIFT)|x, or -1 if outside
+;; map_addr       r0=x r1=y                   -> r0=address of the tile word in st_map, 0 if outside
+;; map_in_bounds  r0=x r1=y                   -> r0=1 inside the map, 0 outside
+;; map_get        r0=x r1=y                   -> r0=tile word, T_OUT (-1) if outside
+;; map_kind       r0=x r1=y                   -> r0=tile kind (T_*), T_OUT (-1) if outside
+;; map_set        r0=x r1=y r2=tile           -> -       store tile word (ignored outside); sets st_map_dirty=1 when walkability changes
+;; map_walkable   r0=x r1=y                   -> r0=1 if guests may walk there (T_PATH, T_QUEUE, T_GATE, T_ENTRANCE, T_EXIT), else 0
+;; map_buildable  r0=x r1=y                   -> r0=1 if a ride/stall/scenery may be placed (T_GRASS, T_TREE, T_FLOWERS), else 0
+;; map_area_free  r0=x r1=y r2=w r3=h         -> r0=1 if the whole w×h footprint is inside and buildable, else 0
+;; map_fill       r0=x r1=y r2=w r3=h r4=tile -> -       set every tile of the rectangle (clipped); sets st_map_dirty=1
+; ---------------------------------------------------------------------
+
+; WP0 stub: no terrain yet (st_map is all T_GRASS = 0).
+map_init:
+        ret
+
+map_index:
+        mov r0, -1
+        ret
+
+map_addr:
+        mov r0, 0
+        ret
+
+map_in_bounds:
+        mov r0, 0
+        ret
+
+map_get:
+        mov r0, T_GRASS
+        ret
+
+map_kind:
+        mov r0, T_GRASS
+        ret
+
+map_set:
+        ret
+
+map_walkable:
+        mov r0, 0
+        ret
+
+map_buildable:
+        mov r0, 0
+        ret
+
+map_area_free:
+        mov r0, 0
+        ret
+
+map_fill:
+        ret

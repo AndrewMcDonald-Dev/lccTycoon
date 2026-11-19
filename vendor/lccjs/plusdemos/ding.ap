@@ -1,0 +1,11 @@
+; ding.ap: demonstrates the LCC+ `ding` trap.
+; `ding` is an alias for `sound 0`: it plays the configured ding sound file,
+; then falls back to a desktop default, then ASCII BEL (\x07).
+; Run:  node src/plus/lccplus.js plusdemos/ding.ap
+        .lccplus
+        lea r0, msg
+        sout r0
+        nl
+        ding            ; alias for sound 0
+        halt
+msg:    .string "ding.ap: playing the ding sound slot..."

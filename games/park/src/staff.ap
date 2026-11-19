@@ -1,0 +1,36 @@
+; ---------------------------------------------------------------------
+; Module: staff (prefix stf_) — owner WP13. Handymen sweep litter/vomit
+; (clear T_LITTER/T_VOMIT bits) and empty bins; mechanics repair broken
+; rides (RS_BROKEN → RS_OPEN, restore R_RELIAB). Records in st_staff
+; (SF_*, SFT_* in defs.ap); wages charged monthly by eco_tick.
+; All routines: args r0..r4, result r0, all other registers preserved.
+;
+;; stf_init       ()               -> -              clear st_staff, st_staff_count = 0
+;; stf_hire       r0=SFT_*         -> r0=staff index, -1 if pool full / gate unreachable   placed at the gate
+;; stf_fire       r0=index         -> -              free the record
+;; stf_tick       ()               -> -              move and work every staff member one tick
+;; stf_at         r0=x r1=y        -> r0=lowest staff index on (x,y), -1 none
+;; stf_count      r0=SFT_*         -> r0=number hired of that type
+; ---------------------------------------------------------------------
+
+; WP0 stub: no staff.
+stf_init:
+        ret
+
+stf_hire:
+        mov r0, -1
+        ret
+
+stf_fire:
+        ret
+
+stf_tick:
+        ret
+
+stf_at:
+        mov r0, -1
+        ret
+
+stf_count:
+        mov r0, 0
+        ret

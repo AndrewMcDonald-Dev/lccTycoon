@@ -1,0 +1,58 @@
+; ---------------------------------------------------------------------
+; Module: guests (prefix gst_) — owner WP9. Guest pool st_guests (G_*,
+; GS_*, TH_* in defs.ap): arrivals at the gate (entry fee via eco_earn),
+; needs (hunger, thirst, energy, nausea → happiness), decisions (pick a
+; ride/stall by price, ratings and needs), movement (pth_*), queueing and
+; buying (ride_enqueue, ride_buy), litter/vomit on tiles, leaving.
+; Each gst_tick updates MAX_GUESTS/GUEST_SLICES slots (rotating).
+; Writes st_guest_count, st_guests_total.
+; All routines: args r0..r4, result r0, all other registers preserved.
+;
+;; gst_init       ()                -> -               clear the pool, counts 0
+;; gst_tick       ()                -> -               arrivals (GUEST_SPAWN_TICKS scaled by st_rating, only if st_park_open) + update one slice of guests
+;; gst_spawn      ()                -> r0=guest index, -1 if pool full / gate unreachable   new guest at the gate (cash GUEST_CASH_MIN..MAX, meters, name seed) paying st_entry_fee
+;; gst_addr       r0=index          -> r0=record address (st_guests + index<<GUEST_SHIFT)
+;; gst_at         r0=x r1=y         -> r0=lowest guest index on (x,y), -1 none
+;; gst_remove     r0=index          -> -               free the slot (leaving / removed), st_guest_count-1
+;; gst_name       r0=index r1=buf   -> r0=buf          guest name from G_NAME, NUL-terminated (≤ 16 words)
+;; gst_thought_text r0=code         -> r0=str          text of a TH_* code ("" for TH_NONE)
+; ---------------------------------------------------------------------
+
+; WP0 stub: nobody comes.
+gst_init:
+        ret
+
+gst_tick:
+        ret
+
+gst_spawn:
+        mov r0, -1
+        ret
+
+gst_addr:
+        push r1
+        sll r0, GUEST_SHIFT
+        lea r1, st_guests
+        add r0, r0, r1
+        pop r1
+        ret
+
+gst_at:
+        mov r0, -1
+        ret
+
+gst_remove:
+        ret
+
+gst_name:
+        push r2
+        mov r2, 0
+        str r2, r1, 0
+        mov r0, r1
+        pop r2
+        ret
+
+gst_thought_text:
+        lea r0, gst_s_none
+        ret
+gst_s_none: .string ""

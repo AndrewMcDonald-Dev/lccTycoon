@@ -1,0 +1,77 @@
+; ---------------------------------------------------------------------
+; Module: input (prefix inp_) — owner WP5. Drains every queued key each
+; frame and dispatches it: cursor movement (wasd/WASD/arrows), tool keys
+; (1-6, x), item cycling ([ ]), apply (space → bld_apply / cst_key),
+; info (i → win_open), prices (+ -), open/close (o), finance (f),
+; pause (p), speed (>), quit confirmation (q then y).
+; While a window is open keys go to win_key first; while st_cst_ride >= 0
+; keys go to cst_key first; a key they consume is not dispatched further.
+; All routines: args r0..r4, result r0, all other registers preserved.
+;
+;; inp_handle     ()          -> r0=1 quit confirmed, else 0   drain and dispatch all keys queued this frame (writes st_cur_x/y, st_tool, st_tool_item, st_paused, st_speed, st_quit_ask, st_sel_ride, st_entry_fee)
+;; inp_key        r0=key      -> r0=1 quit confirmed, else 0   dispatch one key (arrow sequences arrive as 27, 91, 65..68 over three calls)
+;; inp_move       r0=dx r1=dy -> -                             move the cursor, clamped to the map
+; ---------------------------------------------------------------------
+
+; WP0 stub: quit confirmation (q, then y = quit / any other key = cancel)
+; and pause (p). WP5 keeps this behavior.
+inp_handle:
+        push r1
+        push lr
+inp_handle_lp:
+        nbain r0
+        cmp r0, 0
+        brz inp_handle_ret
+        bl inp_key
+        cmp r0, 0
+        brz inp_handle_lp
+        br inp_handle_out       ; r0 = 1: quit confirmed
+inp_handle_ret:
+        mov r0, 0
+inp_handle_out:
+        pop lr
+        pop r1
+        ret
+
+inp_key:
+        push r1
+        ld r1, st_quit_ask
+        cmp r1, 0
+        brz inp_key_normal
+        mov r1, 0               ; any key answers the prompt
+        st r1, st_quit_ask
+        mov r1, KEY_YES
+        cmp r0, r1
+        brz inp_key_quit
+        br inp_key_none
+inp_key_normal:
+        mov r1, KEY_QUIT
+        cmp r0, r1
+        brnz inp_key_notq
+        mov r1, 1
+        st r1, st_quit_ask
+        br inp_key_none
+inp_key_notq:
+        mov r1, KEY_PAUSE
+        cmp r0, r1
+        brnz inp_key_none
+        ld r1, st_paused        ; toggle 0 <-> 1
+        cmp r1, 0
+        brz inp_key_pause1
+        mov r1, 0
+        br inp_key_pause
+inp_key_pause1:
+        mov r1, 1
+inp_key_pause:
+        st r1, st_paused
+inp_key_none:
+        mov r0, 0
+        pop r1
+        ret
+inp_key_quit:
+        mov r0, 1
+        pop r1
+        ret
+
+inp_move:
+        ret

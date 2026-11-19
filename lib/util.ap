@@ -1,0 +1,165 @@
+; =====================================================================
+; lib/util.ap — numbers & memory helpers (no dependencies)
+;
+; Convention: args r0..r4, result in r0, everything else preserved.
+;
+;; util_print_padded  r0=value(signed) r1=width r2=padchar
+;                      right-aligned decimal, e.g. r2=48 ('0') -> "0042",
+;                      r2=32 (' ') -> "  42", " -7". Prints all digits if wider.
+;                      (Use ' ' padding for negatives: '0' gives "00-7".)
+;; util_print_fixed2  r0=value in hundredths (signed) -> prints D.CC
+;                      e.g. 2050 -> "20.50", -5 -> "-0.05"  (money in cents)
+;; util_memset        r0=dst r1=value r2=count     fill count words
+;; util_memcpy        r0=dst r1=src   r2=count     copy count words (forward)
+;; util_strlen        r0=str  -> r0=length
+;; util_abs           r0=value -> r0=|value|
+;; util_min           r0=a r1=b -> r0=min(a,b)   (signed)
+;; util_max           r0=a r1=b -> r0=max(a,b)   (signed)
+; =====================================================================
+
+util_print_padded:
+        push r0
+        push r1
+        push r3
+        push r4
+        ; r3 = printed length of r0 (digits, plus 1 for a minus sign)
+        mov r3, 1
+        mov r4, r0
+        cmp r4, 0
+        brp util_pp_count
+        bre util_pp_count
+        add r3, r3, 1           ; '-'
+        not r4, r4
+        add r4, r4, 1           ; r4 = |r0|
+util_pp_count:
+        push r1
+        mov r1, 10
+        cmp r4, r1
+        pop r1
+        brlt util_pp_pad
+        push r1
+        mov r1, 10
+        div r4, r1
+        pop r1
+        add r3, r3, 1
+        br util_pp_count
+util_pp_pad:
+        sub r1, r1, r3          ; pad = width - length
+util_pp_padlp:
+        brn util_pp_num
+        brz util_pp_num
+        aout r2
+        sub r1, r1, 1
+        br util_pp_padlp
+util_pp_num:
+        dout r0
+        pop r4
+        pop r3
+        pop r1
+        pop r0
+        ret
+
+util_print_fixed2:
+        push r0
+        push r1
+        push r2
+        push lr
+        cmp r0, 0
+        brp util_pf_pos
+        bre util_pf_pos
+        mov r1, 45              ; '-'
+        aout r1
+        not r0, r0
+        add r0, r0, 1
+util_pf_pos:
+        mov r1, 100
+        mov r2, r0
+        div r2, r1
+        dout r2                 ; whole part
+        mov r2, 46              ; '.'
+        aout r2
+        rem r0, r1              ; hundredths
+        mov r1, 2
+        mov r2, 48              ; '0'
+        bl util_print_padded
+        pop lr
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+util_memset:
+        push r0
+        push r2
+util_ms_lp:
+        cmp r2, 0
+        brz util_ms_done
+        str r1, r0, 0
+        add r0, r0, 1
+        sub r2, r2, 1
+        br util_ms_lp
+util_ms_done:
+        pop r2
+        pop r0
+        ret
+
+util_memcpy:
+        push r0
+        push r1
+        push r2
+        push r3
+util_mc_lp:
+        cmp r2, 0
+        brz util_mc_done
+        ldr r3, r1, 0
+        str r3, r0, 0
+        add r0, r0, 1
+        add r1, r1, 1
+        sub r2, r2, 1
+        br util_mc_lp
+util_mc_done:
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+util_strlen:
+        push r1
+        push r2
+        mov r1, r0
+        mov r0, 0
+util_sl_lp:
+        ldr r2, r1, 0
+        cmp r2, 0
+        brz util_sl_done
+        add r0, r0, 1
+        add r1, r1, 1
+        br util_sl_lp
+util_sl_done:
+        pop r2
+        pop r1
+        ret
+
+util_abs:
+        cmp r0, 0
+        brlt util_abs_neg
+        ret
+util_abs_neg:
+        not r0, r0
+        add r0, r0, 1
+        ret
+
+util_min:
+        cmp r0, r1
+        brlt util_min_done
+        mov r0, r1
+util_min_done:
+        ret
+
+util_max:
+        cmp r0, r1
+        brgt util_max_done
+        mov r0, r1
+util_max_done:
+        ret

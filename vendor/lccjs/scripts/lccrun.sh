@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# lccrun.sh — timeout runner for lccjs tool invocations.
+#
+# Usage:  scripts/lccrun.sh [<timeout_secs>] <cmd> [args...]
+#
+#   timeout_secs  wall-clock limit in seconds (default: 30).
+#
+# If the command finishes before the timeout, stdout/stderr flow through and
+# the script exits with the command's own exit code.
+#
+# If the timeout elapses, the entire process group is killed (SIGTERM then
+# SIGKILL after 2 s) and the script exits 124 with a message on stderr.
+# The process group (not just the top PID) is killed so that any children
+# spawned by the node process are also reaped.
+#
+# Example:
+#   scripts/lccrun.sh 10 node src/cli/lcc.js myprogram.a
+#   scripts/lccrun.sh node src/cli/lcc.js myprogram.a   # uses 30s default
+
+set -uo pipefail
+
+DEFAULT_TIMEOUT=30
+
+usage() {
+  printf 'Usage: lccrun.sh [<timeout_secs>] <cmd> [args...]\n' >&2
+  printf '  timeout_secs  wall-clock limit in seconds (default: %d)\n' \
+    "$DEFAULT_TIMEOUT" >&2
+  exit 1
+}
+
+[[ $# -eq 0 ]] && usage
+
+if [[ "$1" =~ ^[0-9]+$ ]]; then
+  TIMEOUT="$1"
+  shift
+else
+  TIMEOUT="$DEFAULT_TIMEOUT"
+fi
+
+[[ $# -eq 0 ]] && usage
+
+# Temp flag: watchdog writes "1" here when it fires so the parent can
+# distinguish a timeout kill from a normal non-zero exit.
+FLAG=$(mktemp)
+trap 'rm -f "$FLAG"' EXIT
+
+# setsid puts the child in a new session → new process group (PGID = child PID).
+# kill -- -PGID then reaches all descendants, not only the top-level node PID.
+#
+# TTY-gated stdin: bash redirects background-job stdin to /dev/null when job
+# control is disabled (POSIX). Pass stdin through for pipes/files; only drop it
+# when stdin is a TTY (where setsid disconnects from the terminal anyway and
+# forwarding it would cause SIGTTIN).
+if [ -t 0 ]; then
+  setsid "$@" </dev/null &
+else
+  setsid "$@" <&0 &
+fi
+CHILD_PID=$!
+CHILD_PGID="$CHILD_PID"
+
+# Background watchdog: fires after TIMEOUT seconds if the child is still alive.
+#
+# stdout/stderr are redirected to /dev/null so that when the child finishes
+# early and we kill this subshell, the orphaned `sleep` it spawned does NOT
+# keep holding lccrun's stdout/stderr file descriptors. A caller capturing
+# output via spawnSync would otherwise never see pipe EOF until the orphaned
+# `sleep` naturally elapsed — blocking for the full TIMEOUT on instant
+# completion (#1149). The FLAG file (not the message) is what signals a timeout
+# to the parent, so the user-facing timeout message is printed by the parent
+# under the `[[ -s "$FLAG" ]]` check below instead of here.
+(
+  sleep "$TIMEOUT"
+  if kill -0 "$CHILD_PID" 2>/dev/null; then
+    printf '1' > "$FLAG"
+    kill -TERM -- -"$CHILD_PGID" 2>/dev/null || true
+    sleep 2
+    kill -KILL -- -"$CHILD_PGID" 2>/dev/null || true
+  fi
+) >/dev/null 2>&1 &
+WATCHDOG_PID=$!
+
+wait "$CHILD_PID"
+CHILD_EXIT=$?
+
+# Child finished — cancel the watchdog.
+kill "$WATCHDOG_PID" 2>/dev/null || true
+wait "$WATCHDOG_PID" 2>/dev/null || true
+
+if [[ -s "$FLAG" ]]; then
+  printf 'lccrun: timeout after %ds — killing process group (pgid=%d)\n' \
+    "$TIMEOUT" "$CHILD_PGID" >&2
+  exit 124
+fi
+
+exit "$CHILD_EXIT"

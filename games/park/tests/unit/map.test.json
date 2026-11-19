@@ -1,0 +1,8 @@
+{
+  "game": "map_driver.ap",
+  "scenarios": [
+    { "name": "outside the map is out of bounds, unwalkable, not buildable",
+      "expect": { "status": "halted",
+        "memory": { "drv_inb_left": 0, "drv_addr_right": 0, "drv_idx_bottom": -1, "drv_walk_top": 0, "drv_area_edge": 0 } } }
+  ]
+}

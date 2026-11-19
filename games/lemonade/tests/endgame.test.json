@@ -1,0 +1,23 @@
+{
+  "game": "../main.ap",
+  "size": "24x80",
+  "scenarios": [
+    { "name": "game ends after day 7 with the final score screen",
+      "keys": "w*2 b*4 g b*3 g b*3 g b*3 g b*3 g b*3 g b*3 g",
+      "expect": { "status": "frames-complete",
+        "memory": { "day": 8, "state": 1, "broke": 0, "total_sold": 90, "cash": 1900 },
+        "screen": { "contains": ["=== FINAL SCORE ===", "Days played:  7", "Cups sold:    90",
+                                 "Final cash:   $19.00", "Profit:       -$1.00", "Rating: Sour..."],
+                    "notContains": ["You went broke!", "LEMONADE STAND TYCOON"] } } },
+    { "name": "day 6 still in planning", "keys": "s*9 b g b g b g b g b g",
+      "expect": { "memory": { "day": 6, "state": 0 }, "screen": { "contains": ["Day 6 of 7"] } } },
+    { "name": "going broke ends the game early", "keys": "s*9 b*8 g g g b g",
+      "expect": { "memory": { "state": 1, "broke": 1, "day": 5, "cash": 200, "lemons": 0 },
+        "screen": { "contains": ["You went broke!", "Days played:  4", "Final cash:   $2.00", "Profit:       -$18.00"] } } },
+    { "name": "profitable run shows a positive profit and better rating",
+      "keys": "w b*2 g b*2 g b*2 g q",
+      "expect": { "screen": { "matches": "Profit:       \\$\\d+\\.\\d\\d", "notContains": ["Sour..."] } } },
+    { "name": "keys other than q are ignored on the final screen", "keys": "q w b g",
+      "expect": { "status": "frames-complete", "memory": { "state": 1, "price": 50, "cash": 2000 } } }
+  ]
+}

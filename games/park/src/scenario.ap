@@ -1,0 +1,31 @@
+; ---------------------------------------------------------------------
+; Module: scenario (prefix scn_) — owner WP14. Title screen, scenario
+; presets and goals, park rating, win/lose. Writes st_scenario,
+; st_goal_*, st_rating, st_game_state.
+; All routines: args r0..r4, result r0, all other registers preserved.
+;
+;; scn_title      ()               -> r0=scenario index   title screen + scenario choice; runs its own frames (draw, video_present, sleep FRAME_MS) until a choice is made. Called once before the *_init routines.
+;; scn_start      r0=scenario      -> -                   set st_scenario and goals; may adjust starting cash/loan/map after the *_init routines ran
+;; scn_rate       ()               -> -                   recompute st_rating 0..RATING_MAX from guest happiness, ride count/variety, litter, prices (main calls on each new day)
+;; scn_check      ()               -> r0=st_game_state     set GAME_WON when goals are met by the deadline, GAME_LOST after it (main calls on each new day)
+;; scn_end_screen ()               -> r0=1 quit, 0 keep playing   win/lose screen with its own frames (called by main when st_game_state != GAME_PLAY)
+; ---------------------------------------------------------------------
+
+; WP0 stub: no title, goals from state.ap, never won or lost.
+scn_title:
+        mov r0, 0
+        ret
+
+scn_start:
+        ret
+
+scn_rate:
+        ret
+
+scn_check:
+        mov r0, GAME_PLAY
+        ret
+
+scn_end_screen:
+        mov r0, 1
+        ret

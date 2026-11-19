@@ -1,0 +1,701 @@
+; ############################################################
+; # A clearer, smoother LCC+js Flappy Bird demo.
+; #
+; # Controls:
+; #   w = flap
+; #   q = quit
+; #
+; # Game model:
+; #   - the bird has a vertical row position and vertical velocity
+; #   - gravity increases the downward velocity each frame
+; #   - a flap sets the velocity to a small upward impulse
+; #   - one pipe pair moves left across the board
+; #   - score increases each time a pipe wraps to the right side
+; #   - the gap is always at least 6 rows tall
+; #   - each obstacle is one of:
+; #       top-only pipe
+; #       bottom-only pipe
+; #       paired pipe with a gap in the middle
+; #
+; # Coordinate convention:
+; #   row = vertical position
+; #   col = horizontal position
+; ############################################################
+
+    .lccplus
+    .start startup
+
+; ---------------------------------------------------------
+; startup
+; ---------------------------------------------------------
+startup:
+    clear
+    mov  r0, 0
+    cursor r0
+    bl   main
+    halt
+
+; ---------------------------------------------------------
+; Global state
+; ---------------------------------------------------------
+boardWidth:      .word 24
+boardHeight:     .word 16
+boardLastCol:    .word 23
+
+birdCol:         .word 5
+birdRow:         .word 5
+birdVelocity:    .word 0
+
+pipeCol:         .word 22        ; left column of a 2-column pipe
+pipeWidth:       .word 2         ; documented width; render/collision use pipeCol and pipeCol+1 explicitly
+pipeMode:        .word 2         ; 0=top-only, 1=bottom-only, 2=paired
+gapTopRow:       .word 3
+gapHeight:       .word 6
+pipeTopEndRow:   .word 2         ; inclusive last row occupied by the top segment, -1 if none
+pipeBottomStartRow: .word 9      ; inclusive first row occupied by the bottom segment, boardHeight if none
+
+gravityStep:     .word 1
+flapImpulse:     .word -3
+maxFallSpeed:    .word 2
+frameDelayMs:    .word 160      ; main game-speed / frame-rate control
+
+score:           .word 0
+gameOver:        .word 0
+collisionReason: .word 0        ; 0=none, 1=bounds, 2=pipe, 3=quit
+debugEnabled:    .word 0        ; 0=hide debug lines, 1=show debug lines
+
+hudMsg:          .string "Flappy Bird: w=flap, q=quit"
+scoreMsg:        .string "Score: "
+gameOverMsg:     .string "GAME OVER - r=restart, q=quit"
+debugBirdMsg:    .string "bird(row,col,vel)="
+debugPipeMsg:    .string "  pipe(col)="
+debugPipeModeMsg:.string "  mode="
+debugGapMsg:     .string "  gap(top,height)="
+debugPipeRowsMsg:.string "  pipeRows="
+debugStateMsg:   .string "  gameOver/reason="
+topOnlyMsg:      .string "top-only"
+bottomOnlyMsg:   .string "bottom-only"
+pairedMsg:       .string "paired"
+
+birdSym:         .word '@'
+pipeSym:         .word '#'
+blankSym:        .word '.'
+
+; ---------------------------------------------------------
+; randomizeGap
+;   Chooses a new explicit obstacle mode and matching gap location.
+;   Modes:
+;   - 0 => top-only
+;   - 1 => bottom-only
+;   - 2 => paired
+;   The gap is always at least `gapHeight` rows tall.
+; ---------------------------------------------------------
+randomizeGap:
+    push lr
+    push fp
+    mov  fp, sp
+
+    ; Pick the next pipe mode first.
+    mov  r0, 0
+    mov  r1, 2
+    rand r0, r1
+    st   r0, pipeMode
+
+    ; mode 0 => top-only
+    cmp  r0, 0
+    brne @checkBottomOnly
+    mov  r0, 1
+    ld   r1, boardHeight
+    ld   r2, gapHeight
+    sub  r1, r1, r2
+    rand r0, r1
+    st   r0, gapTopRow
+    sub  r0, r0, 1
+    st   r0, pipeTopEndRow
+    ld   r0, boardHeight
+    st   r0, pipeBottomStartRow
+    br   @gapDone
+
+@checkBottomOnly:
+    cmp  r0, 1
+    brne @pairedPipe
+    mov  r0, 0
+    ld   r1, boardHeight
+    ld   r2, gapHeight
+    sub  r1, r1, r2
+    sub  r1, r1, 1
+    rand r0, r1
+    st   r0, gapTopRow
+    mov  r0, -1
+    st   r0, pipeTopEndRow
+    ld   r0, gapTopRow
+    ld   r1, gapHeight
+    add  r0, r0, r1
+    st   r0, pipeBottomStartRow
+    br   @gapDone
+
+@pairedPipe:
+    mov  r0, 1
+    ld   r1, boardHeight
+    ld   r2, gapHeight
+    sub  r1, r1, r2
+    sub  r1, r1, 1
+    rand r0, r1
+    st   r0, gapTopRow
+    sub  r1, r0, 1
+    st   r1, pipeTopEndRow
+    ld   r1, gapHeight
+    add  r0, r0, r1
+    st   r0, pipeBottomStartRow
+
+@gapDone:
+
+    mov  sp, fp
+    pop  fp
+    pop  lr
+    ret
+
+; ---------------------------------------------------------
+; drawFrame
+;   Prints the HUD and the current board.
+;   Each frame resets the cursor to the home position and repaints
+;   the entire board over the previous frame.
+;   Each board cell is rendered as a single character so a 2-column
+;   pipe is visibly `##`.
+; ---------------------------------------------------------
+drawFrame:
+    push lr
+    push fp
+    mov  fp, sp
+
+    resetc
+
+    ld   r1, @hudMsgPtr
+    ldr  r0, r1, 0
+    sout r0
+    nl
+
+    ld   r1, @scoreMsgPtr
+    ldr  r0, r1, 0
+    sout r0
+    ld   r3, @scorePtr
+    ldr  r0, r3, 0
+    dout r0
+    nl
+
+    mov  r1, 0            ; row
+@rowLoop:
+    ld   r3, @boardHeightPtr
+    ldr  r2, r3, 0
+    cmp  r1, r2
+    bre  @doneRows
+
+    mov  r2, 0            ; col
+@colLoop:
+    ld   r4, @boardWidthPtr
+    ldr  r3, r4, 0
+    cmp  r2, r3
+    bre  @doneCols
+
+    ; Bird cell?
+    ld   r4, @birdRowPtr
+    ldr  r3, r4, 0
+    cmp  r1, r3
+    brne @checkPipe
+    ld   r4, @birdColPtr
+    ldr  r3, r4, 0
+    cmp  r2, r3
+    brne @checkPipe
+    ld   r0, birdSym
+    aout r0
+    br   @postCell
+
+@checkPipe:
+    ; A pipe occupies the inclusive column range:
+    ; [pipeCol .. pipeCol + pipeWidth - 1]
+    ld   r4, @pipeColPtr
+    ldr  r3, r4, 0
+    cmp  r2, r3
+    brlt @printBlank
+
+    ld   r4, @pipeWidthPtr
+    ldr  r4, r4, 0
+    add  r4, r4, r3
+    sub  r4, r4, 1
+    cmp  r4, r2
+    brlt @printBlank
+    br   @pipeColumn
+
+@pipeColumn:
+    ; Draw if this row is inside either explicit pipe segment.
+    ld   r4, @pipeTopEndRowPtr
+    ldr  r3, r4, 0
+    cmp  r1, r3
+    brlt @printPipe
+    bre  @printPipe
+    ld   r4, @pipeBottomStartRowPtr
+    ldr  r3, r4, 0
+    cmp  r1, r3
+    brlt @printBlank
+    br   @printPipe
+
+@printPipe:
+    ld   r0, pipeSym
+    aout r0
+    br   @postCell
+
+@printBlank:
+    ld   r0, blankSym
+    aout r0
+
+@postCell:
+    add  r2, r2, 1
+    br   @colLoop
+
+@doneCols:
+    nl
+    add  r1, r1, 1
+    br   @rowLoop
+
+@doneRows:
+    ld   r4, @debugEnabledPtr
+    ldr  r4, r4, 0
+    cmp  r4, 0
+    bre  @frameDone
+    bl   printDebugState
+
+@frameDone:
+    mov  sp, fp
+    pop  fp
+    pop  lr
+    ret
+
+; ---------------------------------------------------------
+; printDebugState
+;   Prints key runtime state below the board.
+; ---------------------------------------------------------
+printDebugState:
+    push lr
+    push fp
+    mov  fp, sp
+
+    ld   r1, @debugBirdMsgPtr
+    ldr  r0, r1, 0
+    sout r0
+    ld   r3, @birdRowPtr
+    ldr  r0, r3, 0
+    dout r0
+    mov  r0, ','
+    aout r0
+    ld   r3, @birdColPtr
+    ldr  r0, r3, 0
+    dout r0
+    mov  r0, ','
+    aout r0
+    ld   r3, @birdVelocityPtr
+    ldr  r0, r3, 0
+    dout r0
+
+    ld   r1, @debugPipeMsgPtr
+    ldr  r0, r1, 0
+    sout r0
+    ld   r3, @pipeColPtr
+    ldr  r0, r3, 0
+    dout r0
+
+    ld   r1, @debugPipeModeMsgPtr
+    ldr  r0, r1, 0
+    sout r0
+    ld   r3, @pipeModePtr
+    ldr  r0, r3, 0
+    cmp  r0, 0
+    brne @debugCheckBottomOnly
+    ld   r1, @topOnlyMsgPtr
+    ldr  r0, r1, 0
+    sout r0
+    br   @debugGapInfo
+
+@debugCheckBottomOnly:
+    cmp  r0, 1
+    brne @debugPaired
+    ld   r1, @bottomOnlyMsgPtr
+    ldr  r0, r1, 0
+    sout r0
+    br   @debugGapInfo
+
+@debugPaired:
+    ld   r1, @pairedMsgPtr
+    ldr  r0, r1, 0
+    sout r0
+
+@debugGapInfo:
+    ld   r1, @debugGapMsgPtr
+    ldr  r0, r1, 0
+    sout r0
+    ld   r3, @gapTopRowPtr
+    ldr  r0, r3, 0
+    dout r0
+    mov  r0, ','
+    aout r0
+    ld   r3, @gapHeightPtr
+    ldr  r0, r3, 0
+    dout r0
+
+    ld   r1, @debugPipeRowsMsgPtr
+    ldr  r0, r1, 0
+    sout r0
+    mov  r0, 0
+    dout r0
+    mov  r0, '-'
+    aout r0
+    ld   r3, @pipeTopEndRowPtr
+    ldr  r0, r3, 0
+    dout r0
+    mov  r0, ','
+    aout r0
+    ld   r3, @pipeBottomStartRowPtr
+    ldr  r0, r3, 0
+    dout r0
+    mov  r0, '-'
+    aout r0
+    ld   r3, @boardHeightPtr
+    ldr  r0, r3, 0
+    sub  r0, r0, 1
+    dout r0
+
+@debugStateInfo:
+    ld   r1, @debugStateMsgPtr
+    ldr  r0, r1, 0
+    sout r0
+    ld   r3, @gameOverPtr
+    ldr  r0, r3, 0
+    dout r0
+    mov  r0, ','
+    aout r0
+    ld   r3, @collisionReasonPtr
+    ldr  r0, r3, 0
+    dout r0
+    nl
+
+    mov  sp, fp
+    pop  fp
+    pop  lr
+    ret
+
+@birdRowPtr:      .word birdRow
+@birdVelocityPtr: .word birdVelocity
+@pipeColPtr:      .word pipeCol
+@pipeWidthPtr:    .word pipeWidth
+@pipeModePtr:     .word pipeMode
+@gapTopRowPtr:    .word gapTopRow
+@gapHeightPtr:    .word gapHeight
+@pipeTopEndRowPtr:.word pipeTopEndRow
+@pipeBottomStartRowPtr:.word pipeBottomStartRow
+@scorePtr:        .word score
+@gameOverPtr:     .word gameOver
+@gravityStepPtr:  .word gravityStep
+@flapImpulsePtr:  .word flapImpulse
+@maxFallSpeedPtr: .word maxFallSpeed
+@boardHeightPtr:  .word boardHeight
+@boardWidthPtr:   .word boardWidth
+@boardLastColPtr: .word boardLastCol
+@birdColPtr:      .word birdCol
+@frameDelayPtr:   .word frameDelayMs
+@debugEnabledPtr: .word debugEnabled
+@gameOverMsgPtr:  .word gameOverMsg
+@collisionReasonPtr: .word collisionReason
+@hudMsgPtr:       .word hudMsg
+@scoreMsgPtr:     .word scoreMsg
+@debugBirdMsgPtr: .word debugBirdMsg
+@debugPipeMsgPtr: .word debugPipeMsg
+@debugPipeModeMsgPtr: .word debugPipeModeMsg
+@debugGapMsgPtr:  .word debugGapMsg
+@debugPipeRowsMsgPtr: .word debugPipeRowsMsg
+@debugStateMsgPtr: .word debugStateMsg
+@topOnlyMsgPtr:   .word topOnlyMsg
+@bottomOnlyMsgPtr:.word bottomOnlyMsg
+@pairedMsgPtr:    .word pairedMsg
+
+; ---------------------------------------------------------
+; handleInput
+;   q => quit
+;   w => flap
+;   anything else => no direct change
+; ---------------------------------------------------------
+handleInput:
+    push lr
+    push fp
+    mov  fp, sp
+
+    nbain r0
+    cmp   r0, 0
+    bre   @inputDone
+
+    mov   r1, 'q'
+    cmp   r0, r1
+    brne  @checkFlap
+    mov   r1, 1
+    ld    r2, @gameOverPtr
+    str   r1, r2, 0
+    ld    r2, @collisionReasonPtr
+    mov   r1, 3
+    str   r1, r2, 0
+    br    @inputDone
+
+@checkFlap:
+    mov   r1, 'w'
+    cmp   r0, r1
+    brne  @inputDone
+    ld    r2, @flapImpulsePtr
+    ldr   r1, r2, 0
+    ld    r2, @birdVelocityPtr
+    str   r1, r2, 0
+
+@inputDone:
+    mov  sp, fp
+    pop  fp
+    pop  lr
+    ret
+
+; ---------------------------------------------------------
+; updateBird
+;   velocity += gravity
+;   velocity = min(velocity, maxFallSpeed)
+;   row += velocity
+; ---------------------------------------------------------
+updateBird:
+    push lr
+    push fp
+    mov  fp, sp
+
+    ld   r3, @birdVelocityPtr
+    ldr  r1, r3, 0
+    ld   r4, @gravityStepPtr
+    ldr  r2, r4, 0
+    add  r1, r1, r2
+
+    ld   r4, @maxFallSpeedPtr
+    ldr  r2, r4, 0
+    cmp  r1, r2
+    brlt @velocityReady
+    bre  @velocityReady
+    mov  r1, r2
+
+@velocityReady:
+    str  r1, r3, 0
+
+    ld   r4, @birdRowPtr
+    ldr  r2, r4, 0
+    add  r2, r2, r1
+    str  r2, r4, 0
+
+    mov  sp, fp
+    pop  fp
+    pop  lr
+    ret
+
+; ---------------------------------------------------------
+; movePipe
+;   pipeCol--
+;   when the pipe exits the board:
+;     - wrap it to the far right
+;     - randomize the gap
+;     - increment score
+; ---------------------------------------------------------
+movePipe:
+    push lr
+    push fp
+    mov  fp, sp
+
+    ld   r4, @pipeColPtr
+    ldr  r1, r4, 0
+    sub  r1, r1, 1
+    str  r1, r4, 0
+
+    ; Wrap only after both pipe columns have moved off-screen.
+    ; The visible columns are pipeCol and pipeCol+1, so the pipe is
+    ; fully gone only once pipeCol reaches -2.
+    cmp  r1, -2
+    brgt @movePipeDone
+
+    ld   r3, @boardLastColPtr
+    ldr  r1, r3, 0
+    sub  r1, r1, 1
+    str  r1, r4, 0
+
+    bl   randomizeGap
+
+    ld   r3, @scorePtr
+    ldr  r1, r3, 0
+    add  r1, r1, 1
+    str  r1, r3, 0
+
+@movePipeDone:
+    mov  sp, fp
+    pop  fp
+    pop  lr
+    ret
+
+; ---------------------------------------------------------
+; checkCollision
+;   game over if:
+;   - bird row is outside the board
+;   - bird is inside the pipe columns and inside one of the explicit
+;     occupied pipe row ranges
+;   The pipe occupies columns pipeCol through
+;   pipeCol+pipeWidth-1, inclusive.
+; ---------------------------------------------------------
+checkCollision:
+    push lr
+    push fp
+    mov  fp, sp
+
+    ld   r4, @birdRowPtr
+    ldr  r1, r4, 0
+    cmp  r1, 0
+    brn  @boundsCollision
+
+    ld   r4, @boardHeightPtr
+    ldr  r2, r4, 0
+    cmp  r1, r2
+    brgt @boundsCollision
+    bre  @boundsCollision
+
+    ld   r4, @birdColPtr
+    ldr  r2, r4, 0
+    ld   r4, @pipeColPtr
+    ldr  r3, r4, 0
+    cmp  r2, r3
+    brlt @safe
+
+    ld   r4, @pipeWidthPtr
+    ldr  r4, r4, 0
+    add  r4, r4, r3
+    sub  r4, r4, 1
+    cmp  r4, r2
+    brlt @safe
+
+    ld   r4, @pipeTopEndRowPtr
+    ldr  r3, r4, 0
+    cmp  r1, r3
+    brlt @pipeCollision
+    bre  @pipeCollision
+    ld   r4, @pipeBottomStartRowPtr
+    ldr  r3, r4, 0
+    cmp  r1, r3
+    brlt @safe
+    br   @pipeCollision
+
+@boundsCollision:
+    mov  r1, 1
+    ld   r2, @gameOverPtr
+    str  r1, r2, 0
+    ld   r2, @collisionReasonPtr
+    str  r1, r2, 0
+    br   @safe
+
+@pipeCollision:
+    mov  r1, 1
+    ld   r2, @gameOverPtr
+    str  r1, r2, 0
+    ld   r2, @collisionReasonPtr
+    mov  r1, 2
+    str  r1, r2, 0
+
+@safe:
+    mov  sp, fp
+    pop  fp
+    pop  lr
+    ret
+
+; ---------------------------------------------------------
+; initializeGame
+; ---------------------------------------------------------
+initializeGame:
+    push lr
+    push fp
+    mov  fp, sp
+
+    mov  r1, 5
+    ld   r2, @birdRowPtr
+    str  r1, r2, 0
+    ld   r2, @birdColPtr
+    str  r1, r2, 0
+    mov  r1, 0
+    ld   r2, @birdVelocityPtr
+    str  r1, r2, 0
+    ld   r2, @scorePtr
+    str  r1, r2, 0
+    ld   r2, @gameOverPtr
+    str  r1, r2, 0
+    ld   r2, @collisionReasonPtr
+    str  r1, r2, 0
+
+    ld   r2, @boardLastColPtr
+    ldr  r1, r2, 0
+    sub  r1, r1, 1
+    ld   r2, @pipeColPtr
+    str  r1, r2, 0
+    bl   randomizeGap
+
+    mov  sp, fp
+    pop  fp
+    pop  lr
+    ret
+
+; ---------------------------------------------------------
+; main
+; ---------------------------------------------------------
+main:
+    push lr
+    push fp
+    mov  fp, sp
+
+    millis r1
+    srand  r1
+
+    bl    initializeGame
+
+@loopStart:
+    bl    drawFrame
+
+    ld    r2, @gameOverPtr
+    ldr   r1, r2, 0
+    cmp   r1, 1
+    bre   @endGame
+
+    bl    handleInput
+
+    ld    r2, @gameOverPtr
+    ldr   r1, r2, 0
+    cmp   r1, 1
+    bre   @endGame
+
+    bl    updateBird
+    bl    movePipe
+    bl    checkCollision
+
+    ld    r2, @frameDelayPtr
+    ldr   r1, r2, 0
+    sleep r1
+    br    @loopStart
+
+@endGame:
+    bl    drawFrame
+    ld    r1, @gameOverMsgPtr
+    ldr   r0, r1, 0
+    sout  r0
+    nl
+    ain   r0
+
+    mov   r1, 'r'
+    cmp   r0, r1
+    brne  @quitGame
+    bl    initializeGame
+    br    @loopStart
+
+@quitGame:
+    mov   sp, fp
+    pop   fp
+    pop   lr
+    ret

@@ -1,0 +1,28 @@
+{
+  "game": "../main.ap",
+  "scenarios": [
+    {
+      "name": "first frame shows the field and player",
+      "frames": 1,
+      "expect": {
+        "status": "frames-complete",
+        "screen": { "contains": ["@", "pos 5,3"] }
+      }
+    },
+    {
+      "name": "d moves right, s moves down",
+      "keys": "d d s",
+      "expect": { "memory": { "px": 7, "py": 4 }, "screen": { "contains": ["pos 7,4"] } }
+    },
+    {
+      "name": "walls clamp movement",
+      "keys": "a*10",
+      "expect": { "memory": { "px": 1 } }
+    },
+    {
+      "name": "q quits cleanly",
+      "keys": "q",
+      "expect": { "status": "halted", "screen": { "contains": ["Thanks for playing!"] } }
+    }
+  ]
+}

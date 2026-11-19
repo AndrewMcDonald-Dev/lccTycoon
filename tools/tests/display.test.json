@@ -1,0 +1,10 @@
+{
+  "game": "display.ap",
+  "scenarios": [
+    { "name": "present draws glyphs and colors at the block's position",
+      "expect": { "status": "halted",
+        "screen": { "lines": { "1": "  █.....", "2": "  ..A...", "3": "  ......" } },
+        "colors": { "lines": { "1": "  g.....", "2": "  ..r..." } },
+        "bg": { "lines": { "2": "  ..b..." } } } }
+  ]
+}

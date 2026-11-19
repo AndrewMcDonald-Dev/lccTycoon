@@ -1,0 +1,1 @@
+upstream: https://github.com/avidrucker/lccjs @ 167b063c0c10e4f19ed4117c175504e8d865bb25 (2026-07-13). Local changes: CLAUDE.md renamed to CLAUDE.upstream.md, .git removed. Do not edit otherwise; the harness in tools/ subclasses it.

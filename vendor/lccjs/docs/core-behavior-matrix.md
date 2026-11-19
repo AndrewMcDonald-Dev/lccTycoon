@@ -1,0 +1,221 @@
+# Core Behavior Matrix
+
+_Audience: contributors, AI agents · Tier: reference_
+
+This document records the current behavior contract for the `src/core` modules.
+
+It is intentionally descriptive, not aspirational. Its purpose is to separate:
+
+- behavior we actively preserve
+- behavior that belongs only to CLI/file wrappers
+- behavior exposed by pure in-memory APIs
+- behavior that is still under oracle/parity research
+
+## Classification Legend
+
+- `Preserve`: current LCC.js behavior that should remain stable during refactors
+- `Wrapper-only`: behavior that belongs to CLI/file-orchestration paths, not pure APIs
+- `Pure API`: behavior exposed by in-memory reusable methods
+- `Research`: behavior that is still ambiguous, intentionally custom, or not yet fully reconciled with original LCC
+
+## Assembler
+
+### Parsing and validation
+
+- `Preserve`: direct `assembler.js` accepts `.a`, `.bin`, and `.hex`
+- `Preserve`: direct `assembler.js` rejects non-`.a` textual source with `Unsupported file type`
+- `Preserve`: direct `assembler.js` rejects `.ap` with the `assemblerPlus.js` guidance message
+- `Preserve`: duplicate labels are errors
+- `Preserve`: undefined labels are errors
+- `Preserve`: label names are case-sensitive
+- `Preserve`: comments-only and whitespace-only source files do not crash
+- `Preserve`: line length over 300 raw characters is an error in current LCC.js
+- `Preserve`: `.org` is implemented for forward gaps by padding with zero words
+- `Preserve`: backward `.org` is rejected with `Backward address on .org`
+- `Preserve`: invalid non-numeric `.org` operands are rejected with `Invalid number for .org directive`
+- `Preserve`: repeated forward `.org` directives within range are allowed
+- `Research`: original LCC behavior for the 300-character limit
+- `Research`: whether original LCC has a true label-length limit distinct from the per-line limit
+- `Research`: whether `.orig` should be treated as a synonym for `.org`
+- `Research`: whether LCC.js should match oracle’s 1-byte `o` artifact on certain `.org` failures
+
+### `.word` operand spacing
+
+Tokenizer splits on whitespace and commas; `+`/`-` are NOT delimiters.
+
+| Form              | Accepted | Notes                                                    |
+|-------------------|----------|----------------------------------------------------------|
+| `.word N`         | ✓        | integer literal                                          |
+| `.word label`     | ✓        | resolves to label address                                |
+| `.word label+N`   | ✓        | one token; `parseLabelWithOffset` extracts offset        |
+| `.word label + N` | ✓        | three tokens; joined to `label+N` before evaluation     |
+| `.word +`         | ✗        | caught before pass 2: "Missing operand"                  |
+| `.word label +N`  | ⚠        | two tokens; `+N` is silently ignored; only label resolved |
+
+- `Preserve`: `.word N`, `.word label`, `.word label+N`, `.word label + N` are accepted
+- `Research`: `.word label +N` (spaced unary) silently ignores the `+N` suffix — not guarded
+
+### `.string` escape sequences (#157)
+
+Supported escape set is identical to the oracle's; the divergence is in how
+*unknown* escapes are handled. Full evidence: `docs/research/string-escape-parity.md`.
+
+| Escape | Accepted | Byte | Notes |
+|--------|----------|------|-------|
+| `\n` `\t` `\r` `\\` `\"` | ✓ | `0a 09 0d 5c 22` | byte-for-byte identical to oracle |
+| `\0` `\a` `\b` `\f` `\v` `\'` | ✗ | — | `Unknown escape sequence: \X` (oracle: silently drops the `\`, keeps the literal char) |
+| `\x41` (hex), `\101` (octal) | ✗ | — | neither toolchain honors C numeric escapes; oracle emits `x41`/`101` literally |
+
+- `Preserve`: the `\n \t \r \\ \"` set (matches oracle; shipped demos rely on `\n`).
+  The #157 headline ("`.string` rejects `\n`") is **non-reproducible**.
+- `By design`: lccjs **rejects** unknown escapes with a clear diagnostic where the
+  oracle silently drops the backslash — lccjs stricter-is-safer (see
+  `docs/parity_deviations.md` BY DESIGN). The error is `Unknown escape sequence`,
+  never `Missing terminating quote`.
+
+### `ret` offset-operand spacing
+
+The tokenizer splits on whitespace and commas; `+` and `-` are not delimiters.
+
+| Form        | Accepted | Notes                                          |
+|-------------|----------|------------------------------------------------|
+| `ret`       | ✓        | offset defaults to 0                           |
+| `ret 3`     | ✓        | offset = 3                                     |
+| `ret +3`    | ✓        | `+3` parsed as integer +3 by `parseInt`        |
+| `ret -3`    | ✓        | `-3` parsed as integer -3                      |
+| `ret+3`     | ✗        | `ret+3` is one token → unknown mnemonic        |
+| `ret+ 3`    | ✗        | `ret+` is the mnemonic token → unknown         |
+| `ret + 3`   | ✗        | `+` becomes operands[0] → `Bad number`         |
+
+- `Preserve`: `ret N`, `ret +N`, `ret -N` are the accepted offset forms (N in [-32..31])
+- `Preserve`: `ret+N` (no space) is rejected as an unknown mnemonic, not a spacing variant
+
+### Operand type checking
+
+- `Preserve`: `evaluateOperand` currently accepts any syntactic form (num, char, label, star) for any mnemonic — no per-instruction type restrictions are enforced at the assembler level
+- `Pure API`: `determineOperandType(operand)` classifies a raw operand token as `'num'`, `'char'`, `'label'`, or `'star'` without evaluating it; this is the foundation for future per-mnemonic schemas
+- `Research`: which operand type mismatches the oracle actually rejects (e.g., char literal as branch target, raw number as the only operand to a branch) — required before per-mnemonic schemas can be safely enforced without oracle parity risk
+
+### Object modules and output
+
+- `Preserve`: `.global` / `.extern` can cause `.o` output
+- `Preserve`: object-module flow writes `.o`, `.lst`, and `.bst`
+- `Pure API`: `assembleSource(...)` returns structured output metadata, words, bytes, and optional reports
+- `Pure API`: `toOutputBuffer()` returns serialized output bytes without writing files
+- `Pure API`: `buildReportArtifacts(...)` returns report strings without writing files
+
+### Error boundary
+
+- `Preserve`: pure assembly paths throw typed `AssemblerError` failures
+- `Wrapper-only`: CLI argument validation and usage output
+- `Wrapper-only`: source file reads
+- `Wrapper-only`: output file writes
+- `Wrapper-only`: `name.nnn` lookup/creation when report artifacts are written
+
+## Interpreter
+
+### Executable loading and runtime
+
+- `Preserve`: direct `interpreter.js` only accepts `.e` inputs
+- `Preserve`: invalid `.e` signature is rejected before `.lst` / `.bst` paths are printed
+- `Preserve`: division by zero reports `Floating point exception`
+- `Preserve`: unsupported trap vectors are runtime errors
+- `Preserve`: infinite-loop detection is active
+- `Preserve`: `disableInfiniteLoopDetection = false` by default; set to `true` to skip the `maxSteps` cap entirely (used by InterpreterPlus for long-running `.ap` game loops)
+- `Preserve`: pure in-memory execution does not enter debug mode automatically
+- `Preserve`: CLI runtime debugging is TTY-gated
+- `Preserve`: `debugMode` is testable via `interpreter.inputBuffer` — `readLineFromStdin()` reads from the buffer when set, so tests can exercise the symbolic debugger by pre-loading debug commands (e.g. `'q\n'` to quit immediately)
+- `Preserve`: `bp` is no longer treated as a fatal unimplemented trap in the CLI path
+- `Pure API`: `executeBuffer(...)` executes without requiring sibling files
+- `Pure API`: `executeBuffer(...)` returns structured runtime state and optional reports
+- `Pure API`: `buildReportArtifacts(...)` returns report strings without writing files
+
+### Header parsing
+
+- `Preserve`: invalid signature is an executable-format error
+- `Preserve`: incomplete `S`, `G`, and `A` entries are executable-format errors
+- `Preserve`: unknown header entries are executable-format errors
+- `Preserve`: `loadPoint` affects memory placement and PC calculation
+
+### Error boundary
+
+- `Preserve`: pure interpreter paths throw typed `InvalidExecutableFormatError` or `InterpreterRuntimeError`
+- `Wrapper-only`: CLI option parsing
+- `Wrapper-only`: executable file reads
+- `Wrapper-only`: report file writes
+- `Wrapper-only`: `name.nnn` creation only when stats are being written
+
+### Research
+
+- `Research`: exact oracle `bp` continuation / prompt behavior in non-interactive runs
+- `Research`: exact oracle `sext` semantics
+- `Research`: full symbolic debugger parity
+
+## LCC
+
+### Orchestration
+
+- `Preserve`: `.hex` and `.bin` assemble then execute
+- `Preserve`: `.e` executes directly
+- `Preserve`: first `.o` argument routes to linking behavior
+- `Preserve`: `.a` and other textual source routes through assembly
+- `Preserve`: `.a` files that assemble to `.e` are then executed automatically
+- `Preserve`: `.a` files that assemble to `.o` are not executed
+
+### Multi-file `.a` input
+
+When `lcc foo.a bar.a` is invoked with multiple non-`.o` source files:
+
+- `Preserve`: only `args[0]` (`foo.a`) is assembled and (if `.e`) executed
+- `Research`: remaining `.a` args are silently ignored — OG LCC likely behaves the same (one source → one `.e`), but this has not been oracle-verified
+- `Research`: if OG LCC does assemble multiple `.a` files to multiple `.e/.o`, LCC.js would need a multi-file pass loop in `lcc.js`
+
+### Report and `name.nnn` behavior
+
+- `Preserve`: `name.nnn` is only needed when reports are actually written
+- `Preserve`: linking object files does not require `name.nnn`
+- `Preserve`: `name.nnn` resolution is based on the current working directory, matching oracle behavior
+- `Wrapper-only`: report file naming and report writes
+
+### Error boundary
+
+- `Wrapper-only`: `lcc.js` remains an orchestration CLI and owns wrapper error/exit mapping
+
+## Linker
+
+### Linker output location and default name
+
+Oracle research (2026-05-26) — both oracle tools write the output to the **CWD**,
+not to the directory of the first `.o` file:
+
+| Invocation | Oracle default name | LCC.js default name | Matches? |
+|---|---|---|---|
+| `lcc foo.o bar.o` | `link.e` in CWD | `link.e` in CWD | ✅ |
+| `linker foo.o bar.o` | `linktest.e` in CWD | `link.e` in CWD | ❌ name differs |
+
+- `Preserve`: when linking via `lcc.js`, default output is `link.e` in the CWD — matches oracle `lcc`
+- `Preserve`: output is always in the CWD, regardless of where the `.o` files are located — matches both oracle tools (issue #3 requested the `.o` dir; that would diverge from oracle)
+- `Preserve`: `-o` overrides the default output name and location
+- `Research`: standalone `linker.js` default name is `link.e`; oracle standalone `linker` binary defaults to `linktest.e` — a name-only parity gap for the standalone path
+
+### Current stable behavior
+
+- `Preserve`: object modules are expected to begin with `o`
+- `Preserve`: duplicate global symbols are errors
+- `Preserve`: undefined external references are errors
+- `Preserve`: `-o` overrides the default linker output name
+- `Pure API`: `parseObjectModuleBuffer(buffer, filename)` parses object-module bytes and throws typed `LinkerError` failures
+
+### Current limitations
+
+- `Preserve`: the main linker flow is still more wrapper-oriented than assembler/interpreter
+- `Research`: whether to add more pure seams or keep the linker mostly wrapper-oriented in the short term
+
+## Testing Implications
+
+The current testing strategy should continue to split coverage as follows:
+
+- unit tests for pure helpers and pure API behavior
+- integration tests for wrapper behavior and file artifacts
+- oracle/e2e tests for compatibility checks
+- research-marked skipped tests for ambiguous behavior

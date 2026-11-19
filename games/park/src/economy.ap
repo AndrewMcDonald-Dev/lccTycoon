@@ -1,0 +1,71 @@
+; ---------------------------------------------------------------------
+; Module: economy (prefix eco_) — owner WP4. Money on thousands + units
+; (st_cash_k/u etc., see defs.ap "Units"), calendar, monthly upkeep,
+; wages, loan interest, monthly report accumulators. Amounts passed in
+; registers are $ 0..32767 (one word); totals are K/U pairs.
+; Only this module writes st_cash_*, st_loan_*, st_mon_*, st_last_*,
+; st_value_*, st_tick/day/month/year, st_new_day/st_new_month.
+; All routines: args r0..r4, result r0, all other registers preserved.
+;
+;; eco_init       ()             -> -        cash START_CASH_K, loan START_LOAN_K, fee ENTRY_FEE_DEF, calendar day 1 START_MONTH year 1, accumulators 0
+;; eco_can_afford r0=$          -> r0=1 cash >= $, else 0
+;; eco_spend      r0=$          -> r0=1 spent, 0 refused (cash < $; nothing changes)   adds to st_mon_exp
+;; eco_pay        r0=$          -> -        forced expense (upkeep, wages, interest): cash may go negative; adds to st_mon_exp
+;; eco_earn       r0=$          -> -        income: adds to cash and st_mon_inc
+;; eco_borrow     ()            -> r0=1 ok, 0 at MAX_LOAN_K   +LOAN_STEP_K thousand to cash and loan
+;; eco_repay      ()            -> r0=1 ok, 0 no loan / no cash   -LOAN_STEP_K thousand from cash and loan
+;; eco_tick       ()            -> -        advance one tick: st_tick, day/month/year rollover; st_new_day/st_new_month = 1 only during the tick a day/month starts; on a new month: ride upkeep (RTI_UPKEEP), staff wages, loan interest, st_mon_* → st_last_*, ride R_AGE+1
+;; eco_money_text r0=buf r1=k r2=u -> r0=buf   format K/U money as "$12,345" / "-$250" (NUL-terminated, ≤ 10 words)
+;; eco_cash_text  r0=buf        -> r0=buf   eco_money_text of st_cash_k/u
+;; eco_date_text  r0=buf        -> r0=buf   "Mar 12, Y1" (NUL-terminated, ≤ 12 words)
+; ---------------------------------------------------------------------
+
+; WP0 stub: money never moves, the calendar stands still.
+eco_init:
+        ret
+
+eco_can_afford:
+        mov r0, 0
+        ret
+
+eco_spend:
+        mov r0, 0
+        ret
+
+eco_pay:
+        ret
+
+eco_earn:
+        ret
+
+eco_borrow:
+        mov r0, 0
+        ret
+
+eco_repay:
+        mov r0, 0
+        ret
+
+eco_tick:
+        ret
+
+eco_money_text:
+        push r1
+        mov r1, 0
+        str r1, r0, 0
+        pop r1
+        ret
+
+eco_cash_text:
+        push r1
+        mov r1, 0
+        str r1, r0, 0
+        pop r1
+        ret
+
+eco_date_text:
+        push r1
+        mov r1, 0
+        str r1, r0, 0
+        pop r1
+        ret

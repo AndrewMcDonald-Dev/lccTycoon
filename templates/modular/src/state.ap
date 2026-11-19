@@ -1,0 +1,9 @@
+; Shared game state (data only). Owner: architect. Prefix st_.
+; Every module reads/writes these cells; document new ones here.
+st_px:      .word 5             ; player column
+st_py:      .word 5             ; player row
+st_screen:  .word SCR_COLS      ; display block header (cols, rows, top, left)
+        .word SCR_ROWS
+        .word 0
+        .word 0
+st_cells:   .zero SCR_COLS*SCR_ROWS

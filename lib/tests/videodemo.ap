@@ -1,0 +1,61 @@
+; Exercises lib/video.ap; checked by videodemo.test.json
+        .lccplus
+        .start main
+        .include "video_defs.ap"
+        .define W 12
+        .define H 6
+main:
+        lea r0, scr
+        bl video_bind
+        ld r0, c_bg
+        bl video_clear
+        mov r0, 0
+        mov r1, 0
+        mov r2, H
+        mov r3, W
+        ld r4, a_box
+        bl video_box
+        mov r0, 1
+        mov r1, 1
+        lea r2, s_hi
+        ld r3, a_text
+        bl video_text
+        mov r0, 2
+        mov r1, 1
+        mov r2, -42
+        ld r3, a_text
+        bl video_num
+        mov r0, 3
+        mov r1, 1
+        mov r2, 2
+        mov r3, 3
+        ld r4, c_wall
+        bl video_fill
+        mov r0, 3                ; clipped: partly outside the block
+        mov r1, 10
+        mov r2, 5
+        mov r3, 5
+        ld r4, c_wall
+        bl video_fill
+        mov r0, -1               ; fully outside: ignored
+        mov r1, 0
+        ld r2, c_wall
+        bl video_put
+        mov r0, 2
+        mov r1, 1
+        bl video_get
+        st r0, got
+        bl video_present
+        halt
+c_bg:   .word G_DOT|FG_GRAY
+c_wall: .word G_BLOCK|FG_GREEN
+a_box:  .word FG_YELLOW
+a_text: .word FG_BWHITE|BG_BLUE
+s_hi:   .string "Hi!"
+got:    .word 0
+scr:    .word W
+        .word H
+        .word 0
+        .word 0
+scr_cells: .zero W*H
+        .include "video.ap"

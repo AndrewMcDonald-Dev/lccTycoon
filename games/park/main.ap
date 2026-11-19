@@ -1,0 +1,118 @@
+; =====================================================================
+; Park Builder — entry point + frame loop. Owner: architect. Prefix main_.
+; Modules live in src/ (one owner each, see game.json); contracts are the
+; ';;' lines in each module header (node tools/lccgame.js api games/park).
+;
+; Frame (DESIGN.md "Frame loop & timing"):
+;   inp_handle → [not paused: st_speed × main_tick] → ren_draw → cst_draw
+;   → ui_tick → ui_draw → win_draw → video_present → sleep FRAME_MS
+; main_tick: eco_tick → pth_update → ride_tick → gst_tick → stf_tick
+;   → cst_tick → (new day: scn_rate, scn_check)
+;
+;; main_start  (entry)  init all modules, title, frame loop; halts on confirmed quit
+;; main_tick   ()       one simulation tick of every module (called st_speed× per frame)
+; =====================================================================
+        .lccplus
+        .start main_start
+        .include "video_defs.ap"
+        .include "src/defs.ap"
+
+main_start:
+        clear
+        mov r0, 0
+        cursor r0
+        millis r0
+        srand r0
+        lea r0, st_screen
+        bl video_bind
+        bl scn_title            ; r0 = chosen scenario (own frames)
+        mov r4, r0
+        bl map_init
+        bl eco_init
+        bl ride_init
+        bl gst_init
+        bl stf_init
+        bl pth_init
+        mov r0, r4
+        bl scn_start
+        mov r0, GAME_PLAY
+        st r0, st_game_state
+
+main_loop:
+        bl inp_handle           ; r0 = 1: quit confirmed
+        cmp r0, 0
+        brnz main_quit
+        ld r0, st_paused
+        cmp r0, 0
+        brnz main_render
+        ld r1, st_speed         ; ticks this frame
+main_tick_lp:
+        cmp r1, 0
+        brz main_render
+        brn main_render
+        bl main_tick
+        sub r1, r1, 1
+        br main_tick_lp
+main_render:
+        bl ren_draw
+        bl cst_draw
+        bl ui_tick
+        bl ui_draw
+        bl win_draw
+        bl video_present
+        ld r0, st_frame
+        add r0, r0, 1
+        st r0, st_frame
+        mov r0, FRAME_MS
+        sleep r0
+        ld r0, st_game_state    ; won/lost: end screen decides quit or keep playing
+        cmp r0, GAME_PLAY
+        brz main_loop
+        bl scn_end_screen       ; r0 = 1: quit
+        cmp r0, 0
+        brnz main_quit
+        br main_loop
+main_quit:
+        clear
+        mov r0, 1
+        cursor r0
+        halt
+
+; ---- one simulation tick ----------------------------------------------------
+main_tick:
+        push r0
+        push lr
+        bl eco_tick
+        bl pth_update
+        bl ride_tick
+        bl gst_tick
+        bl stf_tick
+        bl cst_tick
+        ld r0, st_new_day
+        cmp r0, 0
+        brz main_tick_done
+        bl scn_rate
+        bl scn_check
+main_tick_done:
+        pop lr
+        pop r0
+        ret
+
+; ---- modules (state first: it is used by everything) ---------------------------
+        .include "src/state.ap"
+        .include "src/map.ap"
+        .include "src/render.ap"
+        .include "src/ui.ap"
+        .include "src/input.ap"
+        .include "src/build.ap"
+        .include "src/economy.ap"
+        .include "src/rides.ap"
+        .include "src/path.ap"
+        .include "src/guests.ap"
+        .include "src/windows.ap"
+        .include "src/coaster.ap"
+        .include "src/staff.ap"
+        .include "src/scenario.ap"
+; ---- stdlib ---------------------------------------------------------------------
+        .include "video.ap"
+        .include "util.ap"

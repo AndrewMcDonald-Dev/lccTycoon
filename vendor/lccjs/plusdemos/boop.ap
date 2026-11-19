@@ -1,0 +1,11 @@
+; boop.ap: demonstrates the LCC+ `boop` logging/testing trap.
+; `boop` takes no operands and writes the fixed string "Boop!\n" to stdout.
+; It is distinct from `bop`, the sound-slot-6 alias (see sounds.ap).
+; Run:  node src/plus/lccplus.js plusdemos/boop.ap
+        .lccplus
+        lea r0, msg
+        sout r0
+        nl
+        boop            ; writes "Boop!\n" to stdout
+        halt
+msg:    .string "boop.ap: invoking the boop trap..."

@@ -1,0 +1,317 @@
+; =====================================================================
+; lib/video.ap — drawing into a text-mode display block (see the
+; `present` trap in lcc-game-dev). Include at the END of a game; include
+;; video_defs.ap at the TOP for the color/glyph constants.
+;
+; A display block is:   scr:  .word COLS, ROWS, TOP, LEFT   (4 words)
+;                       scr_cells: .zero COLS*ROWS
+; (write the four header words as separate .word lines)
+;
+; Bind once, then draw with row/col coordinates (0-based, clipped: drawing
+; outside the block is silently ignored), then present once per frame.
+;
+; Convention: args r0..r4, result in r0 where noted, all else preserved.
+;; video_bind     r0=block                       select the block to draw into
+;; video_present  (none)                         present the bound block
+;; video_clear    r0=cell                        fill every cell (fast)
+;; video_put      r0=row r1=col r2=cell          set one cell
+;; video_get      r0=row r1=col -> r0=cell       (0 if outside)
+;; video_addr     r0=row r1=col -> r0=address    of the cell (0 if outside)
+;; video_text     r0=row r1=col r2=str r3=attr   NUL-terminated string; each
+;                                                 cell = char | attr (attr = FG_x|BG_x)
+;; video_num      r0=row r1=col r2=value r3=attr signed decimal (-32767..32767)
+;; video_fill     r0=row r1=col r2=h r3=w r4=cell   filled rectangle
+;; video_box      r0=row r1=col r2=h r3=w r4=attr   single-line box outline (h,w >= 2)
+;
+; Cost (fast core ~100M instr/s; upstream lccjs ~5M): video_clear ~5
+; instructions/cell, video_put ~25, video_text ~35/char, video_fill ~40/cell.
+; For big per-frame redraws (maps) write cells directly: base = video_addr(row, 0).
+; =====================================================================
+
+video_bind:
+        push r1
+        st r0, vid_block
+        ldr r1, r0, 0
+        st r1, vid_cols
+        ldr r1, r0, 1
+        st r1, vid_rows
+        add r1, r0, 4
+        st r1, vid_base
+        pop r1
+        ret
+
+video_present:
+        push r0
+        ld r0, vid_block
+        present r0
+        pop r0
+        ret
+
+video_clear:
+        push r1
+        push r2
+        push r3
+        ld r1, vid_base
+        ld r2, vid_cols
+        ld r3, vid_rows
+        mul r2, r3
+video_clear_lp:
+        cmp r2, 0
+        brz video_clear_done
+        str r0, r1, 0
+        add r1, r1, 1
+        sub r2, r2, 1
+        br video_clear_lp
+video_clear_done:
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+video_addr:
+        push r1
+        push r2
+        cmp r0, 0
+        brn video_addr_out
+        ld r2, vid_rows
+        cmp r0, r2
+        brlt video_addr_rowok
+        br video_addr_out
+video_addr_rowok:
+        cmp r1, 0
+        brn video_addr_out
+        ld r2, vid_cols
+        cmp r1, r2
+        brlt video_addr_colok
+        br video_addr_out
+video_addr_colok:
+        mul r0, r2
+        add r0, r0, r1
+        ld r2, vid_base
+        add r0, r0, r2
+        br video_addr_ret
+video_addr_out:
+        mov r0, 0
+video_addr_ret:
+        pop r2
+        pop r1
+        ret
+
+video_put:
+        push r0
+        push lr
+        bl video_addr
+        cmp r0, 0
+        brz video_put_skip
+        str r2, r0, 0
+video_put_skip:
+        pop lr
+        pop r0
+        ret
+
+video_get:
+        push lr
+        bl video_addr
+        cmp r0, 0
+        brz video_get_done
+        ldr r0, r0, 0
+video_get_done:
+        pop lr
+        ret
+
+video_text:
+        push r1
+        push r2
+        push r4
+        push lr
+        mov r4, r2              ; r4 = string pointer
+video_text_lp:
+        ldr r2, r4, 0
+        cmp r2, 0
+        brz video_text_done
+        or r2, r3               ; cell = char | attr
+        bl video_put
+        add r1, r1, 1
+        add r4, r4, 1
+        br video_text_lp
+video_text_done:
+        pop lr
+        pop r4
+        pop r2
+        pop r1
+        ret
+
+video_num:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        ; stack: sp+0 lr, +1 r4, +2 r3 attr, +3 r2 value, +4 r1 col, +5 r0 row
+        lea r4, vid_numend      ; digits are written backwards from here
+        mov r0, r2
+        mov r3, 0               ; r3 = negative flag
+        cmp r0, 0
+        brp video_num_digits
+        bre video_num_digits
+        mov r3, 1
+        not r0, r0
+        add r0, r0, 1
+video_num_digits:
+        mov r1, r0
+        mov r2, 10
+        rem r1, r2
+        mov r2, 48              ; '0'
+        add r1, r1, r2
+        sub r4, r4, 1
+        str r1, r4, 0
+        mov r2, 10
+        div r0, r2
+        cmp r0, 0
+        brnz video_num_digits
+        cmp r3, 0
+        brz video_num_out
+        sub r4, r4, 1
+        mov r1, 45              ; '-'
+        str r1, r4, 0
+video_num_out:
+        ldr r0, sp, 5
+        ldr r1, sp, 4
+        mov r2, r4
+        ldr r3, sp, 2
+        bl video_text
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+video_fill:
+        push r0
+        push r1
+        push r2
+        push r3
+        push lr
+        ; stack: sp+0 lr, +1 r3 w, +2 r2 h, +3 r1 col, +4 r0 row
+video_fill_row:
+        cmp r2, 0
+        brz video_fill_done
+        brn video_fill_done
+        ldr r1, sp, 3
+        ldr r3, sp, 1
+video_fill_col:
+        cmp r3, 0
+        brz video_fill_next
+        brn video_fill_next
+        push r2
+        mov r2, r4
+        bl video_put
+        pop r2
+        add r1, r1, 1
+        sub r3, r3, 1
+        br video_fill_col
+video_fill_next:
+        add r0, r0, 1
+        sub r2, r2, 1
+        br video_fill_row
+video_fill_done:
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+video_box:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        ; stack: sp+0 lr, +1 r4 attr, +2 r3 w, +3 r2 h, +4 r1 col, +5 r0 row
+        ; top edge
+        ldr r0, sp, 5
+        ldr r1, sp, 4
+        add r1, r1, 1
+        mov r2, 1
+        ldr r3, sp, 2
+        sub r3, r3, 2
+        mov r4, 196             ; ─
+        bl video_box_attr
+        bl video_fill
+        ; bottom edge
+        ldr r2, sp, 3
+        add r0, r0, r2
+        sub r0, r0, 1
+        mov r2, 1
+        bl video_fill
+        ; left edge
+        ldr r0, sp, 5
+        add r0, r0, 1
+        ldr r1, sp, 4
+        ldr r2, sp, 3
+        sub r2, r2, 2
+        mov r3, 1
+        mov r4, 179             ; │
+        bl video_box_attr
+        bl video_fill
+        ; right edge
+        ldr r3, sp, 2
+        add r1, r1, r3
+        sub r1, r1, 1
+        mov r3, 1
+        bl video_fill
+        ; corners
+        ldr r0, sp, 5
+        ldr r1, sp, 4
+        mov r2, 218             ; ┌
+        bl video_box_attr2
+        bl video_put
+        ldr r3, sp, 2
+        add r1, r1, r3
+        sub r1, r1, 1
+        mov r2, 191             ; ┐
+        bl video_box_attr2
+        bl video_put
+        ldr r3, sp, 3
+        add r0, r0, r3
+        sub r0, r0, 1
+        mov r2, 217             ; ┘
+        bl video_box_attr2
+        bl video_put
+        ldr r1, sp, 4
+        mov r2, 192             ; └
+        bl video_box_attr2
+        bl video_put
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+; helpers for video_box: OR the saved attr (caller's sp+1, i.e. sp+2 here
+; because bl pushed nothing but we are one call deeper with lr in r7 only)
+video_box_attr:                 ; r4 |= attr
+        push r0
+        ldr r0, sp, 2           ; caller frame: sp+1 (attr) shifted by our push
+        or r4, r0
+        pop r0
+        ret
+video_box_attr2:                ; r2 |= attr
+        push r0
+        ldr r0, sp, 2
+        or r2, r0
+        pop r0
+        ret
+
+vid_block:  .word 0
+vid_base:   .word 0
+vid_cols:   .word 0
+vid_rows:   .word 0
+vid_numbuf: .zero 6
+vid_numend: .word 0

@@ -1,0 +1,31 @@
+{
+  "game": "../main.ap",
+  "size": "24x80",
+  "scenarios": [
+    { "name": "first frame shows HUD: day, cash, inventory, price, help", "frames": 1,
+      "expect": { "status": "frames-complete",
+        "memory": { "state": 0, "day": 1, "cash": 2000, "lemons": 0, "price": 50 },
+        "screen": { "contains": ["LEMONADE STAND TYCOON", "Day 1 of 7", "Cash:    $20.00", "Lemons:    0", "Price:   $0.50", "g go  q quit"] } } },
+    { "name": "w raises price by 5c", "keys": "w w",
+      "expect": { "memory": { "price": 60 }, "screen": { "contains": ["Price:   $0.60"] } } },
+    { "name": "s lowers price by 5c", "keys": "s s s",
+      "expect": { "memory": { "price": 35 }, "screen": { "contains": ["Price:   $0.35"] } } },
+    { "name": "price clamps at $1.00", "keys": "w*20",
+      "expect": { "memory": { "price": 100 }, "screen": { "contains": ["Price:   $1.00"] } } },
+    { "name": "price clamps at 5c", "keys": "s*20",
+      "expect": { "memory": { "price": 5 }, "screen": { "contains": ["Price:   $0.05"] } } },
+    { "name": "several keys in one frame are all handled", "keys": "wwb",
+      "expect": { "memory": { "price": 60, "lemons": 10, "cash": 1750 } } },
+    { "name": "b buys 10 lemons for $2.50", "keys": "b b",
+      "expect": { "memory": { "lemons": 20, "cash": 1500, "spent": 500, "msg": 0 },
+        "screen": { "contains": ["Cash:    $15.00", "Lemons:   20"] } } },
+    { "name": "g with no lemons is refused", "keys": "g",
+      "expect": { "memory": { "day": 1, "msg": 2, "cash": 2000 },
+        "screen": { "contains": ["No lemons - buy some first!", "Day 1 of 7"] } } },
+    { "name": "q during planning goes to the final screen", "keys": "q",
+      "expect": { "status": "frames-complete", "memory": { "state": 1 },
+        "screen": { "contains": ["=== FINAL SCORE ===", "Days played:  0"], "notContains": ["Day 1 of 7"] } } },
+    { "name": "q on the final screen exits", "keys": "q _ q",
+      "expect": { "status": "halted", "screen": { "contains": ["Thanks for playing Lemonade Stand Tycoon!"] } } }
+  ]
+}

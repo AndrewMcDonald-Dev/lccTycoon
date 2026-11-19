@@ -1,0 +1,23 @@
+{
+  "game": "../main.ap",
+  "size": "24x80",
+  "scenarios": [
+    { "name": "can't buy more than cash allows", "keys": "b*9",
+      "expect": { "memory": { "lemons": 80, "cash": 0, "msg": 1 },
+        "screen": { "contains": ["Not enough cash!", "Cash:    $0.00"] } } },
+    { "name": "at 5c every customer buys: sells out exactly (RNG-independent)", "keys": "s*9 b g",
+      "expect": { "memory": { "price": 5, "sold": 10, "lemons": 0, "revenue": 50,
+                              "cash": 1800, "spent": 0, "day": 2, "total_sold": 10, "state": 0 },
+        "screen": { "contains": ["Day 2 of 7", "10 cups sold", "Revenue: $0.50", "Cash:    $18.00"] } } },
+    { "name": "same result for a different RNG seed", "keys": "s*9 b g", "clock": 777,
+      "expect": { "memory": { "sold": 10, "cash": 1800, "lemons": 0 } } },
+    { "name": "day result: cash = start - spent + price*sold (seeded run pinned)", "keys": "w b b g",
+      "expect": { "memory": { "price": 55, "customers": 25, "sold": 20, "revenue": 1100,
+                              "cash": 2600, "lemons": 0, "day": 2 },
+        "screen": { "contains": ["Last day: 25 customers, 20 cups sold", "Revenue: $11.00", "Cash:    $26.00"] } } },
+    { "name": "sales capped by customers when stock is plentiful", "keys": "s*9 b*6 g",
+      "expect": { "memory": { "customers": 25, "sold": 25, "lemons": 35, "revenue": 125, "cash": 625 } } },
+    { "name": "leftover lemons carry over to the next day", "keys": "w*10 b*3 g",
+      "expect": { "memory": { "price": 100, "day": 2, "cash": 1250, "lemons": 30 } } }
+  ]
+}

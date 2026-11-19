@@ -1,0 +1,48 @@
+{
+  "title": "__NAME__",
+  "entry": "main.ap",
+  "size": "30x100",
+  "budget": {
+    "words": 48000
+  },
+  "modules": {
+    "main.ap": {
+      "prefix": "main_",
+      "owner": "architect",
+      "description": "entry point and frame loop",
+      "skills": [
+        "lcc-architect"
+      ]
+    },
+    "src/defs.ap": {
+      "prefix": [],
+      "owner": "architect",
+      "description": "shared .define constants only (no labels)",
+      "skills": [
+        "lcc-architect"
+      ]
+    },
+    "src/state.ap": {
+      "prefix": "st_",
+      "owner": "architect",
+      "description": "all shared game state (data only)",
+      "skills": [
+        "lcc-architect"
+      ]
+    },
+    "src/player.ap": {
+      "prefix": "ply_",
+      "owner": "unassigned",
+      "description": "player movement",
+      "skills": []
+    },
+    "src/render.ap": {
+      "prefix": "ren_",
+      "owner": "unassigned",
+      "description": "draws the frame into the display block",
+      "skills": [
+        "lcc-text-graphics"
+      ]
+    }
+  }
+}

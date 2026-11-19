@@ -1,0 +1,72 @@
+; ---------------------------------------------------------------------
+; Module: rides (prefix ride_) — owner WP7. Ride/stall type catalog
+; (static table of RT_COUNT records × RTI_SIZE words, fields RTI_* in
+; defs.ap, names, original content), ride records in st_rides (R_*),
+; operation cycle, queues, boarding/unloading, stall sales, income.
+; Guests in a ride's queue have G_STATE=GS_QUEUE, G_TARGET=ride; boarding
+; sets GS_RIDE and G_TIMER; unloading puts them on the exit tile in GS_WALK.
+; All routines: args r0..r4, result r0, all other registers preserved.
+;
+;; ride_init      ()                  -> -              clear st_rides, st_ride_count = 0
+;; ride_type_info r0=type             -> r0=catalog record address (RTI_* fields), 0 if not 1..RT_COUNT-1
+;; ride_new       r0=type r1=x r2=y   -> r0=ride index, -1 if pool full   allocate + fill a record from the catalog (footprint at x,y; status RS_CLOSED, price RTI_PRICE, reliability 100); no map or money changes
+;; ride_free      r0=index            -> -              clear the record (guests targeting it are sent to GS_WALK)
+;; ride_addr      r0=index            -> r0=record address (st_rides + index<<RIDE_SHIFT)
+;; ride_at        r0=x r1=y           -> r0=ride index whose footprint/entrance/exit covers (x,y), -1 none
+;; ride_name      r0=index            -> r0=NUL-terminated type name ("" for a free slot)
+;; ride_set_price r0=index r1=$       -> -              clamp 0..PRICE_MAX and store R_PRICE
+;; ride_toggle    r0=index            -> r0=new R_STATUS   RS_CLOSED <-> RS_OPEN (broken/building unchanged)
+;; ride_enqueue   r0=index r1=guest   -> r0=1 joined, 0 refused (closed/broken)   guest → GS_QUEUE, R_QUEUE+1
+;; ride_buy       r0=index r1=guest   -> r0=1 bought, 0 refused (closed / guest cash < price)   stall sale: guest pays (eco_earn), needs updated per RTI_GOODS
+;; ride_tick      ()                  -> -              one tick for every open ride: board from queue (charging R_PRICE), run cycle, unload, income (R_INC_*, R_MON_INC, R_TOTAL), breakdown chance from R_RELIAB
+; ---------------------------------------------------------------------
+
+; WP0 stub: no catalog, no rides.
+ride_init:
+        ret
+
+ride_type_info:
+        mov r0, 0
+        ret
+
+ride_new:
+        mov r0, -1
+        ret
+
+ride_free:
+        ret
+
+ride_addr:
+        push r1
+        sll r0, RIDE_SHIFT
+        lea r1, st_rides
+        add r0, r0, r1
+        pop r1
+        ret
+
+ride_at:
+        mov r0, -1
+        ret
+
+ride_name:
+        lea r0, ride_s_none
+        ret
+ride_s_none: .string ""
+
+ride_set_price:
+        ret
+
+ride_toggle:
+        mov r0, RS_CLOSED
+        ret
+
+ride_enqueue:
+        mov r0, 0
+        ret
+
+ride_buy:
+        mov r0, 0
+        ret
+
+ride_tick:
+        ret

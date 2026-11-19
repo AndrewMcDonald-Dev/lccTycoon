@@ -1,0 +1,43 @@
+; Harness self-test: far references are rewritten and behave like near ones.
+        .lccplus
+        .start main
+        .define BIG 1100
+main:
+        mov r0, 7
+        st r0, farval           ; far st (r0 source -> temp r1)
+        mov r1, 9
+        st r1, farval2          ; far st (r1 source -> temp r0)
+        ld r2, farval           ; far ld
+        lea r3, farstr          ; far lea
+        ldr r3, r3, 0           ; first char of farstr
+        bl farfn                ; far call: r0 = r0 + 1
+        st r0, res_call
+        st r2, res_ld
+        st r3, res_lea
+        mov r0, 0
+        cmp r0, 0
+        brz farlabel            ; far conditional branch, taken
+        mov r4, -1
+        st r4, res_br
+        halt
+back:   mov r4, 1
+        st r4, res_br
+        mov r0, 5
+        cmp r0, 0
+        brz farlabel            ; far conditional branch, not taken
+        mov r4, 2
+        st r4, res_br2
+        halt
+res_call: .word 0
+res_ld:   .word 0
+res_lea:  .word 0
+res_br:   .word 0
+res_br2:  .word 0
+        .zero BIG
+farval:   .word 0
+farval2:  .word 0
+farstr:   .string "Z"
+farfn:    add r0, r0, 1
+        ret
+farlabel:
+        br back                 ; far unconditional branch back

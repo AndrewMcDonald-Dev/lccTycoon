@@ -1,0 +1,43 @@
+; ---------------------------------------------------------------------
+; Module: path (prefix pth_) — owner WP8. Breadth-first distance fields
+; over walkable tiles (map_walkable) and next-step queries for guests and
+; staff. Owns its scratch (distance field + BFS queue, ~6K words) as
+; private data in this file. Fields are rebuilt only when st_map_dirty=1
+; (pth_update clears it); queries never run a BFS of their own unless the
+; target's field is not cached.
+; All routines: args r0..r4, result r0, all other registers preserved.
+;
+;; pth_init       ()                     -> -          reset caches; st_map_dirty = 1
+;; pth_update     ()                     -> -          if st_map_dirty: invalidate/rebuild fields, st_map_dirty = 0
+;; pth_next       r0=x r1=y r2=tx r3=ty  -> r0=DIR_* first step from (x,y) toward (tx,ty) along walkable tiles, DIR_NONE if unreachable or already there
+;; pth_dist       r0=x r1=y r2=tx r3=ty  -> r0=steps, -1 if unreachable
+;; pth_to_gate    r0=x r1=y              -> r0=DIR_* first step toward the park gate (st_gate_x/y), DIR_NONE if unreachable
+;; pth_random_dir r0=x r1=y              -> r0=random walkable DIR_* from (x,y), DIR_NONE if boxed in
+; ---------------------------------------------------------------------
+
+; WP0 stub: nothing is reachable.
+pth_init:
+        ret
+
+pth_update:
+        push r0
+        mov r0, 0
+        st r0, st_map_dirty
+        pop r0
+        ret
+
+pth_next:
+        mov r0, DIR_NONE
+        ret
+
+pth_dist:
+        mov r0, -1
+        ret
+
+pth_to_gate:
+        mov r0, DIR_NONE
+        ret
+
+pth_random_dir:
+        mov r0, DIR_NONE
+        ret

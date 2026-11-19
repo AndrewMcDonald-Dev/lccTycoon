@@ -1,0 +1,102 @@
+name: Build and deploy site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      # browser bundle sources — CI rebuilds the bundle, so a change here must
+      # redeploy (#1075). dist/** covers a manually re-committed bundle/lang file.
+      - 'src/browser/**'
+      - 'src/lang-lcc/**'
+      - 'dist/**'
+      - 'webpack.browser.config.js'
+      # grammar + theme assets
+      - 'docs/lcc.tmLanguage.json'
+      - 'docs/themes/**'
+      # curated + LCC+ samples (exact files, not wildcards)
+      - 'demos/helloWorld.a'
+      - 'plusdemos/charTypewriter.ap'
+      # alphabet demo suite — every letter is rendered by build-site.js
+      - 'demos/demoA.a'
+      - 'demos/demoB.a'
+      - 'demos/demoC.a'
+      - 'demos/demoD.a'
+      - 'demos/demoE.a'
+      - 'demos/demoF.a'
+      - 'demos/demoG.a'
+      - 'demos/demoH.a'
+      - 'demos/demoI.a'
+      - 'demos/demoJ.a'
+      - 'demos/demoK.a'
+      - 'demos/demoL.a'
+      - 'demos/demoM.a'
+      - 'demos/demoN.a'
+      - 'demos/demoO.a'
+      - 'demos/demoP.a'
+      - 'demos/demoQ.a'
+      - 'demos/demoR.a'
+      - 'demos/demoS.a'
+      - 'demos/demoT.a'
+      - 'demos/demoU.a'
+      - 'demos/demoV.a'
+      - 'demos/demoW.a'
+      - 'demos/demoX.a'
+      - 'demos/demoY.a'
+      - 'demos/demoZ.a'
+      # folder-based doc sections (wildcard correct — all .md files rendered)
+      - 'docs/research/**'
+      - 'docs/learnings/**'
+      - 'docs/glossary/**'
+      # explicit parity docs
+      - 'docs/parity_deviations.md'
+      - 'docs/cuh63-nocomma-negative-operand-family-bug-report.md'
+      - 'docs/cuh63-ldr-str-silent-miscompile-bug-report.md'
+      - 'docs/cuh63-mov-immediate-bug-report.md'
+      - 'docs/cuh63-line-length-silent-split-bug-report.md'
+      - 'docs/cuh63-o-assemble-exit-code-bug-report.md'
+      # workflow docs
+      - 'docs/claude_workflow.md'
+      # build script itself
+      - 'scripts/build-site.js'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - run: npm ci
+      # Build the browser bundle FRESH in CI so the deployed playground engine can
+      # never lag src/browser/** (the #985/#986 silent-staleness class). build:site
+      # then copies the fresh dist/ artifacts into docs/site/. (#1075)
+      - run: npm run build:browser
+      - run: npm run build:site
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,42 @@
+; Unit driver for src/map.ap (WP1 owns and extends this file).
+; Pattern: include only defs, state and the module under test (plus any
+; module it calls, or a stub of your own in tests/unit/), call routines,
+; store each result in a drv_* cell, halt; map.test.json checks the cells.
+; The assertions below hold for the WP0 stub *and* the real module
+; (out-of-bounds handling); WP1 adds in-bounds cases.
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+drv_main:
+        bl map_init
+        mov r0, -1              ; x = -1: outside
+        mov r1, 0
+        bl map_in_bounds
+        st r0, drv_inb_left
+        mov r0, MAP_W           ; x = 64: outside
+        mov r1, 0
+        bl map_addr
+        st r0, drv_addr_right
+        mov r0, 0               ; y = 48: outside
+        mov r1, MAP_H
+        bl map_index
+        st r0, drv_idx_bottom
+        mov r0, 0
+        mov r1, -1              ; y = -1: outside
+        bl map_walkable
+        st r0, drv_walk_top
+        mov r0, MAP_W-2         ; 4x4 footprint hanging off the east edge
+        mov r1, 10
+        mov r2, 4
+        mov r3, 4
+        bl map_area_free
+        st r0, drv_area_edge
+        halt
+drv_inb_left:   .word 99
+drv_addr_right: .word 99
+drv_idx_bottom: .word 99
+drv_walk_top:   .word 99
+drv_area_edge:  .word 99
+        .include "../../src/state.ap"
+        .include "../../src/map.ap"

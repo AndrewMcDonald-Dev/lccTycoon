@@ -1,0 +1,7 @@
+{
+  "game": "player_driver.ap",
+  "scenarios": [
+    { "name": "keys in one frame all apply", "keys": "ddds", "expect": { "memory": { "st_px": 8, "st_py": 6, "drv_result": 0 } } },
+    { "name": "q reports quit", "keys": "q", "expect": { "status": "halted", "memory": { "drv_result": 1 } } }
+  ]
+}

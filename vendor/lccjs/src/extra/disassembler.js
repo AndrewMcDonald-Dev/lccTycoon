@@ -1,0 +1,857 @@
+#!/usr/bin/env node
+
+// disassembler.js
+// LCC.js Disassembler - Execution Order Processing with WIP Disassembly
+
+const fs = require('fs');
+const { fatalExit } = require('../utils/cliExit');
+
+// Main Disassembler Class
+class Disassembler {
+    constructor() {
+        // Register names
+        this.registerNames = ['r0', 'r1', 'r2', 'r3', 'r4', 'fp', 'sp', 'lr'];
+
+        // Label Counters
+        this.codeLabelCounter = 1;
+        this.dataLabelCounter = 1;
+
+        // Label Mapping: address -> label (e.g., {0: '@L1', 3: '@D1'})
+        this.labels = {};
+
+        // Processed Addresses
+        this.processedAddresses = new Set();
+
+        // Disassembled Code Lines
+        this.disassembledCode = [];
+
+        // WIP Disassembly Data Structure: address -> {macword, label, opcode, operands, mnemonic, value}
+        this.WIPDisassembly = {};
+
+        // Link Register Stack (to handle nested BL/RET)
+        this.linkRegisterStack = [];
+
+        // Machine Words Array
+        this.machineWords = [];
+
+        // Queue for Addresses to Process
+        this.queue = [];
+
+        // Start Address (if provided)
+        this.startAddress = null;
+    }
+
+    // Main Disassembler Function
+    disassemble(fileName) {
+        this.readBinaryFile(fileName);
+        this.initializeDisassembly();
+        this.processInstructions();
+        this.adjustZeroDirectives();
+        this.outputDisassembledCode();
+    }
+
+    // Reads the binary file and populates machine words
+    readBinaryFile(fileName) {
+        let buffer;
+        try {
+            buffer = fs.readFileSync(fileName);
+        } catch (err) {
+            fatalExit(`Cannot open file ${fileName}`, 1);
+        }
+
+        let offset = 0;
+        const fileSize = buffer.length;
+
+        // Parse Header
+        if (buffer[offset++] !== 'o'.charCodeAt(0)) {
+            fatalExit('Invalid file signature', 1);
+        }
+
+        // Read header entries until 'C' is encountered
+        while (offset < fileSize) {
+            const entryType = String.fromCharCode(buffer[offset++]);
+
+            if (entryType === 'C') {
+                break;
+            }
+
+            if (entryType === 'S') {
+                // Read next 2 bytes as start address (little endian)
+                if (offset + 1 >= fileSize) {
+                    fatalExit('Unexpected end of file while reading start address', 1);
+                }
+                this.startAddress = buffer.readUInt16LE(offset);
+                offset += 2;
+                continue;
+            }
+
+            if (['G', 'E', 'V'].includes(entryType)) {
+                // Skip address (2 bytes) and null-terminated string
+                offset += 2; // Skip address
+                while (offset < fileSize && buffer[offset++] !== 0);
+                if (buffer[offset - 1] !== 0) {
+                    fatalExit(`Invalid file: ${entryType} entry label has no null terminator`, 1);
+                }
+                continue;
+            }
+
+            if (entryType === 'A') {
+                // Skip address (2 bytes)
+                offset += 2;
+                continue;
+            }
+
+            fatalExit(`Unknown header entry type: ${entryType}`, 1);
+        }
+
+        // Read Machine Words (16-bit, little endian)
+        while (offset + 1 < fileSize) {
+            const word = buffer.readUInt16LE(offset);
+            this.machineWords.push(word);
+            offset += 2;
+        }
+    }
+
+    // Initializes WIP Disassembly and the processing queue
+    initializeDisassembly() {
+        // Initialize WIP Disassembly
+        for (let i = 0; i < this.machineWords.length; i++) {
+            this.WIPDisassembly[i] = {
+                macword: this.machineWords[i].toString(16).padStart(4, '0').toUpperCase(),
+            };
+        }
+
+        // Initialize Processing Queue and Labels
+        if (this.startAddress !== null) {
+            // Assign @L1 to startAddress
+            this.assignLabel(this.startAddress, 'code');
+            this.disassembledCode.push(''.padEnd(7) + `.start ${this.labels[this.startAddress]}`);
+            this.queue.push(this.startAddress);
+        } else {
+            // No start address; begin at address 0
+            this.queue.push(0);
+        }
+    }
+
+    // Processes instructions in execution order
+    processInstructions() {
+        while (this.queue.length > 0) {
+            const currentAddress = this.queue.shift();
+
+            // Skip already processed addresses
+            if (this.processedAddresses.has(currentAddress)) {
+                continue;
+            }
+
+            this.processedAddresses.add(currentAddress);
+
+            // Fetch Machine Word
+            const word = this.machineWords[currentAddress];
+            if (word === undefined) {
+                console.warn(`Warning: No machine word found at address ${currentAddress}`);
+                continue;
+            }
+
+            // Check if the address is a data label
+            if (this.labels[currentAddress] && this.labels[currentAddress].startsWith('@D')) {
+                // Process data
+                this.processData(currentAddress);
+                continue; // No need to process further
+            }
+
+            // Disassemble Instruction
+            const { mnemonic, operands } = this.disassembleInstruction(currentAddress, word);
+
+            // Update WIP Disassembly
+            this.WIPDisassembly[currentAddress].opcode = mnemonic;
+            this.WIPDisassembly[currentAddress].operands = operands;
+
+            // Add Label if Exists
+            if (this.labels[currentAddress]) {
+                this.WIPDisassembly[currentAddress].label = this.labels[currentAddress];
+            }
+
+            // Handle Instruction Types
+            const opcode = (word >> 12) & 0xF;
+
+            switch (opcode) {
+                case 0x4: // BL or BLR
+                    this.handleBL(currentAddress, word);
+                    break;
+                case 0x2: // LD
+                case 0x3: // ST
+                case 0xE: // LEA
+                    this.handleDataInstruction(currentAddress, word);
+                    break;
+                case 0xC: // JMP or RET
+                    this.handleJMPRET(currentAddress, word);
+                    break;
+                case 0xF: // TRAP
+                    this.handleTrap(currentAddress, word);
+                    break;
+                default:
+                    this.enqueueNextAddress(currentAddress);
+            }
+        }
+    }
+
+    // Adjusts .zero directives to account for labels within the zero range.
+    // Labels are sorted ascending; updating zeroCount on each match means each
+    // subsequent label is re-checked against the already-reduced range, so multiple
+    // labels in one block are all handled without a break.
+    adjustZeroDirectives() {
+        const addresses = Object.keys(this.WIPDisassembly).map(Number).sort((a, b) => a - b);
+        const labelAddresses = Object.keys(this.labels).map(Number).sort((a, b) => a - b);
+
+        for (const addr of addresses) {
+            const entry = this.WIPDisassembly[addr];
+            if (entry.mnemonic !== '.zero') continue;
+
+            const zeroStart = addr;
+            let zeroCount = entry.count;
+
+            // Check for labels within the zero range (excluding the starting address).
+            for (const labelAddr of labelAddresses) {
+                if (labelAddr <= zeroStart || labelAddr >= zeroStart + zeroCount) continue;
+                // Adjust zeroCount to stop before the label.
+                const adjustedCount = labelAddr - zeroStart;
+                if (adjustedCount <= 0) continue;
+                entry.count = adjustedCount;
+                zeroCount = adjustedCount;
+            }
+        }
+    }
+
+    // Outputs the final disassembled code
+    outputDisassembledCode() {
+        const finalDisassembly = [];
+        const addresses = Object.keys(this.WIPDisassembly).map(Number).sort((a, b) => a - b);
+
+        for (const addr of addresses) {
+            const entry = this.WIPDisassembly[addr];
+            const prefix = entry.label ? `${entry.label}:`.padEnd(7) : ''.padEnd(7);
+            const line = prefix + this.formatEntryBody(entry);
+            if (line.trim() !== '') {
+                finalDisassembly.push(line);
+            }
+        }
+
+        // Prepend the .start line
+        if (this.startAddress !== null) {
+            finalDisassembly.unshift(this.disassembledCode[0]);
+        }
+        console.log('\nFinal Disassembled Code:');
+        finalDisassembly.forEach(line => console.log(line));
+    }
+
+    // Formats the body of a disassembly line (the part after the label column):
+    // a directive (.string/.zero/.word), an opcode + optional operands, or the
+    // placeholder for a label-only address. Returns '' when there is no body.
+    formatEntryBody(entry) {
+        if (entry.mnemonic) {
+            switch (entry.mnemonic) {
+                case '.string': return `.string ${JSON.stringify(entry.value)}`;
+                case '.zero':   return `.zero ${entry.count}`;
+                case '.word':   return `.word ${entry.value}`;
+                default:        return entry.mnemonic;
+            }
+        }
+        if (entry.opcode) {
+            return entry.operands ? `${entry.opcode} ${entry.operands}` : `${entry.opcode}`;
+        }
+        if (entry.label) {
+            return '; Empty label';
+        }
+        return '';
+    }
+
+    // Assigns a label to an address based on its type ('code' or 'data')
+    assignLabel(address, type) {
+        if (this.labels[address]) {
+            return this.labels[address];
+        }
+        const label = type === 'code'
+            ? `@L${this.codeLabelCounter++}`
+            : `@D${this.dataLabelCounter++}`;
+        this.labels[address] = label;
+        this.WIPDisassembly[address].label = label;
+        return label;
+    }
+
+    // Disassembles a single machine word into its mnemonic and operands
+    disassembleInstruction(address, word) {
+        const opcode = (word >> 12) & 0xF;
+        let mnemonic = '???';
+        let operands = '';
+
+        switch (opcode) {
+            case 0x0: // BR
+                ({ mnemonic, operands } = this.disassembleBR(address, word));
+                break;
+            case 0x1: // ADD
+                ({ mnemonic, operands } = this.disassembleADD(word));
+                break;
+            case 0x2: // LD
+                ({ mnemonic, operands } = this.disassembleLD(address, word));
+                break;
+            case 0x3: // ST
+                ({ mnemonic, operands } = this.disassembleST(address, word));
+                break;
+            case 0x4: // BL/BLR
+                ({ mnemonic, operands } = this.disassembleBL(address, word));
+                break;
+            case 0x5: // AND
+                ({ mnemonic, operands } = this.disassembleAND(word));
+                break;
+            case 0x6: // LDR
+                ({ mnemonic, operands } = this.disassembleLDR(word));
+                break;
+            case 0x7: // STR
+                ({ mnemonic, operands } = this.disassembleSTR(word));
+                break;
+            case 0x8: // CMP
+                ({ mnemonic, operands } = this.disassembleCMP(word));
+                break;
+            case 0x9: // NOT
+                ({ mnemonic, operands } = this.disassembleNOT(word));
+                break;
+            case 0xA: // PUSH/POP/SRL/SRA/SLL/ROL/ROR/MUL/DIV/REM/OR/XOR/MVR/SEXT
+                ({ mnemonic, operands } = this.disassembleCase10(word));
+                break;
+            case 0xB: // SUB
+                ({ mnemonic, operands } = this.disassembleSUB(word));
+                break;
+            case 0xC: // JMP/RET
+                ({ mnemonic, operands } = this.disassembleJMPRET(word));
+                break;
+            case 0xD: // MVI
+                ({ mnemonic, operands } = this.disassembleMVI(word));
+                break;
+            case 0xE: // LEA    
+                ({ mnemonic, operands } = this.disassembleLEA(address, word));
+                break;
+            case 0xF: // TRAP
+                ({ mnemonic, operands } = this.disassembleTRAP(word));
+                break;
+            default:
+                mnemonic = '???';
+                operands = '';
+        }
+
+        return { mnemonic, operands };
+    }
+
+    // Disassembles BL and BLR instructions
+    disassembleBL(address, word) {
+        const bit11 = (word >> 11) & 0x1;
+        if (bit11 === 0) { // BLR or JSRR
+            const baseR = (word >> 6) & 0x7;
+            const offset6 = this.signExtend(word & 0x3F, 6);
+            const operands = offset6 !== 0
+                ? `${this.registerNames[baseR]}, ${offset6}`
+                : `${this.registerNames[baseR]}`;
+            return { mnemonic: 'blr', operands };
+        }
+        // BL
+        const pcoffset11 = this.signExtend(word & 0x7FF, 11);
+        const targetAddress = (address + 1 + pcoffset11) & 0xFFFF;
+        const targetLabel = this.getOrAssignCodeLabel(targetAddress);
+        return { mnemonic: 'bl', operands: `${targetLabel}` };
+    }
+
+    // Disassembles BR instruction
+    disassembleBR(address, word) {
+        const cc = (word >> 9) & 0x7;
+        const pcoffset9 = this.signExtend(word & 0x1FF, 9);
+        const targetAddress = (address + 1 + pcoffset9) & 0xFFFF;
+        const mnemonic = this.getBranchMnemonic(cc);
+        const operands = `${this.getOrAssignCodeLabel(targetAddress)}`;
+        return { mnemonic, operands };
+    }
+
+    // Disassembles JMP and RET instructions
+    // | jmp | 1100  000  baser offset6 | | pc = baser + offset6 |
+    // | ret | 1100  000  111   offset6 | | pc = lr + offset6 |
+    disassembleJMPRET(word) {
+        const baseR = (word >> 6) & 0x7;
+        const offset6 = this.signExtend(word & 0x3F, 6);
+        if (baseR === 7 && offset6 === 0) {
+            return { mnemonic: 'ret', operands: '' };
+        }
+        // JMP
+        const operands = offset6 !== 0
+            ? `${this.registerNames[baseR]}, ${offset6}`
+            : `${this.registerNames[baseR]}`;
+        return { mnemonic: 'jmp', operands };
+    }
+
+    // Disassembles ADD instruction
+    disassembleADD(word) {
+        const dr = (word >> 9) & 0x7;
+        const sr1 = (word >> 6) & 0x7;
+        const mode = (word >> 5) & 0x1;
+        if (mode !== 0) {
+            const imm5 = this.signExtend(word & 0x1F, 5);
+            return { mnemonic: 'add', operands: `${this.registerNames[dr]}, ${this.registerNames[sr1]}, ${imm5}` };
+        }
+        const sr2 = word & 0x7;
+        return { mnemonic: 'add', operands: `${this.registerNames[dr]}, ${this.registerNames[sr1]}, ${this.registerNames[sr2]}` };
+    }
+
+    disassembleMVI(word) {
+        const dr = (word >> 9) & 0x7;
+        const imm9 = this.signExtend(word & 0x1FF, 9);
+        const operands = `${this.registerNames[dr]}, ${imm9}`;
+        const mnemonic = 'mvi';
+        return { mnemonic, operands };
+    }
+
+    // | ldr | 0110  dr   baser offset6 | | dr = mem[baser + offset6] |
+    // | str | 0111  sr   baser offset6 | | mem[baser + offset6] = sr |
+    disassembleLDR(word) {
+        const dr = (word >> 9) & 0x7;
+        const baseR = (word >> 6) & 0x7;
+        const offset6 = this.signExtend(word & 0x3F, 6);
+        const operands = `${this.registerNames[dr]}, ${this.registerNames[baseR]}, ${offset6}`;
+        const mnemonic = 'ldr';
+        return { mnemonic, operands };
+    }
+
+    disassembleSTR(word) {
+        const sr = (word >> 9) & 0x7;
+        const baseR = (word >> 6) & 0x7;
+        const offset6 = this.signExtend(word & 0x3F, 6);
+        const operands = `${this.registerNames[sr]}, ${this.registerNames[baseR]}, ${offset6}`;
+        const mnemonic = 'str';
+        return { mnemonic, operands };
+    }
+
+    // Disassembles case 10 instructions
+    // case 0xA: // PUSH/POP/SRL/SRA/SLL/ROL/ROR/MUL/DIV/REM/OR/XOR/MVR/SEXT
+    /*
+    | push | 1010  sr   0000 00000 | | mem[--sp] = sr |
+    | pop | 1010  dr   0000 00001 | | dr = mem[sp++] |
+    | srl | 1010  sr   ct   00010 | nzc | sr >> ct (0 inserted on left, c=last out) |
+    | sra | 1010  sr   ct   00011 | nzc | sr >> ct (sign bit replicated, c=last out) |
+    | sll | 1010  sr   ct   00100 | nzc | sr << ct (0 inserted on right, c=last out) |
+    | rol | 1010  sr   ct   00101 | nzc | sr << ct (rotate: bit 15 → bit 0, c=last out) |
+    | ror | 1010  sr   ct   00110 | nzc | sr << ct (rotate: bit 0 → bit 15, c=last out) |
+    | mul | 1010  dr   sr 0 00111 | nz | dr = dr * sr |
+    | div | 1010  dr   sr 0 01000 | nz | dr = dr / sr |
+    | rem | 1010  dr   sr 0 01001 | nz | dr = dr % sr |
+    | or | 1010  dr   sr 0 01010 | nz | dr = dr \| sr (bitwise OR) |
+    | xor | 1010  dr   sr 0 01011 | nz | dr = dr ^ sr (bitwise exclusive OR) |
+    | mvr | 1010  dr   sr 0 01100 | | dr = sr |
+    | sext | 1010  dr   sr 0 01101 | nz | dr sign extended  (sr specifies field to extend) |
+    */
+    // ct is a 4-bit shift count field (if omitted at the assembly level, it defaults to 1).  
+    disassembleCase10(word) {
+        const eopCode = word & 0x1F;
+        const sr_dr = (word >> 9) & 0x7;
+        const sr1 = (word >> 6) & 0x7;
+        let mnemonic;
+        let operands;
+        switch(eopCode) {
+            case 0x00: // PUSH
+                mnemonic = 'push';
+                operands = `${this.registerNames[sr_dr]}`;
+                break;
+            case 0x01: // POP
+                mnemonic = 'pop';
+                operands = `${this.registerNames[sr_dr]}`;
+                break;
+            case 0x02: // SRL
+                mnemonic = 'srl';
+                operands = `${this.registerNames[sr_dr]}`;
+                break;
+            case 0x03: // SRA
+                mnemonic = 'sra';
+                operands = `${this.registerNames[sr_dr]}`;
+                break;
+            case 0x04: // SLL
+                mnemonic = 'sll';
+                operands = `${this.registerNames[sr_dr]}`;
+                break;
+            case 0x05: // ROL
+                mnemonic = 'rol';
+                operands = `${this.registerNames[sr_dr]}`;
+                break;
+            case 0x06: // ROR
+                mnemonic = 'ror';
+                operands = `${this.registerNames[sr_dr]}`;
+                break;
+            case 0x07: // MUL
+                mnemonic = 'mul';
+                operands = `${this.registerNames[sr_dr]}, ${this.registerNames[sr1]}`;
+                break;
+            case 0x08: // DIV
+                mnemonic = 'div';
+                operands = `${this.registerNames[sr_dr]}, ${this.registerNames[sr1]}`;
+                break;
+            case 0x09: // REM
+                mnemonic = 'rem';
+                operands = `${this.registerNames[sr_dr]}, ${this.registerNames[sr1]}`;
+                break;
+            case 0x0A: // OR
+                mnemonic = 'or';
+                operands = `${this.registerNames[sr_dr]}, ${this.registerNames[sr1]}`;
+                break;
+            case 0x0B: // XOR
+                mnemonic = 'xor';
+                operands = `${this.registerNames[sr_dr]}, ${this.registerNames[sr1]}`;
+                break;
+            case 0x0C: // MVR
+                mnemonic = 'mvr';
+                operands = `${this.registerNames[sr_dr]}, ${this.registerNames[sr1]}`;
+                break;
+            case 0x0D: // SEXT
+                mnemonic = 'sext';
+                operands = `${this.registerNames[sr_dr]}, ${this.registerNames[sr1]}`;
+                break;
+            default:
+                mnemonic = '???';
+                operands = '';
+        }
+        return { mnemonic, operands };
+    }
+
+    // Disassembles NOT instruction
+    disassembleNOT(word) {
+        const dr = (word >> 9) & 0x7;
+        const sr1 = (word >> 6) & 0x7;
+        const operands = `${this.registerNames[dr]}, ${this.registerNames[sr1]}`;
+        const mnemonic = 'not';
+        return { mnemonic, operands };
+    }
+
+     // Disassembles SUB instruction
+     disassembleSUB(word) {
+        const dr = (word >> 9) & 0x7;
+        const sr1 = (word >> 6) & 0x7;
+        const mode = (word >> 5) & 0x1;
+        if (mode !== 0) {
+            const imm5 = this.signExtend(word & 0x1F, 5);
+            return { mnemonic: 'sub', operands: `${this.registerNames[dr]}, ${this.registerNames[sr1]}, ${imm5}` };
+        }
+        const sr2 = word & 0x7;
+        return { mnemonic: 'sub', operands: `${this.registerNames[dr]}, ${this.registerNames[sr1]}, ${this.registerNames[sr2]}` };
+    }
+
+     // Disassembles AND instruction
+     disassembleAND(word) {
+        const dr = (word >> 9) & 0x7;
+        const sr1 = (word >> 6) & 0x7;
+        const mode = (word >> 5) & 0x1;
+        if (mode !== 0) {
+            const imm5 = this.signExtend(word & 0x1F, 5);
+            return { mnemonic: 'and', operands: `${this.registerNames[dr]}, ${this.registerNames[sr1]}, ${imm5}` };
+        }
+        const sr2 = word & 0x7;
+        return { mnemonic: 'and', operands: `${this.registerNames[dr]}, ${this.registerNames[sr1]}, ${this.registerNames[sr2]}` };
+    }
+
+    disassembleCMP(word) {
+        const sr1 = (word >> 6) & 0x7;
+        const mode = (word >> 5) & 0x1;
+        if (mode !== 0) {
+            const imm5 = this.signExtend(word & 0x1F, 5);
+            return { mnemonic: 'cmp', operands: `${this.registerNames[sr1]}, ${imm5}` };
+        }
+        const sr2 = word & 0x7;
+        return { mnemonic: 'cmp', operands: `${this.registerNames[sr1]}, ${this.registerNames[sr2]}` };
+    }
+
+    // Disassembles LD instruction
+    disassembleLD(address, word) {
+        const dr = (word >> 9) & 0x7;
+        const pcoffset9 = this.signExtend(word & 0x1FF, 9);
+        const dataAddress = (address + 1 + pcoffset9) & 0xFFFF;
+        const dataLabel = this.getOrAssignDataLabel(dataAddress);
+        const operands = `${this.registerNames[dr]}, ${dataLabel}`;
+        const mnemonic = 'ld';
+        return { mnemonic, operands };
+    }
+
+    disassembleST(address, word) { 
+        const sr = (word >> 9) & 0x7;
+        const pcoffset9 = this.signExtend(word & 0x1FF, 9);
+        const dataAddress = (address + 1 + pcoffset9) & 0xFFFF;
+        const dataLabel = this.getOrAssignDataLabel(dataAddress);
+        const operands = `${this.registerNames[sr]}, ${dataLabel}`;
+        const mnemonic = 'st';
+        return { mnemonic, operands };
+    }
+
+    disassembleLEA(address, word) {
+        const dr = (word >> 9) & 0x7;
+        const pcoffset9 = this.signExtend(word & 0x1FF, 9);
+        const targetAddress = (address + 1 + pcoffset9) & 0xFFFF;
+        const targetLabel = this.getOrAssignDataLabel(targetAddress);
+        const mnemonic = 'lea';
+        const operands = `${this.registerNames[dr]}, ${targetLabel}`;
+        return { mnemonic, operands };
+    }
+
+    // Disassembles TRAP instruction
+    disassembleTRAP(word) {
+        const trapvect8 = word & 0xFF;
+        const dr_sr = (word >> 9) & 0x7;
+        const trapInfo = this.getTrapInfo(trapvect8);
+        if (!trapInfo) {
+            return { mnemonic: 'trap', operands: `${trapvect8}` };
+        }
+        return { mnemonic: trapInfo.mnemonic, operands: trapInfo.needsRegister ? `${this.registerNames[dr_sr]}` : '' };
+    }
+
+    // Handles BL (Branch and Link) Instructions
+    handleBL(currentAddress, word) {
+        const pcoffset11 = this.signExtend(word & 0x7FF, 11);
+        const targetAddress = (currentAddress + 1 + pcoffset11) & 0xFFFF;
+        // Save link register (address of next instruction)
+        const linkAddress = currentAddress + 1;
+        this.linkRegisterStack.push(linkAddress);
+        // Enqueue target address
+        this.queue.unshift(targetAddress);
+        // Enqueue next instruction after BL instruction at end of queue
+        this.enqueueNextAddress(currentAddress);
+    }
+
+    // Handles Data Instructions (LD, ST, LEA)
+    handleDataInstruction(currentAddress, word) {
+        const nextAddress = currentAddress + 1;
+        const opcode = (word >> 12) & 0xF;
+        if (![0x2, 0x3, 0xE].includes(opcode)) return;
+        const pcoffset9 = this.signExtend(word & 0x1FF, 9);
+        const dataAddress = (currentAddress + 1 + pcoffset9) & 0xFFFF;
+        // Always enqueue dataAddress for processing
+        this.queue.unshift(dataAddress);
+        // Enqueue next instruction address
+        this.queue.push(nextAddress);
+    }
+
+    // Handles JMP and RET Instructions
+    handleJMPRET(currentAddress, word) {
+        const baseR = (word >> 6) & 0x7;
+        const offset6 = this.signExtend(word & 0x3F, 6);
+        if (baseR !== 7 || offset6 !== 0) { // JMP
+            this.enqueueNextAddress(currentAddress);
+            return;
+        }
+        // RET
+        if (this.linkRegisterStack.length === 0) {
+            console.warn(`Warning: RET encountered at ${currentAddress} with empty link register stack`);
+            return;
+        }
+        const returnAddress = this.linkRegisterStack.pop();
+        this.queue.unshift(returnAddress);
+    }
+
+    // Handles TRAP Instructions
+    handleTrap(currentAddress, word) {
+        const trapvect8 = word & 0xFF;
+        if (trapvect8 === 0x00) { // halt
+            this.WIPDisassembly[currentAddress].opcode = 'halt';
+        }
+        this.enqueueNextAddress(currentAddress);
+    }
+
+    // Enqueues the next sequential address for processing
+    enqueueNextAddress(currentAddress) {
+        const nextAddress = currentAddress + 1;
+        if (nextAddress < this.machineWords.length && !this.processedAddresses.has(nextAddress)) {
+            this.queue.push(nextAddress);
+        }
+    }
+
+    // Assigns or retrieves a code label for a given address
+    getOrAssignCodeLabel(address) {
+        if (this.labels[address]) {
+            return this.labels[address];
+        }
+        return this.assignLabel(address, 'code');
+    }
+
+    // Assigns or retrieves a data label for a given address
+    getOrAssignDataLabel(address) {
+        if (this.labels[address]) {
+            return this.labels[address];
+        }
+        return this.assignLabel(address, 'data');
+    }
+
+    // Processes Data Sections (e.g., Strings)
+    processData(address) {
+        const MAX_STRING_LENGTH = 32768; // defensive cap: upper bound is the 16-bit address space
+        const dataEntries = []; // Array to hold data entries
+        let str = ''; // String accumulator
+        let zeroCount = 0; // Counter for zeros
+        let strStartAddress = null; // Starting address of a string
+        let zeroStartAddress = null; // Starting address of zeros
+        let justFinishedString = false; // Flag to skip null terminator
+
+        // Flush helpers close over the accumulators above so the several sites that
+        // need to "emit a pending string / zero run" don't each repeat push+reset.
+        const flushString = () => {
+            if (str.length === 0) return;
+            dataEntries.push({ type: '.string', value: str, address: strStartAddress });
+            str = '';
+            strStartAddress = null;
+        };
+        const flushZeros = () => {
+            if (zeroCount === 0) return;
+            dataEntries.push({ type: '.zero', count: zeroCount, address: zeroStartAddress });
+            zeroCount = 0;
+            zeroStartAddress = null;
+        };
+
+        // A `for` loop (not `while`) so guard-clause `continue`s still advance the
+        // address, while `break` exits without advancing — matching the original.
+        for (let currentAddress = address; currentAddress < this.machineWords.length; currentAddress++) {
+            // A new label (other than the starting one) ends this data run.
+            if (this.labels[currentAddress] && currentAddress !== address) {
+                flushZeros();
+                break;
+            }
+
+            const word = this.machineWords[currentAddress];
+            const lowByte = word & 0xFF;
+
+            if (lowByte === 0) {
+                if (str.length > 0) {
+                    // A zero terminates the current string.
+                    flushString();
+                    justFinishedString = true;
+                    break;
+                }
+                if (justFinishedString) {
+                    // Skip the lone null terminator that followed a string.
+                    justFinishedString = false;
+                    continue;
+                }
+                // Otherwise accumulate a run of zeros.
+                if (zeroCount === 0) zeroStartAddress = currentAddress;
+                zeroCount++;
+                continue;
+            }
+
+            // Non-zero byte: any pending zero run ends here.
+            flushZeros();
+
+            if (this.isPrintableASCII(lowByte)) {
+                if (strStartAddress === null) strStartAddress = currentAddress;
+                str += String.fromCharCode(lowByte);
+                // Flush when the string exceeds the cap to bound memory usage.
+                if (str.length >= MAX_STRING_LENGTH) flushString();
+                continue;
+            }
+
+            // Non-printable byte: flush any pending string, emit a signed .word.
+            flushString();
+            dataEntries.push({ type: '.word', value: this.toSigned16Bit(word), address: currentAddress });
+        }
+
+        // After the loop, save any pending data entries (string before zeros, as before).
+        flushString();
+        flushZeros();
+
+        // Update WIPDisassembly with the data entries.
+        this.updateDisassemblyWithData(dataEntries);
+    }
+
+    // Updates WIPDisassembly with data entries
+    updateDisassemblyWithData(dataEntries) {
+        for (const entry of dataEntries) {
+            if (entry.type === '.string') {
+                this.WIPDisassembly[entry.address].mnemonic = '.string';
+                this.WIPDisassembly[entry.address].value = entry.value;
+            } else if (entry.type === '.zero') {
+                this.WIPDisassembly[entry.address].mnemonic = '.zero';
+                this.WIPDisassembly[entry.address].count = entry.count;
+            } else if (entry.type === '.word') {
+                this.WIPDisassembly[entry.address].mnemonic = '.word';
+                this.WIPDisassembly[entry.address].value = entry.value;
+            }
+
+            let entryLength = 1;
+            if (entry.type === '.zero') {
+                entryLength = entry.count;
+            } else if (entry.type === '.string') {
+                entryLength = entry.value.length + 1;
+            }
+            for (let i = 0; i < entryLength; i++) {
+                this.processedAddresses.add(entry.address + i);
+            }
+        }
+    }
+
+    // Utility Functions
+
+    // Sign-extends a value based on the bit count
+    signExtend(value, bitCount) {
+        const signBit = 1 << (bitCount - 1);
+        return (value & (signBit - 1)) - (value & signBit);
+    }
+
+    // Converts a 16-bit unsigned value to a signed integer
+    toSigned16Bit(value) {
+        return (value & 0x8000) ? value - 0x10000 : value;
+    }
+
+    // Retrieves the mnemonic for a given branch condition code
+    getBranchMnemonic(cc) {
+        const ccMap = {
+            0: 'brz',  // Branch if Zero
+            1: 'brnz', // Branch if Not Zero
+            2: 'brn',  // Branch if Negative
+            3: 'brp',  // Branch if Positive
+            4: 'brlt', // Branch if Less Than
+            5: 'brgt', // Branch if Greater Than
+            6: 'brc',  // Branch if Carry
+            7: 'br',   // Unconditional Branch
+        };
+        return ccMap[cc] || 'br';
+    }
+
+    // Retrieves Trap Information Based on Trap Vector
+    getTrapInfo(trapvect8) {
+        const trapMap = {
+            0x00: { mnemonic: 'halt', needsRegister: false },
+            0x01: { mnemonic: 'nl', needsRegister: false },
+            0x02: { mnemonic: 'dout', needsRegister: true },
+            0x03: { mnemonic: 'udout', needsRegister: true },
+            0x04: { mnemonic: 'hout', needsRegister: true },
+            0x05: { mnemonic: 'aout', needsRegister: true },
+            0x06: { mnemonic: 'sout', needsRegister: true },
+            0x07: { mnemonic: 'din', needsRegister: true },
+            0x08: { mnemonic: 'hin', needsRegister: true },
+            0x09: { mnemonic: 'ain', needsRegister: true },
+            0x0A: { mnemonic: 'sin', needsRegister: true },
+            0x0B: { mnemonic: 'm', needsRegister: false },
+            0x0C: { mnemonic: 'r', needsRegister: false },
+            0x0D: { mnemonic: 's', needsRegister: false },
+            0x0E: { mnemonic: 'bp', needsRegister: false },
+        };
+        return trapMap[trapvect8];
+    }
+
+    // Determines if a byte represents a printable ASCII character
+    isPrintableASCII(byte) {
+        return ((byte >= 32 && byte <= 126) || byte === 10); // Printable ASCII range
+    }
+}
+
+// Main Execution Entry Point
+if (require.main === module) {
+    if (process.argv.length !== 3) {
+        fatalExit('Usage: node disassembler.js <filename>', 1);
+    }
+
+    const fileName = process.argv[2];
+    const disassembler = new Disassembler();
+    disassembler.disassemble(fileName);
+}
+
+// Export seam: the class is otherwise reachable only via the CLI above.
+// The per-instruction disassemble*/signExtend methods are pure (word -> text),
+// which makes them unit-testable without file I/O — see tests/new/disassembler.unit.spec.js.
+module.exports = Disassembler;

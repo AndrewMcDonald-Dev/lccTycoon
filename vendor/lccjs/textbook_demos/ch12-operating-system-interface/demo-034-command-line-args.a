@@ -1,0 +1,76 @@
+; demo-034-command-line-args.a
+; Chapter 12: Operating System Interface
+; Concept: Accessing command-line arguments (argc, argv) passed to main.
+;
+; CALLING CONVENTION (LCC standard — same as all multi-arg functions):
+;   Caller pushes args RIGHT-TO-LEFT before bl; callee opens a frame with
+;   push lr / push fp / mov fp, sp.  Inside main:
+;     fp+2 = argc  (first arg,  pushed second = most-recently-pushed before bl)
+;     fp+3 = argv  (second arg, pushed first  = earlier push)
+;
+;   argv is a pointer to an array of string pointers; argv[i] = mem[argv + i].
+;
+;   In a real OS, a startup stub pushes argc and argv before calling main.
+;   Here we simulate that stub inline so the demo runs standalone.
+;
+; C equivalent: see demo-034-command-line-args.c (uses a matching hardcoded
+;   argv array so both sides produce identical deterministic output).
+;
+; Expected output (argc=3, argv=["prog","hello","world"], printed in reverse):
+;   world
+;   hello
+;   prog
+
+          .start startup
+
+; ── Argument strings ──────────────────────────────────────────────────────
+argv0:    .string "prog"
+argv1:    .string "hello"
+argv2:    .string "world"
+
+; ── argv pointer array: each word holds the address of one string ─────────
+argvArr:  .word argv0
+          .word argv1
+          .word argv2
+
+; ── Simulated OS startup: push argv then argc (right-to-left), call main ──
+startup:  lea  r0, argvArr  ; r0 = address of argv array
+          push r0             ; push argv  (→ fp+3 inside main)
+          mov  r0, 3         ; argc = 3
+          push r0             ; push argc  (→ fp+2 inside main)
+          bl   main
+          halt
+
+; ── main(argc, argv): print argv[i] for i = argc-1 down to 0 ─────────────
+main:     push lr
+          push fp
+          mov  fp, sp
+
+          ; int i = argc - 1
+          ldr  r0, fp, 2    ; r0 = argc
+          add  r0, r0, -1   ; i  = argc - 1
+          push r0            ; fp-1 = i
+
+@L0:      ldr  r0, fp, -1   ; r0 = i
+          cmp  r0, 0
+          brn  @L1           ; exit when i < 0
+
+          ; print argv[i]
+          ldr  r0, fp, 3    ; r0 = argv (base of pointer array)
+          ldr  r1, fp, -1   ; r1 = i
+          add  r0, r0, r1   ; r0 = &argv[i]
+          ldr  r0, r0, 0    ; r0 = argv[i]  (the string pointer)
+          sout r0
+          nl
+
+          ; i--
+          ldr  r0, fp, -1
+          sub  r0, r0, 1
+          str  r0, fp, -1
+          br   @L0
+
+@L1:      mov  r0, 0
+          mov  sp, fp
+          pop  fp
+          pop  lr
+          ret

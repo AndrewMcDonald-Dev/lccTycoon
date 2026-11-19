@@ -1,0 +1,41 @@
+# .pddignore — paths the PDD puzzle scanner (`npm run puzzles`) skips.
+# One glob per line (pdd --exclude syntax); blank lines and '#' comments ignored.
+#
+# Real puzzle markers are tracked everywhere NOT listed here. When a scanned
+# (code) file only *refers to* the marker keyword rather than declaring a real
+# puzzle, use the lowercase placeholder at_todo — see docs/claude_workflow.md
+# for the reason. The scanner is a dumb, case-sensitive substring matcher: it
+# trips on the UPPERCASE keyword even inside a larger token, so the placeholder
+# MUST be lowercase to stay invisible to the scan.
+
+# --- not our source / generated / repo copies ---
+node_modules/**
+.claude/**
+coverage/**
+package-lock.json
+
+# --- fixtures, throwaway, experiment/illustrative collections ---
+tests/goldens/**
+scratch/**
+experiments/**
+public_experiments/**
+
+# --- test spec files: they exercise/discuss the marker concept but don't own
+#     real puzzles; fixture strings legitimately contain marker-like content ---
+tests/**/*.spec.js
+
+# --- the scanner itself: its source must contain the literal marker to work ---
+scripts/puzzle-status.js
+
+# --- generated velocity dataset: copies the CSV notes column verbatim, which
+#     quotes the keyword while *describing* PDD mechanics (not real puzzles).
+#     The real stats puzzle lives in stats/enrich.py (a scanned .py file). ---
+stats/*.csv
+
+# --- this ignore-file: it is config, not source (and the wrapper feeds it in) ---
+.pddignore
+
+# --- markdown: saturated with natural-English uppercase mentions of the
+#     keyword; the few real doc-puzzles are GitHub-tracked instead ---
+docs/**
+*.md

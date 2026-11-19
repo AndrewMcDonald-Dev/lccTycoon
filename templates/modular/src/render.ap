@@ -1,0 +1,33 @@
+; ---------------------------------------------------------------------
+; Module: render (prefix ren_)
+;; ren_draw() — builds the whole frame in st_screen (does not present).
+; ---------------------------------------------------------------------
+ren_draw:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        ld r0, ren_floor
+        bl video_clear
+        mov r0, 0
+        mov r1, 0
+        mov r2, SCR_ROWS
+        mov r3, SCR_COLS
+        ld r4, ren_box_attr
+        bl video_box
+        ld r0, st_py
+        ld r1, st_px
+        ld r2, ren_player
+        bl video_put
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+ren_floor:    .word G_DOT|FG_GRAY
+ren_box_attr: .word FG_CYAN
+ren_player:   .word G_FACE|FG_BYELLOW

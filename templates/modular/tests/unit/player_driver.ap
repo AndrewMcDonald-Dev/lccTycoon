@@ -1,0 +1,19 @@
+; Unit driver for src/player.ap: includes only what the module needs, so the
+; module can be developed and tested while the rest of the game is broken.
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+drv_main:
+        bl ply_handle_input
+        st r0, drv_result
+        cmp r0, 0
+        brnz drv_done           ; quit requested: stop so the result can be checked
+        mov r0, 1
+        sleep r0               ; one frame boundary per call
+        br drv_main
+drv_done:
+        halt
+drv_result: .word 0
+        .include "../../src/state.ap"
+        .include "../../src/player.ap"

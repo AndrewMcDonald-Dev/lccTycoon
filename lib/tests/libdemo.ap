@@ -1,0 +1,104 @@
+; Exercises every lib routine; checked by libdemo.test.json
+        .lccplus
+        .start main
+main:
+        clear
+        mov r0, 1
+        mov r1, 2
+        mov r2, 4
+        mov r3, 10
+        bl draw_box
+        mov r0, 2
+        mov r1, 4
+        lea r2, hello
+        bl term_puts_at
+        mov r0, 6
+        mov r1, 0
+        mov r2, 2
+        mov r3, 3
+        mov r4, 35              ; '#'
+        bl draw_rect
+        mov r0, 9
+        mov r1, 0
+        bl term_goto
+        mov r0, 42
+        mov r1, 5
+        mov r2, 48
+        bl util_print_padded
+        mov r0, 32
+        aout r0
+        ld r0, big
+        mov r1, 3
+        mov r2, 32
+        bl util_print_padded
+        mov r0, 31
+        bl term_color
+        mov r0, 10
+        mov r1, 0
+        mov r2, 82              ; 'R'
+        bl term_putc_at
+        bl term_reset
+        ; signed padding, fixed2, erase
+        mov r0, 11
+        mov r1, 0
+        bl term_goto
+        mov r0, -7
+        mov r1, 4
+        mov r2, 32
+        bl util_print_padded
+        mov r0, 124             ; '|'
+        aout r0
+        ld r0, cents
+        bl util_print_fixed2
+        mov r0, 124
+        aout r0
+        mov r0, -5
+        bl util_print_fixed2
+        mov r0, 124
+        aout r0
+        mov r0, 12
+        mov r1, 0
+        lea r2, erasetxt
+        bl term_puts_at
+        mov r1, 2
+        mov r2, 3
+        bl term_erase
+        ; memory helpers
+        lea r0, buf
+        mov r1, 7
+        mov r2, 3
+        bl util_memset
+        lea r0, buf2
+        lea r1, buf
+        mov r2, 4
+        bl util_memcpy
+        lea r0, hello
+        bl util_strlen
+        st r0, len
+        mov r0, -9
+        bl util_abs
+        st r0, absv
+        mov r0, 5
+        mov r1, -3
+        bl util_min
+        st r0, minv
+        mov r0, 5
+        mov r1, -3
+        bl util_max
+        st r0, maxv
+        halt
+
+hello:  .string "hi!"
+buf:    .zero 4
+buf2:   .zero 4
+len:    .word 0
+absv:   .word 0
+minv:   .word 0
+maxv:   .word 0
+big:    .word 12345
+cents:  .word 2050
+erasetxt: .string "abcdefg"
+
+        .include "term.ap"
+        .include "draw.ap"
+        .include "util.ap"

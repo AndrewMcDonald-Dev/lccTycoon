@@ -1,0 +1,32 @@
+; Harness self-test: .define expressions + the present trap (text-mode video).
+        .lccplus
+        .start main
+        .define COLS 6
+        .define ROWS 3
+        .define RED_ON_BLUE (1 | 4<<4) << 8
+        .define WALL 219|(2<<8)
+main:
+        lea r0, scr_cells
+        mov r1, 0               ; fill all cells with '.' default colors
+        ld r2, dot
+        mov r3, COLS*ROWS
+fill:   str r2, r0, 0
+        add r0, r0, 1
+        sub r3, r3, 1
+        brp fill
+        lea r0, scr_cells
+        ld r2, wall             ; green full block at (0,0)
+        str r2, r0, 0
+        ld r2, redA             ; red-on-blue 'A' at (1,2)
+        str r2, r0, COLS+2
+        lea r0, scr
+        present r0
+        halt
+dot:    .word '.'
+wall:   .word WALL
+redA:   .word RED_ON_BLUE|'A'
+scr:    .word COLS
+        .word ROWS
+        .word 1                 ; top row
+        .word 2                 ; left col
+scr_cells: .zero COLS*ROWS

@@ -1,0 +1,39 @@
+; =====================================================================
+; Entry point + game loop. Modules live in src/, one owner each (game.json).
+; Labels in this file use the main_ prefix.
+; =====================================================================
+        .lccplus
+        .start main_start
+        .include "video_defs.ap"
+        .include "src/defs.ap"
+
+main_start:
+        clear
+        mov r0, 0
+        cursor r0
+        millis r0
+        srand r0
+        lea r0, st_screen
+        bl video_bind
+main_loop:
+        bl ply_handle_input     ; r0 = 1 -> quit
+        cmp r0, 0
+        brnz main_quit
+        bl ren_draw
+        bl video_present
+        mov r0, FRAME_MS
+        sleep r0
+        br main_loop
+main_quit:
+        clear
+        mov r0, 1
+        cursor r0
+        halt
+
+; ---- modules (state first: it is used by everything)
+        .include "src/state.ap"
+        .include "src/player.ap"
+        .include "src/render.ap"
+; ---- stdlib
+        .include "video.ap"
+        .include "util.ap"

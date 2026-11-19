@@ -1,0 +1,53 @@
+; ---------------------------------------------------------------------
+; Module: render (prefix ren_) — owner WP2. Draws the viewport region
+; (VIEW_ROW/VIEW_COL, VIEW_ROWS×VIEW_COLS) of st_screen from st_map:
+; terrain, ride/stall bodies, track, litter, guests, staff, cursor.
+; Draws every cell of its region each frame (no separate clear).
+; All routines: args r0..r4, result r0, all other registers preserved.
+;
+;; ren_draw       ()          -> -              scroll (ren_scroll), then draw the whole viewport into st_screen (does not present)
+;; ren_scroll     ()          -> -              adjust st_view_y (0..MAP_H-VIEW_ROWS) so st_cur_y stays VIEW_MARGIN rows from the viewport edges
+;; ren_tile_cell  r0=tile     -> r0=cell        display cell (glyph|fg|bg) for a tile word (palette C_* in defs.ap; ride bodies use the catalog RTI_CELL)
+;; ren_map_to_screen r0=x r1=y -> r0=row r1=col screen position of a map tile; r0=-1 if not visible (r1 then undefined)
+; ---------------------------------------------------------------------
+
+; WP0 stub: grass-dot placeholder with a label, cursor cell highlighted.
+ren_draw:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        mov r0, VIEW_ROW
+        mov r1, VIEW_COL
+        mov r2, VIEW_ROWS
+        mov r3, VIEW_COLS
+        ld r4, ren_grass
+        bl video_fill
+        mov r0, VIEW_ROW+11
+        mov r1, VIEW_COL+21
+        lea r2, ren_label
+        ld r3, ren_dim
+        bl video_text
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+ren_grass:  .word C_GRASS
+ren_dim:    .word A_DIM
+ren_label:  .string "[ viewport 64x24 - WP2 ]"
+
+ren_scroll:
+        ret
+
+ren_tile_cell:
+        ld r0, ren_grass
+        ret
+
+ren_map_to_screen:
+        mov r0, -1
+        ret

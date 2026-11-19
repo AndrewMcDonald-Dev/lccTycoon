@@ -1,0 +1,52 @@
+; ---------------------------------------------------------------------
+; Module: player (prefix ply_)
+;; ply_handle_input() -> r0 = 1 if quit requested, else 0
+;   Drains all queued keys; wasd move st_px/st_py within the screen.
+; ---------------------------------------------------------------------
+ply_handle_input:
+        push r1
+        push r2
+ply_next:
+        nbain r1
+        cmp r1, 0
+        brz ply_none
+        mov r2, KEY_QUIT
+        cmp r1, r2
+        brz ply_quit
+        mov r2, 'd'
+        cmp r1, r2
+        brnz ply_not_d
+        ld r2, st_px
+        add r2, r2, 1
+        st r2, st_px
+ply_not_d:
+        mov r2, 'a'
+        cmp r1, r2
+        brnz ply_not_a
+        ld r2, st_px
+        sub r2, r2, 1
+        st r2, st_px
+ply_not_a:
+        mov r2, 's'
+        cmp r1, r2
+        brnz ply_not_s
+        ld r2, st_py
+        add r2, r2, 1
+        st r2, st_py
+ply_not_s:
+        mov r2, 'w'
+        cmp r1, r2
+        brnz ply_next
+        ld r2, st_py
+        sub r2, r2, 1
+        st r2, st_py
+        br ply_next
+ply_quit:
+        mov r0, 1
+        br ply_ret
+ply_none:
+        mov r0, 0
+ply_ret:
+        pop r2
+        pop r1
+        ret

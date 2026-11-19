@@ -1,0 +1,8 @@
+{
+  "game": "far.ap",
+  "scenarios": [
+    { "name": "far st/ld/lea/bl/br rewrites behave like near forms",
+      "expect": { "status": "halted",
+        "memory": { "farval": 7, "farval2": 9, "res_ld": 7, "res_lea": 90, "res_call": 8, "res_br": 1, "res_br2": 2 } } }
+  ]
+}

@@ -1,0 +1,139 @@
+// errorIds.js — the assembler error-ID registry (#1553; mechanism amended per #1480 D2).
+//
+// Each distinct assembler error CONDITION maps to one unique, citable, append-only id
+// (format `asm-NNN`). Unlike `explanations.js` (keyed by category `explainKey`), this
+// table is keyed by the NORMALIZED error MESSAGE — the stable identity of the condition —
+// so one id covers a condition no matter how many call sites (or which method,
+// `this.error` vs `failAssembly`) emit it. `formatAssemblerError` resolves
+// `id || lookupErrorId(message)` and surfaces it inline only under --show-err-id.
+//
+// APPEND-ONLY: ids are a published API. Never renumber or reuse a retired number. This
+// file IS the id record; a coverage-guard test (tests/new/error-ids.spec.js) asserts every
+// error literal in assembler.js resolves here, so the table cannot silently rot.
+//
+// Pure data + pure functions — no console, no I/O (same invariant as explanations.js).
+
+'use strict';
+
+// key = normalized message; value = { id, explainKey } (explainKey links to the --explain
+// catalog and may be null; it is independent of the id).
+const ASM_ERROR_IDS = Object.freeze({
+  'Bad label':                              { id: 'asm-001', explainKey: 'BAD_LABEL' },
+  'Duplicate label':                        { id: 'asm-002', explainKey: 'DUPLICATE_LABEL' },
+  'Program too big':                        { id: 'asm-003', explainKey: 'PROGRAM_TOO_BIG' },
+  'Missing operand':                        { id: 'asm-004', explainKey: null },
+  'Missing register':                       { id: 'asm-005', explainKey: 'REGISTER' },
+  'Bad number':                             { id: 'asm-006', explainKey: null },
+  'Missing number':                         { id: 'asm-007', explainKey: null },
+  'Bad operand--not a valid label':         { id: 'asm-008', explainKey: 'BAD_OPERAND_LABEL' },
+  'Undefined label':                        { id: 'asm-009', explainKey: 'UNDEFINED_LABEL' },
+  'Missing terminating quote':              { id: 'asm-010', explainKey: null },
+  'Invalid operation':                      { id: 'asm-011', explainKey: 'INVALID_OPERATION' },
+  'Bad register':                           { id: 'asm-012', explainKey: 'REGISTER' },
+  'pcoffset9 out of range':                 { id: 'asm-013', explainKey: 'PCOFFSET9_RANGE' },
+  'pcoffset9 out of range for ld':          { id: 'asm-014', explainKey: 'PCOFFSET9_RANGE' },
+  'pcoffset9 out of range for st':          { id: 'asm-015', explainKey: 'PCOFFSET9_RANGE' },
+  'pcoffset11 out of range':                { id: 'asm-016', explainKey: 'PCOFFSET11_RANGE' },
+  'invalid header entry error':             { id: 'asm-017', explainKey: null },
+  'Invalid number for .org directive':      { id: 'asm-018', explainKey: 'ORG_DIRECTIVE' },
+  'Backward address on .org':               { id: 'asm-019', explainKey: 'ORG_DIRECTIVE' },
+  'String constant missing leading quote':  { id: 'asm-020', explainKey: null },
+  'malformed character literal':            { id: 'asm-021', explainKey: 'MALFORMED_CHAR_LITERAL' },
+  'Unknown escape sequence':                { id: 'asm-022', explainKey: null },
+  'Invalid mnemonic':                       { id: 'asm-023', explainKey: null },
+  'Invalid escape sequence':                { id: 'asm-024', explainKey: null },
+  'Character literal must contain exactly one character': { id: 'asm-025', explainKey: 'MULTICHAR_CHAR_LITERAL' },
+  'Unspecified label error for':            { id: 'asm-026', explainKey: null },
+  'imm5 out of range':                      { id: 'asm-027', explainKey: 'IMM5_RANGE' },
+  'offset6 out of range':                   { id: 'asm-028', explainKey: null },
+  'mov immediate value out of range':       { id: 'asm-029', explainKey: 'IMM9_RANGE' },
+  'mvi immediate out of range':             { id: 'asm-030', explainKey: 'IMM9_RANGE' },
+});
+
+// normalize(message) — recover the condition key from a rendered message by stripping the
+// two runtime suffixes that vary per occurrence:
+//   - interpolation: `Invalid mnemonic: ${x}` → `Invalid mnemonic`
+//   - verbose suggestClosest: `Bad register. Did you mean 'r0'?` → `Bad register`
+function normalize(message) {
+  return String(message == null ? '' : message)
+    .replace(/\. Did you mean .*$/, '')   // verbose "Did you mean '…'?" suffix
+    .replace(/:\s.*$/, '')                // ": ${…}" interpolation suffix
+    .trim();
+}
+
+// INT_ERROR_IDS (#1554) — the interpreter's error-ID registry. Unlike the assembler (~104
+// no-id `failAssembly` sites resolved by message), the interpreter throws ~16 DISCRETE typed
+// errors (InterpreterRuntimeError/InvalidExecutableFormatError) whose messages contain mid-
+// string ": " (e.g. "sin: unexpected EOF on stdin") and front-interpolated filenames that
+// DON'T normalize cleanly — so ids are carried inline on the typed error (`{ id }`, surfaced
+// by the cliExit seam #1562) and this table is the canonical record + the source of the
+// load-time validation + the coverage-guard cross-check. Append-only.
+const INT_ERROR_IDS = Object.freeze({
+  'Floating point exception':                 { id: 'int-001', explainKey: 'DIV_BY_ZERO' },
+  'Unknown opcode':                           { id: 'int-002', explainKey: 'UNKNOWN_OPCODE' },
+  'Unknown extended opcode':                  { id: 'int-003', explainKey: 'UNKNOWN_OPCODE' },
+  'sin: unexpected EOF on stdin':             { id: 'int-004', explainKey: 'EOF_ON_STDIN' },
+  'din: unexpected EOF on stdin':             { id: 'int-005', explainKey: 'EOF_ON_STDIN' },
+  'hin: unexpected EOF on stdin':             { id: 'int-006', explainKey: 'EOF_ON_STDIN' },
+  'ain: unexpected EOF on stdin':             { id: 'int-007', explainKey: 'EOF_ON_STDIN' },
+  'Trap vector out of range':                 { id: 'int-008', explainKey: 'TRAP_VECTOR_RANGE' },
+  'software breakpoint':                      { id: 'int-009', explainKey: null },
+  'is not in lcc format':                     { id: 'int-010', explainKey: 'NOT_LCC_FORMAT' },
+  'Invalid file signature':                   { id: 'int-011', explainKey: 'NOT_LCC_FORMAT' },
+  'Incomplete start address in header':       { id: 'int-012', explainKey: 'BAD_EXE_HEADER' },
+  'Incomplete G entry in header':             { id: 'int-013', explainKey: 'BAD_EXE_HEADER' },
+  'Incomplete A entry in header':             { id: 'int-014', explainKey: 'BAD_EXE_HEADER' },
+  'Unknown header entry':                     { id: 'int-015', explainKey: 'BAD_EXE_HEADER' },
+  'is not a valid LCC executable file':       { id: 'int-016', explainKey: 'NOT_LCC_FORMAT' },
+});
+
+// LNK_ERROR_IDS (#1555) — the linker's error-ID registry. Like the interpreter (#1554) and
+// unlike the assembler, the linker has ~11 discrete error sites with messages that don't
+// normalize (front-interpolated filenames/labels, mid-interpolated `Invalid ${entryType}
+// entry`) AND a collision — `Invalid ${entryType} entry` renders `Invalid S entry`, which
+// also exists as a literal. So ids ride INLINE on the `LinkerError` throw / `this.error`
+// call; this table is the canonical record + validation + coverage cross-check. Append-only.
+const LNK_ERROR_IDS = Object.freeze({
+  'not a linkable file':                 { id: 'lnk-001', explainKey: 'NOT_LINKABLE' },
+  'Invalid S entry':                     { id: 'lnk-002', explainKey: 'BAD_OBJECT_HEADER' },
+  'Invalid {entryType} entry':           { id: 'lnk-003', explainKey: 'BAD_OBJECT_HEADER' },
+  'Unterminated label in entry':         { id: 'lnk-004', explainKey: 'BAD_OBJECT_HEADER' },
+  'Invalid A entry':                     { id: 'lnk-005', explainKey: 'BAD_OBJECT_HEADER' },
+  'Unknown header entry in file':        { id: 'lnk-006', explainKey: 'BAD_OBJECT_HEADER' },
+  'is not a linkable module':            { id: 'lnk-007', explainKey: 'BAD_OBJECT_HEADER' },
+  'Multiple entry points':               { id: 'lnk-008', explainKey: 'MULTIPLE_ENTRY' },
+  'More than one global declaration':    { id: 'lnk-009', explainKey: 'MULTIPLE_GLOBAL' },
+  'Invalid header entry':                { id: 'lnk-010', explainKey: null },
+  'undefined external reference':        { id: 'lnk-011', explainKey: 'UNDEFINED_EXTERN' },
+});
+
+// lookupErrorId(message) — the registry id for a (possibly rendered) message, or null.
+function lookupErrorId(message) {
+  if (!message) return null;
+  const entry = ASM_ERROR_IDS[normalize(message)];
+  return entry ? entry.id : null;
+}
+
+// validateErrorIds(reg) — load-time guard (mirrors ilcc validateCommandRegistry): every id
+// must match /^asm-\d{3}$/ and be unique. Throws on violation so a bad/duplicate id breaks
+// require(), not silently ships. Exported so a spec can prove it has teeth.
+function validateErrorIds(reg) {
+  const seen = new Set();
+  for (const [key, entry] of Object.entries(reg)) {
+    const id = entry && entry.id;
+    if (typeof id !== 'string' || !/^(?:asm|int|lnk)-\d{3}$/.test(id)) {
+      throw new Error(`errorIds: malformed id '${id}' for '${key}' (expected <prefix>-NNN)`);
+    }
+    if (seen.has(id)) {
+      throw new Error(`errorIds: duplicate id '${id}'`);
+    }
+    seen.add(id);
+  }
+  return reg;
+}
+
+validateErrorIds(ASM_ERROR_IDS); // fires at require()
+validateErrorIds(INT_ERROR_IDS);
+validateErrorIds(LNK_ERROR_IDS);
+
+module.exports = { ASM_ERROR_IDS, INT_ERROR_IDS, LNK_ERROR_IDS, lookupErrorId, normalize, validateErrorIds };

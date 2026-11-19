@@ -1,0 +1,125 @@
+; =====================================================================
+; lib/draw.ap — line / box / rectangle drawing.  Requires term.ap:
+;
+;   .include "term.ap"
+;   .include "draw.ap"
+;
+; Same convention as term.ap: args r0..r4, everything preserved.
+;
+;; draw_hline  r0=row r1=col r2=len r3=char          horizontal run of char
+;; draw_vline  r0=row r1=col r2=len r3=char          vertical run of char
+;; draw_rect   r0=row r1=col r2=height r3=width r4=char   filled rectangle
+;; draw_box    r0=row r1=col r2=height r3=width      outline with + - |
+;                                                     (height, width >= 2)
+; =====================================================================
+
+draw_hline:
+        push r2
+        push lr
+        bl term_goto
+draw_hline_lp:
+        cmp r2, 0
+        brz draw_hline_done
+        aout r3
+        sub r2, r2, 1
+        br draw_hline_lp
+draw_hline_done:
+        pop lr
+        pop r2
+        ret
+
+draw_vline:
+        push r0
+        push r2
+        push lr
+draw_vline_lp:
+        cmp r2, 0
+        brz draw_vline_done
+        bl term_goto
+        aout r3
+        add r0, r0, 1
+        sub r2, r2, 1
+        br draw_vline_lp
+draw_vline_done:
+        pop lr
+        pop r2
+        pop r0
+        ret
+
+draw_rect:
+        push r0
+        push r2
+        push r3
+        push lr
+        mov r3, r2              ; r3 = rows remaining
+        ; draw_hline wants r2=len r3=char, so shuffle per row
+draw_rect_lp:
+        cmp r3, 0
+        brz draw_rect_done
+        push r2
+        push r3
+        ldr r2, sp, 3           ; original width (saved r3 slot)
+        mov r3, r4
+        bl draw_hline
+        pop r3
+        pop r2
+        add r0, r0, 1
+        sub r3, r3, 1
+        br draw_rect_lp
+draw_rect_done:
+        pop lr
+        pop r3
+        pop r2
+        pop r0
+        ret
+
+draw_box:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        mov r4, r2              ; r4 = height
+        ; top edge
+        mov r2, r3              ; len = width
+        push r3
+        mov r3, 45              ; '-'
+        bl draw_hline
+        ; bottom edge
+        add r0, r0, r4
+        sub r0, r0, 1
+        bl draw_hline
+        pop r3
+        ; left & right edges
+        ldr r0, sp, 5           ; original row
+        mov r2, r4              ; len = height
+        push r3
+        mov r3, 124             ; '|'
+        bl draw_vline
+        ldr r3, sp, 0           ; width
+        add r1, r1, r3
+        sub r1, r1, 1
+        mov r3, 124
+        bl draw_vline
+        pop r3
+        ; corners
+        mov r2, 43              ; '+'
+        ldr r0, sp, 5
+        ldr r1, sp, 4
+        bl term_putc_at         ; top-left
+        add r1, r1, r3
+        sub r1, r1, 1
+        bl term_putc_at         ; top-right
+        add r0, r0, r4
+        sub r0, r0, 1
+        bl term_putc_at         ; bottom-right
+        ldr r1, sp, 4
+        bl term_putc_at         ; bottom-left
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret

@@ -1,0 +1,17 @@
+{
+  "game": "videodemo.ap",
+  "scenarios": [
+    { "name": "video lib: clear, box, text, num, fill (clipped), get",
+      "expect": { "status": "halted",
+        "screen": { "lines": {
+          "0": "┌──────────┐",
+          "1": "│Hi!·······│",
+          "2": "│-42·······│",
+          "3": "│███······██",
+          "4": "│███······██",
+          "5": "└─────────██" } },
+        "colors": { "lines": { "0": "yyyyyyyyyyyy", "1": "yWWWKKKKKKKy" } },
+        "bg": { "lines": { "1": "kbbbkkkkkkkk" } },
+        "memory": { "got": 20269 } } }
+  ]
+}

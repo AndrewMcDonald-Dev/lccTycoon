@@ -1,0 +1,548 @@
+; =====================================================================
+; Lemonade Stand Tycoon — 7 days to make as much money as you can.
+;
+;   Planning phase (each day):
+;     w / s   raise / lower the cup price by 5c   (5c .. 100c)
+;     b       buy 10 lemons for $2.50 (1 lemon = 1 cup)
+;     g       open the stand: simulate the day
+;     q       give up -> final score screen
+;   Final screen: q exits.
+;
+;   Day simulation: customers = rand[20,40]; each customer has a
+;   willingness-to-pay rand[10,100] cents and buys one cup if
+;   wtp >= price and there are lemons left. revenue = sold * price.
+;   The game ends after day 7, or when broke (no lemons and cash < $2.50).
+;
+;   All money is kept in cents (max reachable ~30000 < 32767).
+;
+; Registers: r0-r4 scratch, r5/fp r6/sp r7/lr reserved.
+; =====================================================================
+        .lccplus
+        .start main
+
+; ------------------------------------------------------------- main
+main:
+        clear
+        mov r0, 0
+        cursor r0
+        millis r0
+        srand r0
+game_loop:
+        bl handle_input
+        ld r0, quitflag
+        cmp r0, 0
+        brnz game_quit
+        bl render
+        mov r0, 50
+        sleep r0
+        br game_loop
+game_quit:
+        clear
+        mov r0, 1
+        cursor r0
+        lea r0, msg_bye
+        sout r0
+        nl
+        halt
+msg_bye:  .string "Thanks for playing Lemonade Stand Tycoon!"
+
+; ---------------------------------------------------------------------
+; handle_input(): drain every queued key and act on it.
+; ---------------------------------------------------------------------
+handle_input:
+        push r0
+        push r1
+        push r2
+        push lr
+hi_next:
+        nbain r1
+        cmp r1, 0
+        brz hi_done
+        ld r0, state
+        cmp r0, 0
+        brz hi_plan
+        ; --- final screen: only q matters
+        mov r2, 113             ; 'q'
+        cmp r1, r2
+        brnz hi_next
+        mov r0, 1
+        st r0, quitflag
+        br hi_next
+hi_plan:
+        mov r2, 119             ; 'w'
+        cmp r1, r2
+        brnz hi_not_w
+        ld r0, price
+        add r0, r0, 5
+        mov r2, 100
+        cmp r0, r2
+        brgt hi_next            ; already at max: ignore
+        st r0, price
+        br hi_next
+hi_not_w:
+        mov r2, 115             ; 's'
+        cmp r1, r2
+        brnz hi_not_s
+        ld r0, price
+        sub r0, r0, 5
+        cmp r0, 5
+        brlt hi_next            ; already at min: ignore
+        st r0, price
+        br hi_next
+hi_not_s:
+        mov r2, 98              ; 'b'
+        cmp r1, r2
+        brnz hi_not_b
+        bl buy_lemons
+        br hi_next
+hi_not_b:
+        mov r2, 103             ; 'g'
+        cmp r1, r2
+        brnz hi_not_g
+        bl run_day
+        br hi_next
+hi_not_g:
+        mov r2, 113             ; 'q'
+        cmp r1, r2
+        brnz hi_next
+        bl end_game
+        br hi_next
+hi_done:
+        pop lr
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; ---------------------------------------------------------------------
+; buy_lemons(): 10 lemons for lemon_pack cents, if affordable.
+; ---------------------------------------------------------------------
+buy_lemons:
+        push r0
+        push r1
+        ld r0, cash
+        ld r1, lemon_pack
+        cmp r0, r1
+        brlt bl_poor
+        sub r0, r0, r1
+        st r0, cash
+        ld r0, spent
+        add r0, r0, r1
+        st r0, spent
+        ld r0, lemons
+        add r0, r0, 10
+        st r0, lemons
+        mov r0, 0
+        st r0, msg
+        br bl_ret
+bl_poor:
+        mov r0, 1
+        st r0, msg
+bl_ret:
+        pop r1
+        pop r0
+        ret
+
+; ---------------------------------------------------------------------
+; run_day(): simulate customers, update cash/inventory/day, maybe end.
+; ---------------------------------------------------------------------
+run_day:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        ld r0, lemons
+        cmp r0, 0
+        brnz rd_go
+        mov r0, 2               ; refuse to open with no lemons
+        st r0, msg
+        br rd_ret
+rd_go:
+        mov r0, 0
+        st r0, msg
+        mov r0, 20
+        mov r1, 30
+        add r1, r1, 10          ; 40
+        rand r0, r1             ; r0 = customers in [20,40]
+        st r0, customers
+        mov r2, r0              ; r2 = customers left to serve
+        mov r3, 0               ; r3 = cups sold
+        ld r4, lemons           ; r4 = lemons left
+rd_cust:
+        cmp r2, 0
+        brz rd_tally
+        sub r2, r2, 1
+        mov r0, 10
+        mov r1, 100
+        rand r0, r1             ; r0 = willingness to pay
+        cmp r4, 0
+        brz rd_cust             ; sold out (still draw rand: stable sequence)
+        ld r1, price
+        cmp r0, r1
+        brlt rd_cust            ; too expensive for this customer
+        add r3, r3, 1
+        sub r4, r4, 1
+        br rd_cust
+rd_tally:
+        st r3, sold
+        st r4, lemons
+        ld r0, total_sold
+        add r0, r0, r3
+        st r0, total_sold
+        ld r0, price
+        mul r0, r3              ; revenue = price * sold
+        st r0, revenue
+        ld r1, cash
+        add r1, r1, r0
+        st r1, cash
+        mov r0, 0
+        st r0, spent
+        ld r0, day
+        add r0, r0, 1
+        st r0, day
+        ld r1, k_last_day
+        cmp r0, r1
+        brgt rd_end             ; finished day 7
+        ; broke? no lemons left and can't afford a pack
+        ld r0, lemons
+        cmp r0, 0
+        brnz rd_ret
+        ld r0, cash
+        ld r1, lemon_pack
+        cmp r0, r1
+        brlt rd_broke
+        br rd_ret
+rd_broke:
+        mov r0, 1
+        st r0, broke
+rd_end:
+        bl end_game
+rd_ret:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; end_game(): switch to the final screen (clear once on scene change)
+end_game:
+        push r0
+        mov r0, 1
+        st r0, state
+        clear
+        pop r0
+        ret
+
+; ------------------------------------------------------------- state
+state:      .word 0         ; 0 = planning, 1 = final screen
+day:        .word 1         ; day about to be played (1..7), 8 after day 7
+cash:       .word 2000      ; cents
+lemons:     .word 0         ; inventory (1 lemon = 1 cup)
+price:      .word 50        ; cents per cup
+spent:      .word 0         ; cents spent on lemons since the last day
+customers:  .word 0         ; last day's customers
+sold:       .word 0         ; last day's cups sold
+revenue:    .word 0         ; last day's revenue (cents)
+total_sold: .word 0         ; cups sold over the whole game
+broke:      .word 0         ; 1 if the game ended because we went broke
+msg:        .word 0         ; 0 none, 1 "not enough cash", 2 "no lemons"
+quitflag:   .word 0         ; set by q on the final screen
+lemon_pack: .word 250       ; cost of 10 lemons, cents
+start_cash: .word 2000
+k_last_day: .word 7
+
+; ---------------------------------------------------------------------
+; print_money(r0 = cents >= 0): prints "$D.CC". Preserves registers.
+; ---------------------------------------------------------------------
+print_money:
+        push r0
+        push r1
+        push r2
+        push r3
+        push lr
+        mov r3, r0
+        mov r0, 36              ; '$'
+        aout r0
+        mov r0, r3
+        mov r1, 100
+        div r0, r1              ; dollars
+        dout r0
+        mov r0, 46              ; '.'
+        aout r0
+        mov r0, r3
+        rem r0, r1              ; cents
+        mov r1, 2
+        mov r2, 48              ; '0'
+        bl util_print_padded
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; ---------------------------------------------------------------------
+; render(): full redraw of the current scene from the top-left.
+; ---------------------------------------------------------------------
+render:
+        push lr
+        resetc
+        ld r0, state
+        cmp r0, 0
+        brz rn_plan
+        bl render_end
+        br rn_ret
+rn_plan:
+        bl render_plan
+rn_ret:
+        pop lr
+        ret
+
+render_plan:
+        push r0
+        push r1
+        push r2
+        push r3
+        push lr
+        mov r0, 0
+        mov r1, 0
+        mov r2, 12
+        mov r3, 44
+        bl draw_box
+        mov r0, 33              ; yellow title
+        bl term_color
+        mov r0, 1
+        mov r1, 2
+        lea r2, s_title
+        bl term_puts_at
+        bl term_reset
+        ; Day N of 7
+        mov r0, 2
+        mov r1, 2
+        lea r2, s_day
+        bl term_puts_at
+        ld r0, day
+        dout r0
+        lea r0, s_of7
+        sout r0
+        ; Cash
+        mov r0, 3
+        mov r1, 2
+        lea r2, s_cash
+        bl term_puts_at
+        ld r0, cash
+        bl print_money
+        lea r0, s_pad
+        sout r0
+        ; Lemons
+        mov r0, 4
+        mov r1, 2
+        lea r2, s_lemons
+        bl term_puts_at
+        ld r0, lemons
+        mov r1, 3
+        mov r2, 32
+        bl util_print_padded
+        ; Price
+        mov r0, 5
+        mov r1, 2
+        lea r2, s_price
+        bl term_puts_at
+        ld r0, price
+        bl print_money
+        lea r0, s_pad
+        sout r0
+        ; Yesterday's results
+        mov r0, 7
+        mov r1, 2
+        lea r2, s_last
+        bl term_puts_at
+        ld r0, customers
+        mov r1, 2
+        mov r2, 32
+        bl util_print_padded
+        lea r0, s_cust
+        sout r0
+        ld r0, sold
+        mov r1, 2
+        mov r2, 32
+        bl util_print_padded
+        lea r0, s_sold
+        sout r0
+        mov r0, 8
+        mov r1, 2
+        lea r2, s_rev
+        bl term_puts_at
+        ld r0, revenue
+        bl print_money
+        lea r0, s_pad
+        sout r0
+        ; message line
+        mov r0, 9
+        mov r1, 2
+        mov r2, 40
+        mov r3, 32              ; erase the message line with spaces
+        bl draw_hline
+        ld r0, msg
+        cmp r0, 0
+        brz rp_help
+        mov r0, 31              ; red
+        bl term_color
+        mov r0, 9
+        mov r1, 2
+        lea r2, s_poor
+        ld r3, msg
+        cmp r3, 1
+        brz rp_msg
+        lea r2, s_nolem
+rp_msg:
+        bl term_puts_at
+        bl term_reset
+rp_help:
+        mov r0, 10
+        mov r1, 2
+        lea r2, s_help
+        bl term_puts_at
+        mov r0, 12
+        mov r1, 0
+        bl term_goto
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+s_title:  .string "LEMONADE STAND TYCOON"
+s_day:    .string "Day "
+s_of7:    .string " of 7"
+s_cash:   .string "Cash:    "
+s_lemons: .string "Lemons:  "
+s_price:  .string "Price:   "
+s_last:   .string "Last day: "
+s_cust:   .string " customers, "
+s_sold:   .string " cups sold"
+s_rev:    .string "Revenue: "
+s_pad:    .string "   "
+s_poor:   .string "Not enough cash!"
+s_nolem:  .string "No lemons - buy some first!"
+s_help:   .string "w/s price  b buy 10 ($2.50)  g go  q quit"
+
+render_end:
+        push r0
+        push r1
+        push r2
+        push lr
+        mov r0, 32              ; green
+        bl term_color
+        mov r0, 1
+        mov r1, 2
+        lea r2, s_over
+        bl term_puts_at
+        bl term_reset
+        ld r0, re_p_broke
+        ldr r0, r0, 0
+        cmp r0, 0
+        brz re_nobroke
+        mov r0, 31
+        bl term_color
+        mov r0, 2
+        mov r1, 2
+        lea r2, s_broke
+        bl term_puts_at
+        bl term_reset
+re_nobroke:
+        mov r0, 3
+        mov r1, 2
+        lea r2, s_days
+        bl term_puts_at
+        ld r0, re_p_day
+        ldr r0, r0, 0
+        sub r0, r0, 1
+        dout r0
+        mov r0, 4
+        mov r1, 2
+        lea r2, s_cups
+        bl term_puts_at
+        ld r0, re_p_total
+        ldr r0, r0, 0
+        dout r0
+        mov r0, 5
+        mov r1, 2
+        lea r2, s_final
+        bl term_puts_at
+        ld r0, re_p_cash
+        ldr r0, r0, 0
+        bl print_money
+        mov r0, 6
+        mov r1, 2
+        lea r2, s_profit
+        bl term_puts_at
+        ld r0, re_p_cash
+        ldr r0, r0, 0
+        ld r1, re_start_cash
+        sub r0, r0, r1
+        brn re_loss
+        bl print_money
+        br re_rating
+re_loss:
+        mov r1, 45              ; '-'
+        aout r1
+        not r0, r0
+        add r0, r0, 1
+        bl print_money
+re_rating:
+        mov r0, 8
+        mov r1, 2
+        lea r2, s_rate
+        bl term_puts_at
+        ld r0, re_p_cash
+        ldr r0, r0, 0
+        ld r1, re_start_cash
+        lea r2, s_r_bad
+        cmp r0, r1
+        brlt re_rate_out
+        brz re_rate_out
+        lea r2, s_r_ok
+        ld r1, k_tycoon
+        cmp r0, r1
+        brlt re_rate_out
+        lea r2, s_r_great
+re_rate_out:
+        sout r2
+        mov r0, 10
+        mov r1, 2
+        lea r2, s_quit
+        bl term_puts_at
+        pop lr
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+k_tycoon: .word 6000
+re_start_cash: .word 2000
+re_p_broke: .word broke
+re_p_day:   .word day
+re_p_total: .word total_sold
+re_p_cash:  .word cash
+s_over:   .string "=== FINAL SCORE ==="
+s_broke:  .string "You went broke!"
+s_days:   .string "Days played:  "
+s_cups:   .string "Cups sold:    "
+s_final:  .string "Final cash:   "
+s_profit: .string "Profit:       "
+s_rate:   .string "Rating: "
+s_r_bad:  .string "Sour..."
+s_r_ok:   .string "Squeezing by"
+s_r_great: .string "LEMONADE TYCOON!"
+s_quit:   .string "Press q to exit"
+
+; ------------------------------------------------------------- library
+        .include "term.ap"
+        .include "draw.ap"
+        .include "util.ap"
