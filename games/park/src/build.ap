@@ -12,23 +12,852 @@
 ;; bld_demolish   r0=x r1=y             -> r0=1 removed, 0 nothing/refused     clears tile (whole ride/stall incl. entrance/exit, ride_free); refunds REFUND_PCT % via eco_earn
 ; ---------------------------------------------------------------------
 
-; WP0 stub: nothing can be built.
+        .define BLD_BLOCKED     -1
+        .define BLD_FULL        -2
+        .define BLD_X           0
+        .define BLD_Y           1
+        .define BLD_W           2
+        .define BLD_H           3
+        .define BLD_ENT         4       ; map index
+        .define BLD_EXIT        5       ; map index or -1 for stalls
+        .define BLD_BODY        6
+        .define BLD_COST        7
+
 bld_cost:
-        mov r0, 0
+        push lr
+        cmp r0, TOOL_RIDE
+        brz bld_cost_ride
+        cmp r0, TOOL_STALL
+        brz bld_cost_ride
+        bl bld_tile_spec
+        cmp r0, 0
+        brz bld_cost_done
+        ldr r0, r0, 1
+        br bld_cost_done
+bld_cost_ride:
+        bl bld_tool_type
+        bl ride_type_info
+        cmp r0, 0
+        brz bld_cost_done
+        ldr r0, r0, RTI_COST
+bld_cost_done:
+        pop lr
         ret
 
 bld_can_place:
+        push r1
+        push r2
+        push r3
+        push lr
+        ld r2, st_tool
+        cmp r2, TOOL_DEMOLISH
+        brz bld_preview_demolish
+        ld r3, st_tool_item
+        bl bld_quote
+        cmp r0, 0
+        brn bld_preview_blocked
+        mov r3, r0
+        bl eco_can_afford
+        cmp r0, 0
+        brz bld_preview_blocked
+        mov r0, r3
+        br bld_preview_done
+bld_preview_demolish:
+        bl bld_demolish_info
+        cmp r0, 0
+        brn bld_preview_blocked
+        mov r0, 0
+        br bld_preview_done
+bld_preview_blocked:
         mov r0, -1
+bld_preview_done:
+        pop lr
+        pop r3
+        pop r2
+        pop r1
         ret
 
 bld_apply:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        mov r4, r0
+        ld r2, st_tool
+        cmp r2, TOOL_DEMOLISH
+        brz bld_apply_demolish
+        ld r3, st_tool_item
+        bl bld_quote
+        cmp r0, BLD_FULL
+        brz bld_apply_full
+        cmp r0, 0
+        brn bld_apply_blocked
+        cmp r2, TOOL_RIDE
+        brz bld_apply_ride
+        cmp r2, TOOL_STALL
+        brz bld_apply_ride
+
+        bl eco_spend
+        cmp r0, 0
+        brz bld_apply_cash
+        mov r0, r2
+        push r1
+        mov r1, r3
+        bl bld_tile_spec
+        ldr r2, r0, 0
+        pop r1
+        mov r0, r4
+        bl map_set
+        mov r0, SND_BUILD
+        sound r0
+        mov r0, 1
+        br bld_apply_done
+bld_apply_ride:
+        mov r0, r3
+        bl bld_commit_ride
+        cmp r0, 0
+        brn bld_apply_refused
+        mov r0, 1
+        br bld_apply_done
+bld_apply_demolish:
+        bl bld_demolish
+        br bld_apply_done
+bld_apply_full:
+        lea r0, bld_msg_full
+        br bld_apply_error
+bld_apply_blocked:
+        lea r0, bld_msg_blocked
+        br bld_apply_error
+bld_apply_cash:
+        lea r0, bld_msg_cash
+bld_apply_error:
+        bl bld_error
+bld_apply_refused:
         mov r0, 0
+bld_apply_done:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
         ret
 
 bld_place_ride:
+        push r3
+        push lr
+        mov r3, r0
+        bl bld_plan_ride
+        cmp r0, BLD_FULL
+        brz bld_place_full
+        cmp r0, 0
+        brn bld_place_blocked
+        mov r0, r3
+        bl bld_commit_ride
+        br bld_place_done
+bld_place_full:
+        lea r0, bld_msg_full
+        br bld_place_error
+bld_place_blocked:
+        lea r0, bld_msg_blocked
+bld_place_error:
+        bl bld_error
+bld_place_done:
+        pop lr
+        pop r3
+        ret
+
+; r0=x, r1=y, r2=tool, r3=item. Return placement cost or BLD_* refusal.
+; On success, the ride tools also prepare bld_plan.
+bld_quote:
+        push r1
+        push r4
+        push lr
+        mov r4, r0
+        cmp r2, TOOL_RIDE
+        brz bld_quote_ride
+        cmp r2, TOOL_STALL
+        brz bld_quote_ride
+
+        mov r0, r2
+        mov r1, r3
+        bl bld_tile_spec
+        ldr r1, sp, 2           ; y
+        cmp r0, 0
+        brz bld_quote_blocked
+        push r0                 ; tile spec
+        mov r0, r4
+        bl map_buildable
+        push r0                 ; buildable
+        mov r0, r4
+        bl map_kind
+        pop r4
+        cmp r4, 0
+        pop r4                 ; tile spec
+        brnz bld_quote_tile_cost
+        cmp r2, TOOL_SCENERY
+        brz bld_quote_blocked
+        cmp r0, T_PATH
+        brz bld_quote_tile_cost
+        cmp r0, T_QUEUE
+        brnz bld_quote_blocked
+bld_quote_tile_cost:
+        cmp r0, T_TREE
+        ldr r0, r4, 1
+        brnz bld_quote_done
+        add r0, r0, COST_CLEAR_TREE
+        br bld_quote_done
+bld_quote_ride:
+        mov r0, r2
+        mov r1, r3
+        bl bld_tool_type
+        cmp r0, RT_NONE
+        brz bld_quote_blocked
+        push r2
+        ldr r2, sp, 3           ; y
+        mov r1, r4
+        bl bld_plan_ride
+        pop r2
+        br bld_quote_done
+bld_quote_blocked:
+        mov r0, BLD_BLOCKED
+bld_quote_done:
+        pop lr
+        pop r4
+        pop r1
+        ret
+
+; r0=tool, r1=item. Return address of {kind, cost} or 0.
+bld_tile_spec:
+        cmp r0, TOOL_PATH
+        brz bld_spec_path
+        cmp r0, TOOL_QUEUE
+        brz bld_spec_queue
+        cmp r0, TOOL_SCENERY
+        brnz bld_spec_none
+        cmp r1, 0
+        brn bld_spec_none
+        cmp r1, SC_COUNT
+        brlt bld_spec_scenery
+bld_spec_none:
+        mov r0, 0
+        ret
+bld_spec_path:
+        lea r0, bld_path_spec
+        ret
+bld_spec_queue:
+        lea r0, bld_queue_spec
+        ret
+bld_spec_scenery:
+        push r1
+        sll r1, 1
+        lea r0, bld_scenery_specs
+        add r0, r0, r1
+        pop r1
+        ret
+
+; r0=ride/stall tool, r1=item. Return its matching catalog type or RT_NONE.
+bld_tool_type:
+        cmp r0, TOOL_STALL
+        brz bld_type_stall
+        cmp r1, RT_NONE
+        brlt bld_type_none
+        brz bld_type_none
+        cmp r1, RT_FIRST_STALL
+        brlt bld_type_item
+        br bld_type_none
+bld_type_stall:
+        cmp r1, RT_FIRST_STALL
+        brlt bld_type_none
+        cmp r1, RT_LAST_STALL
+        brgt bld_type_none
+bld_type_item:
+        mov r0, r1
+        ret
+bld_type_none:
+        mov r0, RT_NONE
+        ret
+
+; r0=type, r1=x, r2=y. Prepare the rectangle and access tiles without
+; modifying game state. The caller commits the private plan before reuse.
+bld_plan_ride:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        lea r4, bld_plan
+        str r1, r4, BLD_X
+        str r2, r4, BLD_Y
+        cmp r0, RT_COASTER     ; the track designer owns coaster placement
+        brz bld_plan_blocked
+        bl ride_type_info
+        cmp r0, 0
+        brz bld_plan_blocked
+        ldr r1, r0, RTI_W
+        str r1, r4, BLD_W
+        ldr r1, r0, RTI_H
+        str r1, r4, BLD_H
+        ldr r1, r0, RTI_COST
+        str r1, r4, BLD_COST
+        ldr r1, r0, RTI_FLAGS
+        and r1, r1, RTF_STALL
+        mov r0, T_RIDE
+        brz bld_plan_body
+        mov r0, T_STALL
+bld_plan_body:
+        str r0, r4, BLD_BODY
+        ldr r0, r4, BLD_X
+        ldr r1, r4, BLD_Y
+        ldr r2, r4, BLD_W
+        ldr r3, r4, BLD_H
+        bl map_area_free
+        cmp r0, 0
+        brz bld_plan_blocked
+
         mov r0, -1
+        mov r1, 1               ; prefer an entrance touching a path or queue
+        bl bld_find_door
+        cmp r0, 0
+        brn bld_plan_blocked
+        str r0, r4, BLD_ENT
+        ldr r1, r4, BLD_BODY
+        cmp r1, T_STALL
+        brz bld_plan_stall
+        mov r1, 0
+        bl bld_find_door        ; skip the entrance's index
+        cmp r0, 0
+        brn bld_plan_blocked
+        br bld_plan_exit
+bld_plan_stall:
+        mov r0, -1
+bld_plan_exit:
+        str r0, r4, BLD_EXIT
+        ld r0, st_ride_count
+        mov r1, MAX_RIDES
+        cmp r0, r1
+        brlt bld_plan_price
+        mov r0, BLD_FULL
+        br bld_plan_done
+bld_plan_price:
+        bl bld_ride_price
+        cmp r0, 0
+        brn bld_plan_blocked
+        str r0, r4, BLD_COST
+        br bld_plan_done
+bld_plan_blocked:
+        mov r0, BLD_BLOCKED
+bld_plan_done:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; Search north, south, west, east edges, omitting the corners.
+; r0=excluded map index, r1=prefer path/queue proximity, r4=plan.
+; Return a buildable door's map index, or -1 when all edges are blocked.
+        .define BLD_SKIP_IDX    -1
+        .define BLD_PREFER_PATH -2
+        .define BLD_FIRST_DOOR  -3
+        .define BLD_SIDE_LEN    -4
+bld_find_door:
+        push lr
+        push fp
+        mov fp, sp
+        push r0
+        push r1
+        mov r0, -1
+        push r0
+        push r0                 ; side length
+        push r2
+        push r3
+        mov r3, 0
+bld_door_side:
+        mov r2, 0
+bld_door_tile:
+        ldr r0, r4, BLD_X
+        ldr r1, r4, BLD_Y
+        cmp r3, 2
+        brlt bld_door_horizontal
+        add r1, r1, r2
+        ldr r0, r4, BLD_H
+        str r0, fp, BLD_SIDE_LEN
+        ldr r0, r4, BLD_X
+        cmp r3, 2
+        brz bld_door_west
+        ldr r0, r4, BLD_W
+        ldr r1, r4, BLD_X
+        add r0, r0, r1
+        ldr r1, r4, BLD_Y
+        add r1, r1, r2
+        br bld_door_candidate
+bld_door_west:
+        sub r0, r0, 1
+        br bld_door_candidate
+bld_door_horizontal:
+        ldr r0, r4, BLD_W
+        str r0, fp, BLD_SIDE_LEN
+        ldr r0, r4, BLD_X
+        add r0, r0, r2
+        cmp r3, 0
+        brz bld_door_north
+        ldr r1, r4, BLD_H
+        push r2
+        ldr r2, r4, BLD_Y
+        add r1, r1, r2
+        pop r2
+        br bld_door_candidate
+bld_door_north:
+        sub r1, r1, 1
+bld_door_candidate:
+        push r0
+        bl map_buildable
+        cmp r0, 0
+        pop r0
+        brz bld_door_next
+        push r0
+        bl map_index
+        push r2
+        ldr r2, fp, BLD_SKIP_IDX
+        cmp r0, r2
+        pop r2
+        brz bld_door_skip
+        push r3
+        ldr r3, fp, BLD_PREFER_PATH
+        cmp r3, 0
+        brz bld_door_return
+        ldr r3, fp, BLD_FIRST_DOOR
+        cmp r3, -1
+        brnz bld_door_check_path
+        str r0, fp, BLD_FIRST_DOOR
+bld_door_check_path:
+        mov r3, r0              ; candidate index
+        ldr r0, sp, 1           ; candidate x
+        bl bld_near_path
+        cmp r0, 0
+        mov r0, r3
+        brnz bld_door_return
+        pop r3
+bld_door_skip:
+        pop r0
+bld_door_next:
+        add r2, r2, 1
+        ldr r0, fp, BLD_SIDE_LEN
+        cmp r2, r0
+        brlt bld_door_tile
+        add r3, r3, 1
+        cmp r3, 4
+        brlt bld_door_side
+        ldr r0, fp, BLD_FIRST_DOOR
+        br bld_door_done
+bld_door_return:
+        pop r3
+        add sp, sp, 1           ; candidate x
+bld_door_done:
+        pop r3
+        pop r2
+        ldr r1, fp, BLD_PREFER_PATH
+        mov sp, fp
+        pop fp
+        pop lr
+        ret
+
+; Check the four orthogonal neighbors of (r0,r1) for a path or queue.
+bld_near_path:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        mov r4, r0
+        lea r3, bld_neighbor_deltas
+        mov r2, 4
+bld_neighbor:
+        ldr r0, r3, 1
+        ldr r1, sp, 4
+        add r1, r1, r0
+        ldr r0, r3, 0
+        add r0, r4, r0
+        bl map_kind
+        cmp r0, T_PATH
+        brz bld_neighbor_hit
+        cmp r0, T_QUEUE
+        brz bld_neighbor_hit
+        add r3, r3, 2
+        sub r2, r2, 1
+        brp bld_neighbor
+        mov r0, 0
+        br bld_neighbor_done
+bld_neighbor_hit:
+        mov r0, 1
+bld_neighbor_done:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; r4=plan. Add tree surcharges for the body and the chosen doors.
+bld_ride_price:
+        push r1
+        push r2
+        push r3
+        push lr
+        ldr r1, r4, BLD_Y
+        ldr r2, r4, BLD_H
+        ldr r3, r4, BLD_COST
+bld_price_row:
+        push r2
+        ldr r2, r4, BLD_W
+bld_price_tile:
+        ldr r0, r4, BLD_X
+        add r0, r0, r2
+        sub r0, r0, 1
+        bl map_kind
+        cmp r0, T_TREE
+        brnz bld_price_next
+        add r3, r3, COST_CLEAR_TREE
+        brn bld_price_overflow_row
+bld_price_next:
+        sub r2, r2, 1
+        brp bld_price_tile
+        pop r2
+        add r1, r1, 1
+        sub r2, r2, 1
+        brp bld_price_row
+        ldr r0, r4, BLD_ENT
+        bl bld_door_surcharge
+        ldr r0, r4, BLD_EXIT
+        bl bld_door_surcharge
+        mov r0, r3
+        br bld_price_done
+bld_price_overflow_row:
+        pop r2
+        mov r0, -1
+bld_price_done:
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; r0=door index (or -1), r3=running cost. Mark overflow with -1.
+bld_door_surcharge:
+        cmp r0, 0
+        brn bld_surcharge_done
+        cmp r3, 0
+        brn bld_surcharge_done
+        push lr
+        bl bld_index_xy
+        bl map_kind
+        cmp r0, T_TREE
+        brnz bld_surcharge_restore
+        add r3, r3, COST_CLEAR_TREE
+        brp bld_surcharge_restore
+        mov r3, -1
+bld_surcharge_restore:
+        pop lr
+bld_surcharge_done:
+        ret
+
+; Convert a map index to x in r0 and y in r1.
+bld_index_xy:
+        mov r1, r0
+        srl r1, MAP_SHIFT
+        push r2
+        mov r2, MAP_W-1
+        and r0, r0, r2
+        pop r2
+        ret
+
+; r0=type, bld_plan already validated. Return new ride index or -1.
+bld_commit_ride:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        lea r4, bld_plan
+        mov r3, r0
+        ldr r0, r4, BLD_COST
+        bl eco_can_afford
+        cmp r0, 0
+        brz bld_commit_cash
+
+        mov r0, r3
+        ldr r1, r4, BLD_X
+        ldr r2, r4, BLD_Y
+        bl ride_new
+        cmp r0, 0
+        brn bld_commit_full
+        push r0                ; slot index
+        bl ride_addr
+        mov r3, r0              ; record
+        ldr r0, r4, BLD_ENT
+        bl bld_index_xy
+        str r0, r3, R_ENT_X
+        str r1, r3, R_ENT_Y
+        ldr r0, r4, BLD_EXIT
+        mov r1, -1
+        cmp r0, 0
+        brn bld_commit_store_exit
+        bl bld_index_xy
+bld_commit_store_exit:
+        str r0, r3, R_EXIT_X
+        str r1, r3, R_EXIT_Y
+
+        mov r0, r4              ; preserve the plan while map_fill takes r4
+        push r0
+        ldr r4, r0, BLD_BODY
+        ldr r1, sp, 1           ; slot index
+        sll r1, T_RIDE_SHIFT
+        or r4, r1
+        ldr r1, r0, BLD_Y
+        ldr r2, r0, BLD_W
+        ldr r3, r0, BLD_H
+        ldr r0, r0, BLD_X
+        bl map_fill
+        pop r4
+
+        ldr r2, sp, 0
+        sll r2, T_RIDE_SHIFT
+        add r2, r2, T_ENTRANCE
+        ldr r0, r4, BLD_ENT
+        bl bld_index_xy
+        bl map_set
+        ldr r0, r4, BLD_EXIT
+        cmp r0, 0
+        brn bld_commit_spend
+        add r2, r2, T_EXIT-T_ENTRANCE
+        bl bld_index_xy
+        bl map_set
+bld_commit_spend:
+        ldr r0, r4, BLD_COST
+        bl eco_spend
+        mov r0, SND_BUILD
+        sound r0
+        pop r0
+        br bld_commit_done
+bld_commit_cash:
+        lea r0, bld_msg_cash
+        br bld_commit_error
+bld_commit_full:
+        lea r0, bld_msg_full
+bld_commit_error:
+        bl bld_error
+bld_commit_done:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
         ret
 
 bld_demolish:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        mov r4, r0
+        bl bld_demolish_info
+        cmp r0, 0
+        brn bld_demolish_refused
+        push r0                 ; refund basis
+        cmp r2, 0
+        brn bld_demolish_tile
+
+        mov r0, r2
+        bl bld_clear_ride
+        br bld_demolish_refund
+bld_demolish_tile:
+        mov r0, r4
+        mov r2, T_GRASS
+        bl map_set
+bld_demolish_refund:
+        pop r0
+        ; Divide first for the hundreds, so large catalog costs do not
+        ; overflow a signed word when multiplied by REFUND_PCT.
+        mov r1, 100
+        mov r2, REFUND_PCT
+        mov r3, r0
+        div r3, r1
+        mul r3, r2
+        rem r0, r1
+        mul r0, r2
+        div r0, r1
+        add r0, r0, r3
+        bl eco_earn
+        mov r0, SND_BUILD
+        sound r0
+        mov r0, 1
+        br bld_demolish_done
+bld_demolish_refused:
         mov r0, 0
+bld_demolish_done:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
         ret
+
+; r0=x, r1=y. Return the base refund cost or -1, and in r2 the ride
+; index when this is part of a ride/stall (-1 for a standalone tile).
+bld_demolish_info:
+        push r3
+        push lr
+        mov r3, r0
+        bl map_kind
+        mov r2, -1
+        cmp r0, T_GRASS
+        brlt bld_demolish_invalid
+        cmp r0, T_RIDE
+        brlt bld_demolish_price
+        cmp r0, T_STALL
+        brgt bld_demolish_price
+
+        mov r0, r3
+        bl ride_at
+        cmp r0, 0
+        brn bld_demolish_invalid
+        mov r2, r0
+        bl ride_addr
+        ldr r0, r0, R_TYPE
+        cmp r0, RT_COASTER
+        brz bld_demolish_invalid
+        bl ride_type_info
+        cmp r0, 0
+        brz bld_demolish_invalid
+        ldr r0, r0, RTI_COST
+        br bld_demolish_info_done
+bld_demolish_price:
+        lea r3, bld_refund_basis
+        add r0, r0, r3
+        ldr r0, r0, 0
+        br bld_demolish_info_done
+bld_demolish_invalid:
+        mov r0, -1
+bld_demolish_info_done:
+        pop lr
+        pop r3
+        ret
+
+; r0=ride index. Remove the doors while the record still holds their
+; locations, then clear the footprint and release the slot.
+bld_clear_ride:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        push r0
+        bl ride_addr
+        mov r4, r0
+        ldr r2, sp, 0
+        sll r2, T_RIDE_SHIFT
+        add r2, r2, T_ENTRANCE
+        ldr r0, r4, R_ENT_X
+        ldr r1, r4, R_ENT_Y
+        bl bld_clear_door
+        add r2, r2, T_EXIT-T_ENTRANCE
+        ldr r0, r4, R_EXIT_X
+        ldr r1, r4, R_EXIT_Y
+        bl bld_clear_door
+        ldr r0, r4, R_X
+        ldr r1, r4, R_Y
+        ldr r2, r4, R_W
+        ldr r3, r4, R_H
+        mov r4, T_GRASS
+        bl map_fill
+        pop r0
+        bl ride_free
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; r0=x, r1=y, r2=expected entrance/exit word (kind and ride index).
+; Leave a tile alone if those coordinates no longer refer to this door.
+bld_clear_door:
+        push r2
+        push r3
+        push lr
+        mov r3, r0
+        bl map_get
+        sll r0, 16-T_HEIGHT_SHIFT
+        srl r0, 16-T_HEIGHT_SHIFT
+        cmp r0, r2
+        brnz bld_clear_door_done
+        mov r0, r3
+        mov r2, T_GRASS
+        bl map_set
+bld_clear_door_done:
+        pop lr
+        pop r3
+        pop r2
+        ret
+
+; Post a refusal and return -1.
+bld_error:
+        push lr
+        bl ui_msg
+        mov r0, SND_ERROR
+        sound r0
+        mov r0, -1
+        pop lr
+        ret
+
+bld_plan: .zero BLD_COST+1
+bld_msg_blocked: .string "Can't build here."
+bld_msg_cash:    .string "Not enough cash."
+bld_msg_full:    .string "No ride slots available."
+
+bld_path_spec:
+        .word T_PATH
+        .word COST_PATH
+bld_queue_spec:
+        .word T_QUEUE
+        .word COST_QUEUE
+bld_scenery_specs:
+        .word T_FLOWERS
+        .word COST_FLOWERS
+        .word T_BENCH
+        .word COST_BENCH
+        .word T_BIN
+        .word COST_BIN
+        .word T_TREE
+        .word COST_TREE
+
+bld_refund_basis:
+        .word -1                ; grass
+        .word COST_TREE
+        .word -1                ; water
+        .word COST_PATH
+        .word COST_QUEUE
+        .word -1                ; gate
+        .word -1                ; ride (catalog)
+        .word -1                ; entrance
+        .word -1                ; exit
+        .word -1                ; stall (catalog)
+        .word -1                ; track (coaster designer)
+        .word COST_FLOWERS
+        .word COST_BENCH
+        .word COST_BIN
+        .word -1                ; fence
+        .word -1                ; unused
+
+bld_neighbor_deltas:
+        .word 0
+        .word -1
+        .word 1
+        .word 0
+        .word 0
+        .word 1
+        .word -1
+        .word 0

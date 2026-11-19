@@ -13,10 +13,10 @@ domain skill shown.
 | WP2 | Viewport renderer | src/render.ap, tests/unit/render_* | WP0 | lcc-text-graphics | 1 | review |
 | WP3 | UI frame: panel, status, messages | src/ui.ap, tests/unit/ui_* | WP0 | lcc-text-graphics | 1 | review |
 | WP4 | Economy & calendar | src/economy.ap, tests/unit/eco_* | WP0 | lcc-simulation | 1 | review |
-| WP5 | Input & tools | src/input.ap, tests/input.test.json | WP2, WP3 | lcc-game-dev | 2 | active |
-| WP6 | Construction rules & costs | src/build.ap, tests/unit/build_*, tests/build.test.json | WP1, WP4 | lcc-simulation | 2 | active |
+| WP5 | Input & tools | src/input.ap, tests/input.test.json | WP2, WP3 | lcc-game-dev | 2 | review |
+| WP6 | Construction rules & costs | src/build.ap, tests/unit/build_*, tests/build.test.json | WP1, WP4 | lcc-simulation | 2 | review |
 | WP7 | Ride & stall catalog + operations | src/rides.ap, tests/unit/rides_* | WP1, WP4 | lcc-simulation | 2 | active |
-| WP8 | Pathfinding | src/path.ap, tests/unit/path_* | WP1 | lcc-simulation | 2 | active |
+| WP8 | Pathfinding | src/path.ap, tests/unit/path_* | WP1 | lcc-simulation | 2 | review |
 | WP9 | Guests | src/guests.ap, tests/unit/guests_*, tests/guests.test.json | WP7, WP8, WP4 | lcc-simulation | 3 | todo |
 | WP10 | Info & finance windows | src/windows.ap, tests/windows.test.json | WP7, WP9, WP3 | lcc-text-graphics | 3 | todo |
 | WP11 | Coaster designer (track editing, circuit check) | src/coaster.ap, tests/unit/coaster_* | WP6, WP2 | lcc-text-graphics + lcc-simulation | 4 | todo |
@@ -92,6 +92,7 @@ any other key cancels.
 **Acceptance:** `tests/input.test.json` scenario: moves, clamps at edges, tool switching,
 item cycling, pause/speed, quit cancel + confirm; frames looked at.
 **Log:**
+- 2026-11-18 Claude Opus 5.5: done. 24 game + 31 unit input scenarios. Found upstream `cmp rX, r4..r7` mis-encoding → orchestrator added a build lint + skill note. Requests: SPEED_MAX 3→4 (ARCH); added tests/unit/input_* (driver it had to extend). Arrows decoded to wasd; ESC w/o window drops tool; space with TOOL_COASTER → cst_begin.
 
 ## WP6 — Construction rules & costs
 **Goal:** `bld_*` per contract: path/queue/scenery tiles on buildable land (trees cost
@@ -101,6 +102,7 @@ demolish refunds REFUND_PCT %, gate and fence are protected. Messages via `ui_ms
 **Acceptance:** unit tests for each rule and refusal; `tests/build.test.json` places a path
 from the gate, a ride and a stall from the keyboard and shows cash falling.
 **Log:**
+- 2026-11-18 Codex gpt-6.2-sol: done. Keyboard flow: path+carousel+food stall $10,000→$8,840; demolish refunds $575; gate protected; tree clearing charged per tree, not refunded. Request: note bld_ as writer of R_ENT/R_EXIT (ARCH doc).
 
 ## WP7 — Ride & stall catalog + operations
 **Goal:** original catalog for RT_CAROUSEL..RT_TOILET (names, footprint, cost, upkeep,
@@ -118,6 +120,58 @@ random_dir` per contract. Profile: one rebuild ≤ 400K instructions, queries O(
 **Acceptance:** unit tests on hand-made maps: straight line, detour around water, dead
 end/unreachable → DIR_NONE/-1, cache invalidation after map change.
 **Log:**
+- 2026-11-18 Codex gpt-6.2-sol: done. Cache = gate + 1 most-recent target (6144 words); cold rebuild ~331K instr; ties N,E,S,W. Risk for WP9: several ride targets will thrash the single non-gate field — watch the guest profile; widen cache if needed.
 
-## WP9 – WP15
-Expand each section (goal + acceptance) when its wave is planned, from DESIGN.md.
+## WP9 — Guests
+**Goal:** `gst_*` per contract: arrivals at the gate while the park is open (rate scaled by
+rating, entry fee paid via `eco_earn`), needs decay over time, decisions (pick a ride by
+excitement/intensity tolerance and price vs cash, food/drink/toilet when a meter is high,
+bench when tired, leave when broke/unhappy/late), walking with `pth_next`/`pth_random_dir`,
+queue/ride/buy via `ride_enqueue`/`ride_buy`, litter and vomit on the map, thoughts, names.
+Time-sliced (1/4 of slots per tick).
+**Acceptance:** unit tests for spawn, decay, decision picks, leaving; `tests/guests.test.json`
+on a scripted park (path + ride + stall) shows guests arriving, riding and buying, cash
+rising; profile ≤ 600K instr/frame with 128 guests at speed 4.
+**Log:**
+
+## WP10 — Info & finance windows
+**Goal:** `win_*` per contract over the panel: ride window (name, status, price, queue,
+riders, ratings, income, total riders; + - o keys), stall window, guest window (name, cash,
+meters as bars, thought, rides), tile window, finance window (cash, loan, this/last month
+income/expense, park value; b/r borrow/repay).
+**Acceptance:** `tests/windows.test.json` opens each window type in a scripted park and pins
+its text; keys inside windows work.
+**Log:**
+
+## WP11 — Coaster designer
+**Goal:** `cst_begin/key/add_piece/undo/closed/finish/cancel/draw`: grid track pieces
+(straight, left, right, up, down) from the station, head + ghost preview, costs/refunds,
+circuit check back to the station, entrance/exit for the station.
+**Acceptance:** unit tests for a closed loop, open track refused, undo refund, cancel,
+blocked tile; scenario builds a small loop from the keyboard.
+**Log:**
+
+## WP12 — Coaster ratings & train
+**Goal:** `cst_rate` from length, drops (height changes), turns and a speed estimate;
+`cst_tick` moves a train along the circuit while open; coaster rides board via rides.ap.
+**Acceptance:** unit tests: longer/steeper track rates higher; train position advances
+and wraps; scenario shows a train glyph moving.
+**Log:**
+
+## WP13 — Staff, litter, breakdowns
+**Goal:** `stf_*`: handymen sweep litter/vomit near them (wander paths, seek dirty
+tiles), mechanics walk to broken rides and repair (RS_BROKEN → RS_OPEN, reliability
+restored); hire from the finance window or a key; monthly wages via economy.
+**Acceptance:** unit tests for hire/fire/count, sweep, repair; scenario shows a repair.
+**Log:**
+
+## WP14 — Rating, scenario, title, win/lose
+**Goal:** `scn_title` (original title art, 2–3 scenario presets), `scn_start` goals,
+`scn_rate` (happiness, ride variety, litter, prices), `scn_check` deadline goals,
+`scn_end_screen`.
+**Acceptance:** `tests/scenario.test.json`: title → choose → game; rating responds to a
+happy vs empty park; forced win and lose screens.
+**Log:**
+
+## WP15 — Polish & balance
+Assigned per finding from the full-game playtests (sound events, balance numbers, UX).

@@ -11,67 +11,565 @@
 ;; inp_handle     ()          -> r0=1 quit confirmed, else 0   drain and dispatch all keys queued this frame (writes st_cur_x/y, st_tool, st_tool_item, st_paused, st_speed, st_quit_ask, st_sel_ride, st_entry_fee)
 ;; inp_key        r0=key      -> r0=1 quit confirmed, else 0   dispatch one key (arrow sequences arrive as 27, 91, 65..68 over three calls)
 ;; inp_move       r0=dx r1=dy -> -                             move the cursor, clamped to the map
+;
+; Key handling details:
+; - Arrows are decoded here (inp_esc state) and dispatched as w s d a, so
+;   windows and the coaster designer see the same codes as for wasd.
+;   A lone ESC (no '[' after it in the same frame) is dispatched as
+;   KEY_ESC when inp_handle has drained the frame's keys.
+; - Dispatch order for one key: quit prompt answer (any key; y = quit) →
+;   open window (win_key; an unconsumed ESC closes it) → coaster
+;   designer (cst_key while st_cst_ride >= 0) → the command table.
+; - Aliases: '=' for '+', '_' for '-', '.' for '>'. ESC with no window
+;   and no designer deselects the tool (TOOL_NONE).
+; - Speed doubles up to SPEED_MAX, then wraps to 1 (1→2→SPEED_MAX→1).
+; - st_sel_ride = ride_at(cursor) after every move and every apply.
+; Calls: bld_apply cst_begin cst_key win_key win_close win_open
+; win_info_at ride_at ride_addr ride_set_price ride_toggle map_kind
+; ui_msg_num ui_msg.
 ; ---------------------------------------------------------------------
 
-; WP0 stub: quit confirmation (q, then y = quit / any other key = cancel)
-; and pause (p). WP5 keeps this behavior.
+; ---- inp_handle: drain all keys of this frame ------------------------------
 inp_handle:
         push r1
         push lr
 inp_handle_lp:
         nbain r0
         cmp r0, 0
-        brz inp_handle_ret
+        brz inp_handle_end
         bl inp_key
         cmp r0, 0
         brz inp_handle_lp
         br inp_handle_out       ; r0 = 1: quit confirmed
-inp_handle_ret:
+inp_handle_end:
+        ld r1, inp_esc          ; ESC with nothing after it = a real ESC
         mov r0, 0
+        st r0, inp_esc
+        cmp r1, 1
+        brnz inp_handle_out     ; r0 = 0
+        mov r0, KEY_ESC
+        bl inp_dispatch
 inp_handle_out:
         pop lr
         pop r1
         ret
 
+; ---- inp_key: escape-sequence decoding, then inp_dispatch ------------------
 inp_key:
         push r1
-        ld r1, st_quit_ask
+        push lr
+        ld r1, inp_esc
         cmp r1, 0
-        brz inp_key_normal
-        mov r1, 0               ; any key answers the prompt
-        st r1, st_quit_ask
-        mov r1, KEY_YES
+        brz inp_key_s0
+        cmp r1, 1
+        brz inp_key_s1
+        mov r1, 0               ; state 2: final byte of ESC [ x
+        st r1, inp_esc
+        mov r1, KEY_ARR_UP
+        sub r1, r0, r1          ; 0..3 = up down right left
+        brn inp_key_none
+        cmp r1, 3
+        brgt inp_key_none
+        lea r0, inp_arrow_tab
+        add r0, r0, r1
+        ldr r0, r0, 0
+        br inp_key_go
+inp_key_s1:
+        mov r1, KEY_CSI
         cmp r0, r1
-        brz inp_key_quit
+        brnz inp_key_lone
+        mov r1, 2               ; ESC [ : wait for the final byte
+        st r1, inp_esc
         br inp_key_none
-inp_key_normal:
-        mov r1, KEY_QUIT
-        cmp r0, r1
-        brnz inp_key_notq
-        mov r1, 1
-        st r1, st_quit_ask
-        br inp_key_none
-inp_key_notq:
-        mov r1, KEY_PAUSE
-        cmp r0, r1
-        brnz inp_key_none
-        ld r1, st_paused        ; toggle 0 <-> 1
-        cmp r1, 0
-        brz inp_key_pause1
+inp_key_lone:                   ; the pending ESC was a lone ESC
         mov r1, 0
-        br inp_key_pause
-inp_key_pause1:
+        st r1, inp_esc
+        mvr r1, r0
+        mov r0, KEY_ESC
+        bl inp_dispatch
+        cmp r0, 0
+        brnz inp_key_out
+        mvr r0, r1              ; then this key, from state 0
+inp_key_s0:
+        mov r1, KEY_ESC
+        cmp r0, r1
+        brnz inp_key_go
         mov r1, 1
-inp_key_pause:
-        st r1, st_paused
+        st r1, inp_esc
+        br inp_key_none
+inp_key_go:
+        bl inp_dispatch
+        br inp_key_out
 inp_key_none:
         mov r0, 0
-        pop r1
-        ret
-inp_key_quit:
-        mov r0, 1
+inp_key_out:
+        pop lr
         pop r1
         ret
 
+; ---- inp_move r0=dx r1=dy: clamp to 0..MAP_W-1 / 0..MAP_H-1 ----------------
 inp_move:
+        push r0
+        push r1
+        push r2
+        ld r2, st_cur_x
+        add r0, r0, r2
+        brn inp_move_x0
+        mov r2, MAP_W-1
+        cmp r0, r2
+        brlt inp_move_xs
+        mvr r0, r2
+        br inp_move_xs
+inp_move_x0:
+        mov r0, 0
+inp_move_xs:
+        st r0, st_cur_x
+        ld r2, st_cur_y
+        add r1, r1, r2
+        brn inp_move_y0
+        mov r2, MAP_H-1
+        cmp r1, r2
+        brlt inp_move_ys
+        mvr r1, r2
+        br inp_move_ys
+inp_move_y0:
+        mov r1, 0
+inp_move_ys:
+        st r1, st_cur_y
+        pop r2
+        pop r1
+        pop r0
         ret
+
+; ---- inp_dispatch r0=key -> r0=1 quit confirmed (private) ------------------
+; Preserves r1-r4.
+inp_dispatch:
+        push r1
+        push r2
+        push lr
+        mvr r2, r0              ; r2 = key
+        ld r1, st_quit_ask      ; prompt showing: any key answers it
+        cmp r1, 0
+        brz inp_d_win
+        mov r1, 0
+        st r1, st_quit_ask
+        mov r1, KEY_YES
+        cmp r2, r1
+        brnz inp_d_none
+        mov r0, 1
+        br inp_d_out
+inp_d_win:
+        ld r1, st_window
+        cmp r1, WIN_NONE
+        brz inp_d_cst
+        bl win_key              ; r0 = key
+        cmp r0, 0
+        brnz inp_d_none
+        mov r1, KEY_ESC
+        cmp r2, r1
+        brnz inp_d_cst
+        bl win_close
+        br inp_d_none
+inp_d_cst:
+        ld r1, st_cst_ride      ; coaster designer active?
+        cmp r1, 0
+        brn inp_d_cmd
+        mvr r0, r2
+        bl cst_key
+        cmp r0, 0
+        brnz inp_d_none
+inp_d_cmd:
+        mvr r0, r2
+        bl inp_cmd
+inp_d_none:
+        mov r0, 0
+inp_d_out:
+        pop lr
+        pop r2
+        pop r1
+        ret
+
+; ---- inp_cmd r0=key (private): look the key up in inp_cmd_tab --------------
+; Handlers get r0=key and may clobber r0-r4. Preserves r1-r4.
+inp_cmd:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        lea r1, inp_cmd_tab
+inp_cmd_lp:
+        ldr r2, r1, 0
+        cmp r2, 0
+        brz inp_cmd_done
+        cmp r2, r0
+        brz inp_cmd_hit
+        add r1, r1, 2
+        br inp_cmd_lp
+inp_cmd_hit:
+        ldr r2, r1, 1
+        blr r2
+inp_cmd_done:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; key → handler, 0-terminated
+inp_cmd_tab:
+        .word KEY_UP
+        .word inp_c_up
+        .word KEY_DOWN
+        .word inp_c_down
+        .word KEY_LEFT
+        .word inp_c_left
+        .word KEY_RIGHT
+        .word inp_c_right
+        .word KEY_UP5
+        .word inp_c_up5
+        .word KEY_DOWN5
+        .word inp_c_down5
+        .word KEY_LEFT5
+        .word inp_c_left5
+        .word KEY_RIGHT5
+        .word inp_c_right5
+        .word '1'
+        .word inp_c_tool
+        .word '2'
+        .word inp_c_tool
+        .word '3'
+        .word inp_c_tool
+        .word '4'
+        .word inp_c_tool
+        .word '5'
+        .word inp_c_tool
+        .word '6'
+        .word inp_c_tool
+        .word KEY_DEMOLISH
+        .word inp_c_demolish
+        .word KEY_PREV
+        .word inp_c_prev
+        .word KEY_NEXT
+        .word inp_c_next
+        .word KEY_APPLY
+        .word inp_c_apply
+        .word KEY_INFO
+        .word inp_c_info
+        .word KEY_PLUS
+        .word inp_c_plus
+        .word '='
+        .word inp_c_plus
+        .word KEY_MINUS
+        .word inp_c_minus
+        .word '_'
+        .word inp_c_minus
+        .word KEY_OPEN
+        .word inp_c_open
+        .word KEY_FINANCE
+        .word inp_c_finance
+        .word KEY_PAUSE
+        .word inp_c_pause
+        .word KEY_SPEED
+        .word inp_c_speed
+        .word '.'
+        .word inp_c_speed
+        .word KEY_QUIT
+        .word inp_c_quit
+        .word KEY_ESC
+        .word inp_c_esc
+        .word 0
+
+; ---- command handlers (r0 = key; clobber r0-r4) -----------------------------
+inp_c_up:
+        mov r0, 0
+        mov r1, -1
+        br inp_c_move
+inp_c_down:
+        mov r0, 0
+        mov r1, 1
+        br inp_c_move
+inp_c_left:
+        mov r0, -1
+        mov r1, 0
+        br inp_c_move
+inp_c_right:
+        mov r0, 1
+        mov r1, 0
+        br inp_c_move
+inp_c_up5:
+        mov r0, 0
+        mov r1, -5
+        br inp_c_move
+inp_c_down5:
+        mov r0, 0
+        mov r1, 5
+        br inp_c_move
+inp_c_left5:
+        mov r0, -5
+        mov r1, 0
+        br inp_c_move
+inp_c_right5:
+        mov r0, 5
+        mov r1, 0
+inp_c_move:
+        push lr
+        bl inp_move
+        bl inp_sel
+        pop lr
+        ret
+
+; inp_sel: st_sel_ride = ride under the cursor (-1 none)
+inp_sel:
+        push r0
+        push r1
+        push lr
+        ld r0, st_cur_x
+        ld r1, st_cur_y
+        bl ride_at
+        st r0, st_sel_ride
+        pop lr
+        pop r1
+        pop r0
+        ret
+
+inp_c_demolish:
+        mov r0, TOOL_DEMOLISH
+        br inp_c_settool
+inp_c_tool:                     ; '1'..'6' = TOOL_PATH..TOOL_COASTER
+        mov r1, '0'
+        sub r0, r0, r1
+inp_c_settool:                  ; r0 = TOOL_*: select it, item = first of range
+        st r0, st_tool
+        lea r1, inp_item_lo
+        add r1, r1, r0
+        ldr r1, r1, 0
+        cmp r1, 0
+        brp inp_c_settool_it
+        mov r1, 0               ; no items for this tool
+inp_c_settool_it:
+        st r1, st_tool_item
+        ret
+
+; [ / ]: cycle st_tool_item within inp_item_lo..inp_item_hi of the tool
+inp_c_prev:
+        mov r2, -1
+        br inp_c_cycle
+inp_c_next:
+        mov r2, 1
+inp_c_cycle:
+        ld r0, st_tool
+        cmp r0, 0
+        brn inp_c_cycle_out
+        mov r1, TOOL_COUNT
+        cmp r0, r1
+        brlt inp_c_cycle_ok
+inp_c_cycle_out:
+        ret
+inp_c_cycle_ok:
+        lea r1, inp_item_lo
+        add r1, r1, r0
+        ldr r3, r1, 0           ; r3 = lo (-1: tool has no items)
+        cmp r3, 0
+        brn inp_c_cycle_out
+        lea r1, inp_item_hi
+        add r1, r1, r0
+        ldr r4, r1, 0           ; r4 = hi
+        ld r0, st_tool_item
+        add r0, r0, r2
+        cmp r0, r3
+        brlt inp_c_cycle_wrap_hi
+        cmp r4, r0              ; hi < item? (cmp's 2nd register must be r0-r3:
+        brlt inp_c_cycle_wrap_lo ; upstream encodes it with & 3)
+        br inp_c_cycle_st
+inp_c_cycle_wrap_hi:
+        mvr r0, r4
+        br inp_c_cycle_st
+inp_c_cycle_wrap_lo:
+        mvr r0, r3
+inp_c_cycle_st:
+        st r0, st_tool_item
+        ret
+
+; item range per TOOL_* (lo = -1: no items)
+inp_item_lo:
+        .word -1                ; TOOL_NONE
+        .word -1                ; TOOL_PATH
+        .word -1                ; TOOL_QUEUE
+        .word RT_CAROUSEL       ; TOOL_RIDE
+        .word RT_FIRST_STALL    ; TOOL_STALL
+        .word SC_FLOWERS        ; TOOL_SCENERY
+        .word -1                ; TOOL_COASTER
+        .word -1                ; TOOL_DEMOLISH
+inp_item_hi:
+        .word -1
+        .word -1
+        .word -1
+        .word RT_BUMPER
+        .word RT_LAST_STALL
+        .word SC_COUNT-1
+        .word -1
+        .word -1
+
+; space: apply the tool at the cursor (coaster tool starts the designer)
+inp_c_apply:
+        push lr
+        ld r2, st_tool
+        cmp r2, TOOL_NONE
+        brz inp_c_apply_done
+        ld r0, st_cur_x
+        ld r1, st_cur_y
+        cmp r2, TOOL_COASTER
+        brnz inp_c_apply_bld
+        bl cst_begin            ; WP11 hook: designer takes keys from now on
+        br inp_c_apply_sel
+inp_c_apply_bld:
+        bl bld_apply
+inp_c_apply_sel:
+        bl inp_sel
+inp_c_apply_done:
+        pop lr
+        ret
+
+; i: info window for what is under the cursor
+inp_c_info:
+        push lr
+        ld r0, st_cur_x
+        ld r1, st_cur_y
+        bl win_info_at
+        pop lr
+        ret
+
+inp_c_finance:
+        push lr
+        mov r0, WIN_FINANCE
+        mov r1, 0
+        bl win_open
+        pop lr
+        ret
+
+; + / -: price of the ride under the cursor, or the entry fee on the gate
+inp_c_plus:
+        mov r3, 1
+        br inp_c_price
+inp_c_minus:
+        mov r3, -1
+inp_c_price:                    ; r3 = delta
+        push lr
+        ld r0, st_cur_x
+        ld r1, st_cur_y
+        bl ride_at
+        cmp r0, 0
+        brn inp_c_price_gate
+        mvr r4, r0              ; r4 = ride index
+        bl ride_addr
+        ldr r1, r0, R_PRICE
+        add r1, r1, r3
+        mvr r0, r4
+        bl ride_set_price       ; clamps 0..PRICE_MAX
+        mvr r0, r4
+        bl ride_addr
+        ldr r1, r0, R_PRICE
+        lea r0, inp_s_price
+        bl ui_msg_num
+        br inp_c_price_done
+inp_c_price_gate:
+        ld r0, st_cur_x
+        ld r1, st_cur_y
+        bl map_kind
+        cmp r0, T_GATE
+        brnz inp_c_price_done
+        ld r1, st_entry_fee
+        add r1, r1, r3
+        brn inp_c_price_fee0
+        mov r2, ENTRY_FEE_MAX
+        cmp r1, r2
+        brlt inp_c_price_fee
+        mvr r1, r2
+        br inp_c_price_fee
+inp_c_price_fee0:
+        mov r1, 0
+inp_c_price_fee:
+        st r1, st_entry_fee
+        lea r0, inp_s_fee
+        bl ui_msg_num
+inp_c_price_done:
+        pop lr
+        ret
+
+; o: open/close the ride under the cursor
+inp_c_open:
+        push lr
+        ld r0, st_cur_x
+        ld r1, st_cur_y
+        bl ride_at
+        cmp r0, 0
+        brn inp_c_open_done
+        st r0, st_sel_ride
+        bl ride_toggle          ; r0 = new R_STATUS
+        cmp r0, RS_OPEN
+        brz inp_c_open_on
+        cmp r0, RS_CLOSED
+        brnz inp_c_open_done    ; broken / building: unchanged
+        lea r0, inp_s_closed
+        br inp_c_open_msg
+inp_c_open_on:
+        lea r0, inp_s_opened
+inp_c_open_msg:
+        bl ui_msg
+inp_c_open_done:
+        pop lr
+        ret
+
+inp_c_pause:                    ; toggle 0 <-> 1
+        ld r0, st_paused
+        cmp r0, 0
+        brz inp_c_pause1
+        mov r0, 0
+        br inp_c_pause_st
+inp_c_pause1:
+        mov r0, 1
+inp_c_pause_st:
+        st r0, st_paused
+        ret
+
+inp_c_speed:                    ; double up to SPEED_MAX, then back to 1
+        ld r0, st_speed
+        mov r1, SPEED_MAX
+        cmp r0, r1
+        brlt inp_c_speed_up
+        mov r0, 1
+        br inp_c_speed_st
+inp_c_speed_up:
+        add r0, r0, r0
+        brp inp_c_speed_cl      ; (speed < 1 from bad state: reset to 1)
+        mov r0, 1
+        br inp_c_speed_st
+inp_c_speed_cl:
+        cmp r0, r1
+        brlt inp_c_speed_st
+        mvr r0, r1
+inp_c_speed_st:
+        st r0, st_speed
+        ret
+
+inp_c_quit:
+        mov r0, 1
+        st r0, st_quit_ask
+        ret
+
+inp_c_esc:                      ; ESC with no window / designer: drop the tool
+        mov r0, TOOL_NONE
+        br inp_c_settool
+
+; ---- private data -------------------------------------------------------------
+inp_esc:        .word 0         ; 0 normal, 1 after ESC, 2 after ESC [
+inp_arrow_tab:  .word KEY_UP    ; ESC [ A
+                .word KEY_DOWN  ; ESC [ B
+                .word KEY_RIGHT ; ESC [ C
+                .word KEY_LEFT  ; ESC [ D
+inp_s_price:    .string "Ride price:"
+inp_s_fee:      .string "Entry fee:"
+inp_s_opened:   .string "Ride opened"
+inp_s_closed:   .string "Ride closed"

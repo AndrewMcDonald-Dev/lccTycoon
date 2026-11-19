@@ -1,0 +1,244 @@
+; Small map with two bypasses around the center tile at (3,2).
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        mov r0, 0
+        st r0, st_map_dirty
+        bl pth_init
+        ld r0, st_map_dirty
+        st r0, drv_init_dirty
+
+        lea r3, drv_tiles
+drv_set_tile:
+        ldr r0, r3, 0
+        cmp r0, -1
+        brz drv_run_straight
+        ldr r1, r3, 1
+        ldr r2, r3, 2
+        bl map_set
+        add r3, r3, 3
+        br drv_set_tile
+
+drv_run_straight:
+        mov r0, 1
+        st r0, st_gate_x
+        mov r0, 2
+        st r0, st_gate_y
+        bl pth_update
+        lea r4, drv_straight
+        bl drv_routes
+
+        mov r0, 5
+        mov r1, 2
+        bl pth_to_gate
+        st r0, drv_to_gate
+
+        ; Both cached fields need new routes around this water tile.
+        mov r0, 3
+        mov r1, 2
+        mov r2, T_WATER
+        bl map_set
+        ld r0, st_map_dirty
+        st r0, drv_edit_dirty
+        bl pth_update
+        ld r0, st_map_dirty
+        st r0, drv_update_dirty
+        lea r4, drv_detour
+        bl drv_routes
+
+        ; The two detours tied. Removing the north path leaves only south.
+        ; Query before the next update to exercise invalidation on demand.
+        mov r0, 3
+        mov r1, 1
+        mov r2, T_GRASS
+        bl map_set
+        lea r4, drv_removed
+        bl drv_routes
+        ld r0, st_map_dirty
+        st r0, drv_query_dirty
+
+        mov r0, 17
+        srand r0
+        mov r4, 32
+drv_random:
+        mov r0, 2
+        mov r1, 2
+        bl pth_random_dir
+        add r3, r0, 1
+        cmp r3, 0
+        brn drv_random_bad
+        cmp r3, DIR_W+1
+        brgt drv_random_bad
+        lea r0, drv_random_seen
+        add r0, r0, r3
+        mov r3, 1
+        str r3, r0, 0
+        br drv_random_repeat
+drv_random_bad:
+        mov r0, 1
+        st r0, drv_random_error
+drv_random_repeat:
+        sub r4, r4, 1
+        brp drv_random
+
+        mov r0, 8
+        mov r1, 2
+        bl pth_random_dir
+        st r0, drv_boxed
+        mov r0, MAP_W-1
+        mov r1, 0
+        bl pth_random_dir
+        st r0, drv_edge_boxed
+        halt
+
+; Write DIR_* and distance into each row's last two words.
+drv_routes:
+        push lr
+drv_route:
+        ldr r0, r4, 0
+        cmp r0, -1
+        brz drv_routes_done
+        ldr r1, r4, 1
+        ldr r2, r4, 2
+        ldr r3, r4, 3
+        bl pth_next
+        str r0, r4, 4
+        ldr r0, r4, 0
+        bl pth_dist
+        str r0, r4, 5
+        add r4, r4, 6
+        br drv_route
+drv_routes_done:
+        pop lr
+        ret
+
+; x, y, target x, target y, direction, distance
+drv_straight:
+        .word 2
+        .word 2
+        .word 5
+        .word 2
+        .word 99
+        .word 99
+        .word 5
+        .word 2
+        .word 5
+        .word 2
+        .word 99
+        .word 99
+        .word 8
+        .word 2
+        .word 5
+        .word 2
+        .word 99
+        .word 99
+        .word -1
+drv_detour:
+        .word 2
+        .word 2
+        .word 5
+        .word 2
+        .word 99
+        .word 99
+        .word 5
+        .word 2
+        .word 1
+        .word 2
+        .word 99
+        .word 99
+        .word -1
+drv_removed:
+        .word 2
+        .word 2
+        .word 5
+        .word 2
+        .word 99
+        .word 99
+        .word 5
+        .word 2
+        .word 1
+        .word 2
+        .word 99
+        .word 99
+        .word 2
+        .word 2
+        .word 3
+        .word 2
+        .word 99
+        .word 99
+        .word MAP_W-1
+        .word 0
+        .word 0
+        .word 1
+        .word 99
+        .word 99
+        .word 2
+        .word 2
+        .word MAP_W
+        .word 2
+        .word 99
+        .word 99
+        .word -1
+
+; x, y, tile
+drv_tiles:
+        .word 1
+        .word 2
+        .word T_GATE
+        .word 2
+        .word 2
+        .word T_PATH
+        .word 3
+        .word 2
+        .word T_EXIT
+        .word 4
+        .word 2
+        .word T_QUEUE
+        .word 5
+        .word 2
+        .word T_ENTRANCE|(7<<T_RIDE_SHIFT)|T_VOMIT
+        .word 2
+        .word 1
+        .word T_PATH
+        .word 3
+        .word 1
+        .word T_PATH
+        .word 4
+        .word 1
+        .word T_PATH
+        .word 2
+        .word 3
+        .word T_PATH
+        .word 3
+        .word 3
+        .word T_PATH
+        .word 4
+        .word 3
+        .word T_PATH
+        .word 8
+        .word 2
+        .word T_PATH
+        .word MAP_W-1
+        .word 0
+        .word T_PATH
+        .word 0
+        .word 1
+        .word T_PATH
+        .word -1
+
+drv_init_dirty:   .word 99
+drv_to_gate:      .word 99
+drv_edit_dirty:   .word 99
+drv_update_dirty: .word 99
+drv_query_dirty:  .word 99
+drv_random_seen:  .zero 5       ; indexed by DIR_* + 1
+drv_random_error: .word 0
+drv_boxed:        .word 99
+drv_edge_boxed:   .word 99
+
+        .include "../../src/state.ap"
+        .include "../../src/map.ap"
+        .include "../../src/path.ap"

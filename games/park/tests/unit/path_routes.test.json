@@ -1,0 +1,41 @@
+{
+  "game": "path_driver.ap",
+  "scenarios": [
+    {
+      "name": "shortest directions and distances across paths, queue, exit and entrance",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_init_dirty": 1,
+          "drv_straight": [2, 2, 5, 2, 1, 3, 5, 2, 5, 2, -1, 0, 8, 2, 5, 2, -1, -1],
+          "drv_to_gate": 3
+        }
+      }
+    },
+    {
+      "name": "water detours, north-first ties and invalidation of both cached targets",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_edit_dirty": 1,
+          "drv_update_dirty": 0,
+          "drv_detour": [2, 2, 5, 2, 0, 5, 5, 2, 1, 2, 3, 6],
+          "drv_removed": [2, 2, 5, 2, 2, 5, 5, 2, 1, 2, 3, 6, 2, 2, 3, 2, -1, -1, 63, 0, 0, 1, -1, -1, 2, 2, 64, 2, -1, -1],
+          "drv_query_dirty": 0
+        }
+      }
+    },
+    {
+      "name": "random directions only return walkable neighbours and handle boxed-in tiles",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_random_seen": [0, 1, 0, 1, 1],
+          "drv_random_error": 0,
+          "drv_boxed": -1,
+          "drv_edge_boxed": -1
+        }
+      }
+    }
+  ]
+}

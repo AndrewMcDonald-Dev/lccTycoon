@@ -1,0 +1,74 @@
+; Stage the two cold builds and the subsequent cache hits in separate frames.
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        mov r0, 0
+        mov r1, 0
+        mov r2, MAP_W
+        mov r3, MAP_H
+        mov r4, T_PATH
+        bl map_fill
+        mov r0, MAP_W-1
+        st r0, st_gate_x
+        mov r1, MAP_H-1
+        st r1, st_gate_y
+        mov r2, T_GATE
+        bl map_set
+        mov r0, 0
+        mov r1, 0
+        mov r2, T_ENTRANCE
+        bl map_set
+        bl pth_init
+        bl pth_update
+        mov r0, 1
+        sleep r0
+
+        mov r0, 0
+        mov r1, 0
+        mov r2, MAP_W-1
+        mov r3, MAP_H-1
+        bl pth_dist
+        st r0, drv_full_distance
+        mov r0, 1
+        sleep r0
+
+        mov r0, MAP_W-1
+        mov r1, MAP_H-1
+        mov r2, 0
+        mov r3, 0
+        bl pth_next
+        st r0, drv_full_to_entrance
+        mov r0, 1
+        sleep r0
+
+        mov r4, MAX_GUESTS
+drv_cached:
+        mov r0, 0
+        mov r1, 0
+        bl pth_to_gate
+        cmp r0, DIR_E
+        brnz drv_wrong_dir
+        mov r0, MAP_W-1
+        mov r1, MAP_H-1
+        mov r2, 0
+        mov r3, 0
+        bl pth_next
+        cmp r0, DIR_N
+        brnz drv_wrong_dir
+        sub r4, r4, 1
+        brp drv_cached
+        halt
+drv_wrong_dir:
+        st r4, drv_cache_error
+        halt
+
+drv_full_distance:    .word 99
+drv_full_to_entrance: .word 99
+drv_cache_error:      .word 0
+
+        .include "../../src/state.ap"
+        .include "../../src/map.ap"
+        .include "../../src/path.ap"

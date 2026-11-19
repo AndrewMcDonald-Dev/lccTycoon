@@ -1,8 +1,8 @@
 ; Unit driver for src/input.ap (WP5 owns and extends this file).
 ; One inp_handle call per frame (sleep = frame boundary), so key-script
 ; tokens arrive exactly like in the game. Halts when quit is confirmed.
-; input.ap calls nothing else today; when WP5 makes it call bld_/win_/cst_
-; routines, include those modules (or a stub file in tests/unit/) here.
+; input.ap's calls into windows/coaster/build/rides/ui/map go to the
+; recording stubs in input_stubs.ap.
         .lccplus
         .start drv_main
         .include "video_defs.ap"
@@ -24,3 +24,4 @@ drv_result: .word 0
 drv_calls:  .word 0
         .include "../../src/state.ap"
         .include "../../src/input.ap"
+        .include "input_stubs.ap"

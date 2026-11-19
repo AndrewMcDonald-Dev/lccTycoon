@@ -1,10 +1,8 @@
 ; ---------------------------------------------------------------------
 ; Module: path (prefix pth_) — owner WP8. Breadth-first distance fields
 ; over walkable tiles (map_walkable) and next-step queries for guests and
-; staff. Owns its scratch (distance field + BFS queue, ~6K words) as
-; private data in this file. Fields are rebuilt only when st_map_dirty=1
-; (pth_update clears it); queries never run a BFS of their own unless the
-; target's field is not cached.
+; staff. Cache one field for the gate and one for the last other target.
+; A field doubles as its own BFS queue while rebuilding on a cache miss.
 ; All routines: args r0..r4, result r0, all other registers preserved.
 ;
 ;; pth_init       ()                     -> -          reset caches; st_map_dirty = 1
@@ -15,29 +13,366 @@
 ;; pth_random_dir r0=x r1=y              -> r0=random walkable DIR_* from (x,y), DIR_NONE if boxed in
 ; ---------------------------------------------------------------------
 
-; WP0 stub: nothing is reachable.
 pth_init:
-        ret
+        push r0
+        mov r0, 1
+        st r0, st_map_dirty
+        mov r0, -1
+        br pth_invalidate
 
 pth_update:
         push r0
+        ld r0, st_map_dirty
+        cmp r0, 0
+        brz pth_invalidate_done
         mov r0, 0
         st r0, st_map_dirty
+        mov r0, -1
+pth_invalidate:
+        st r0, pth_gate_slot
+        st r0, pth_other_slot
+pth_invalidate_done:
         pop r0
         ret
 
-pth_next:
-        mov r0, DIR_NONE
+pth_to_gate:
+        push r2
+        push r3
+        push lr
+        ld r2, st_gate_x
+        ld r3, st_gate_y
+        bl pth_next
+        pop lr
+        pop r3
+        pop r2
         ret
 
 pth_dist:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        bl pth_route
+        cmp r0, 0
+        brn pth_route_done
+        add r0, r1, r0
+        ldr r0, r0, 0
+        cmp r0, 0
+        brp pth_decode_dist
         mov r0, -1
+        br pth_route_done
+pth_decode_dist:
+        sub r0, r0, 1
+        br pth_route_done
+
+pth_next:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        bl pth_route
+        cmp r0, 0
+        brn pth_next_none
+        mov r4, r0              ; current index
+        mov r2, r1              ; field base
+        add r0, r0, r2
+        ldr r3, r0, 0
+        sub r3, r3, 1           ; smallest possible neighbour distance
+        brp pth_next_begin
+        br pth_next_none
+pth_next_begin:
+        mov r1, DIR_N
+pth_next_try:
+        mov r0, r4
+        bl pth_neighbor
+        cmp r0, 0
+        brn pth_next_continue
+        add r0, r2, r0
+        ldr r0, r0, 0
+        cmp r0, r3
+        brz pth_next_found
+pth_next_continue:
+        add r1, r1, 1
+        cmp r1, DIR_W
+        brgt pth_next_none
+        br pth_next_try
+pth_next_found:
+        mov r0, r1
+        br pth_route_done
+pth_next_none:
+        mov r0, DIR_NONE
+pth_route_done:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
         ret
 
-pth_to_gate:
-        mov r0, DIR_NONE
+; Resolve source coordinates to r0=index and target coordinates to r1=field.
+; Returns r0=-1 on invalid coordinates. Scratch registers are caller-saved here.
+pth_route:
+        push lr
+        bl pth_update           ; also handle edits between simulation ticks
+        bl map_index
+        cmp r0, 0
+        brn pth_route_return
+        mov r4, r0
+        mov r0, r2
+        mov r1, r3
+        bl map_index
+        cmp r0, 0
+        brn pth_route_return
+
+        ld r1, st_gate_x
+        cmp r2, r1
+        brnz pth_select_other
+        ld r1, st_gate_y
+        cmp r3, r1
+        brnz pth_select_other
+        lea r2, pth_gate_slot
+        br pth_lookup
+pth_select_other:
+        lea r2, pth_other_slot
+pth_lookup:
+        ldr r1, r2, 1
+        ldr r3, r2, 0
+        cmp r0, r3
+        brz pth_route_found
+        str r0, r2, 0
+        bl pth_rebuild
+pth_route_found:
+        mov r0, r4
+pth_route_return:
+        pop lr
+        ret
+
+pth_gate_slot:  .word -1        ; target index, or -1 if invalid
+                .word pth_gate_field
+pth_other_slot: .word -1
+                .word pth_other_field
+pth_last_row:   .word MAP_SIZE-MAP_W
+pth_map_size:   .word MAP_SIZE
+
+; BFS from r0=target index into r1=field. Preserves r1..r4.
+; Each entry starts at 0 (unseen), then becomes -1 (blocked or queue tail),
+; ~next_index (queued with a successor), or distance+1 (finished).
+; The tail pointer distinguishes the queue tail even when its link is -1.
+pth_rebuild:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        mov r2, r1
+
+        mov r3, r2
+        ld r4, pth_map_size
+        mov r1, 0
+pth_clear_field:
+        str r1, r3, 0
+        add r3, r3, 1
+        sub r4, r4, 1
+        brp pth_clear_field
+
+        mov r4, r0              ; target index
+        bl pth_walkable_index
+        cmp r0, 0
+        brz pth_rebuild_done
+        mov r1, r4              ; r1 = current index, r2 = field base
+        add r3, r2, r1          ; r3 = queue tail address
+        mov r0, -1
+        str r0, r3, 0
+        push r3                 ; tail of the current BFS layer
+        mov r0, 1
+        push r0                 ; distance+1 for that layer
+
+pth_expand:
+        mov r0, MAP_W           ; north
+        cmp r1, r0
+        brn pth_expand_east
+        sub r0, r1, r0
+        bl pth_enqueue
+pth_expand_east:
+        add r0, r1, 1
+        mov r4, MAP_W-1
+        and r4, r0, r4
+        brz pth_expand_south
+        bl pth_enqueue
+pth_expand_south:
+        ld r0, pth_last_row
+        cmp r1, r0
+        brn pth_expand_below
+        br pth_expand_west
+pth_expand_below:
+        mov r0, MAP_W
+        add r0, r1, r0
+        bl pth_enqueue
+pth_expand_west:
+        mov r4, MAP_W-1
+        and r0, r1, r4
+        brz pth_finish_tile
+        sub r0, r1, 1
+        bl pth_enqueue
+
+pth_finish_tile:
+        add r4, r2, r1
+        ldr r0, r4, 0           ; save successor before committing distance
+        ldr r1, sp, 0
+        str r1, r4, 0
+        cmp r4, r3
+        brz pth_queue_empty
+        ldr r1, sp, 1
+        cmp r4, r1
+        brnz pth_advance
+        str r3, sp, 1           ; all nodes currently queued are in next layer
+        ldr r1, sp, 0
+        add r1, r1, 1
+        str r1, sp, 0
+pth_advance:
+        not r1, r0
+        br pth_expand
+pth_queue_empty:
+        add sp, sp, 2
+pth_rebuild_done:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; Inspect an unseen neighbour (r0=index). Cache blocked tiles and append
+; walkable tiles once. r3 is the tail address on entry and exit.
+pth_enqueue:
+        add r4, r2, r0
+        ldr r4, r4, 0
+        cmp r4, 0
+        brnz pth_enqueue_done
+        push lr
+        push r0
+        bl pth_walkable_index
+        cmp r0, 0
+        pop r0
+        pop lr
+        brz pth_enqueue_blocked
+
+        add r4, r2, r0
+        not r0, r0
+        str r0, r3, 0           ; link previous tail to this tile
+        mov r3, r4
+        mov r0, -1
+        str r0, r3, 0
+pth_enqueue_done:
+        ret
+pth_enqueue_blocked:
+        add r4, r2, r0
+        mov r0, -1
+        str r0, r4, 0
+        ret
+
+; Index in r0 -> map_walkable result. Restore the caller's r1.
+pth_walkable_index:
+        push r1
+        push lr
+        mov r1, r0
+        srl r1, MAP_SHIFT
+        sll r0, 16-MAP_SHIFT
+        srl r0, 16-MAP_SHIFT
+        bl map_walkable
+        pop lr
+        pop r1
         ret
 
 pth_random_dir:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        sub sp, sp, 4          ; list of walkable directions
+        bl map_index
+        cmp r0, 0
+        brn pth_random_none
+        mov r4, r0
+        mov r1, DIR_N
+        mov r3, 0
+pth_random_try:
+        mov r0, r4
+        bl pth_neighbor
+        cmp r0, 0
+        brn pth_random_continue
+        bl pth_walkable_index
+        cmp r0, 0
+        brz pth_random_continue
+        add r0, sp, r3
+        str r1, r0, 0
+        add r3, r3, 1
+pth_random_continue:
+        add r1, r1, 1
+        cmp r1, DIR_W
+        brgt pth_random_select
+        br pth_random_try
+pth_random_select:
+        cmp r3, 0
+        brz pth_random_none
+        mov r0, 0
+        sub r1, r3, 1
+        rand r0, r1
+        add r0, sp, r0
+        ldr r0, r0, 0
+        br pth_random_done
+pth_random_none:
         mov r0, DIR_NONE
+pth_random_done:
+        add sp, sp, 4
+        br pth_route_done
+
+; r0=index, r1=cardinal direction -> neighbour index or -1 past the edge.
+pth_neighbor:
+        push r2
+        lea r2, pth_neighbor_dirs
+        add r2, r2, r1
+        ldr r2, r2, 0
+        jmp r2
+pth_neighbor_dirs:
+        .word pth_neighbor_north
+        .word pth_neighbor_east
+        .word pth_neighbor_south
+        .word pth_neighbor_west
+pth_neighbor_north:
+        mov r2, MAP_W
+        sub r0, r0, r2
+        brn pth_neighbor_out
+        br pth_neighbor_done
+pth_neighbor_east:
+        add r0, r0, 1
+        mov r2, MAP_W-1
+        and r2, r0, r2          ; x wrapped to 0 at the east edge
+        brz pth_neighbor_out
+        br pth_neighbor_done
+pth_neighbor_south:
+        ld r2, pth_last_row
+        cmp r0, r2
+        brn pth_neighbor_below
+        br pth_neighbor_out
+pth_neighbor_below:
+        mov r2, MAP_W
+        add r0, r0, r2
+        br pth_neighbor_done
+pth_neighbor_west:
+        mov r2, MAP_W-1
+        and r2, r0, r2
+        brz pth_neighbor_out
+        sub r0, r0, 1
+        br pth_neighbor_done
+pth_neighbor_out:
+        mov r0, -1
+pth_neighbor_done:
+        pop r2
         ret
+
+pth_gate_field:  .zero MAP_SIZE
+pth_other_field: .zero MAP_SIZE

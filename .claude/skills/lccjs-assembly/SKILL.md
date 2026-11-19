@@ -52,6 +52,8 @@ These four catch the highest-cost bugs and must be in working memory before any 
   cmp  r1, r0         ; now legal even though 1000 won't fit in cmp's 5-bit imm
   ```
 
+- **`cmp` register form: the second register must be r0..r3.** The upstream assembler encodes it in 2 bits, so `cmp r0, r4` silently assembles as `cmp r0, r0`. The repo build rejects it; write `cmp r4, r0` and flip the branch (`brlt` ↔ `brgt`), or copy the value into r0..r3 first. The first operand may be any register.
+
 ### 4. Branch suffixes encode *flags*, not English
 
 - **Symptom:** A loop runs one too many times, or an off-by-one in a comparison that "should be obvious". The branch chosen reads like the right English word (`brp` "branch if positive") but tests a different flag combination than expected.
