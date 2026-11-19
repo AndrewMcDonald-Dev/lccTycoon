@@ -1,0 +1,557 @@
+; Unit driver with the actual map, ride catalog, economy and renderer.
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        bl eco_init
+        nbain r0
+        mov r1, 'a'
+        sub r0, r0, r1
+        lea r1, drv_cases
+        add r0, r0, r1
+        ldr r0, r0, 0
+        blr r0
+        halt
+
+drv_cases: .word drv_loop
+           .word drv_open
+           .word drv_undo
+           .word drv_cancel
+           .word drv_blocked
+           .word drv_height
+           .word drv_doors
+           .word drv_cash
+           .word drv_edge
+           .word drv_unlevel
+           .word drv_ratings
+           .word drv_train
+           .word drv_full_pool
+
+drv_loop:
+        push lr
+        mov r0, RT_CAROUSEL
+        mov r1, 20
+        mov r2, 20
+        bl ride_new             ; make the coaster use a nonzero ride tag
+        mov r0, 8
+        mov r1, 10
+        mov r2, T_PATH
+        bl map_set              ; west door has the only connection
+        bl drv_begin
+        st r0, drv_result
+        bl drv_rectangle
+        ld r0, st_cst_ride
+        bl cst_closed
+        st r0, drv_closed
+        bl cst_finish
+        st r0, drv_finished
+        mov r0, 1
+        bl cst_closed
+        st r0, drv_after
+        mov r0, 1
+        bl drv_read_ride
+        mov r0, 10
+        mov r1, 10
+        bl map_get
+        st r0, drv_tile
+        mov r0, 11
+        bl map_get
+        st r0, drv_tile_2
+        mov r0, 9
+        bl map_get
+        st r0, drv_tile_3
+        mov r0, 10
+        mov r1, 9
+        bl map_get
+        st r0, drv_tile_4
+        pop lr
+        ret
+
+drv_open:
+        push lr
+        bl drv_begin
+        mov r0, TP_STRAIGHT
+        bl cst_add_piece
+        st r0, drv_result
+        ld r0, st_cst_ride
+        bl cst_closed
+        st r0, drv_closed
+        bl cst_finish
+        st r0, drv_finished
+        mov r0, 0
+        bl drv_read_ride
+        pop lr
+        ret
+
+drv_undo:
+        push lr
+        bl drv_begin
+        bl cst_undo
+        st r0, drv_result       ; the station cannot be undone
+        mov r0, 11
+        mov r1, 10
+        mov r2, T_FLOWERS
+        bl map_set
+        mov r0, TP_RIGHT
+        bl cst_add_piece
+        st r0, drv_after
+        bl cst_undo
+        st r0, drv_removed
+        mov r0, 11
+        mov r1, 10
+        bl map_get
+        st r0, drv_tile
+        pop lr
+        ret
+
+drv_cancel:
+        push lr
+        mov r0, 10
+        mov r1, 10
+        mov r2, T_TREE
+        bl map_set
+        bl drv_begin
+        mov r0, TP_RIGHT
+        bl cst_add_piece
+        mov r0, TP_UP
+        bl cst_add_piece
+        bl cst_cancel
+        mov r0, 10
+        mov r1, 10
+        bl map_get
+        st r0, drv_tile
+        mov r0, 11
+        bl map_get
+        st r0, drv_tile_2
+        mov r1, 11
+        mov r0, 11
+        bl map_get
+        st r0, drv_tile_3
+        pop lr
+        ret
+
+drv_blocked:
+        push lr
+        mov r0, 10
+        mov r1, 10
+        mov r2, T_WATER
+        bl map_set
+        bl drv_begin
+        st r0, drv_result
+        mov r0, 10
+        mov r1, 10
+        mov r2, T_GRASS
+        bl map_set
+        bl drv_begin
+        mov r0, 11
+        mov r1, 10
+        mov r2, T_PATH
+        bl map_set
+        mov r0, TP_STRAIGHT
+        bl cst_add_piece
+        st r0, drv_after
+        mov r0, 11
+        mov r1, 10
+        bl map_get
+        st r0, drv_tile
+        pop lr
+        ret
+
+drv_height:
+        push lr
+        bl drv_begin
+        mov r0, TP_DOWN
+        bl cst_add_piece
+        st r0, drv_result
+        mov r3, 7
+drv_climb:
+        mov r0, TP_UP
+        bl cst_add_piece
+        sub r3, r3, 1
+        brp drv_climb
+        mov r0, TP_UP
+        bl cst_add_piece
+        st r0, drv_after
+        mov r0, TP_DOWN
+        bl cst_add_piece
+        st r0, drv_descended
+        mov r0, 17
+        mov r1, 10
+        bl map_get
+        st r0, drv_tile
+        mov r0, 18
+        bl map_get
+        st r0, drv_tile_2
+        pop lr
+        ret
+
+drv_doors:
+        push lr
+        mov r0, 9
+        mov r1, 10
+        mov r2, T_WATER
+        bl map_set
+        bl drv_begin
+        bl drv_rectangle
+        bl cst_finish           ; north is the only door site
+        st r0, drv_finished
+        mov r0, 0
+        bl drv_read_ride
+        mov r0, 10
+        mov r1, 9
+        bl map_get
+        st r0, drv_tile
+        pop lr
+        ret
+
+drv_cash:
+        push lr
+        mov r0, 0
+        st r0, st_cash_k
+        ld r0, drv_short_cash
+        st r0, st_cash_u
+        bl drv_begin
+        st r0, drv_result
+        ld r0, drv_piece_cash
+        st r0, st_cash_u
+        bl drv_begin
+        mov r0, TP_STRAIGHT
+        bl cst_add_piece
+        st r0, drv_after
+        pop lr
+        ret
+
+drv_edge:
+        push lr
+        mov r0, MAP_W-1
+        mov r1, 10
+        bl cst_begin
+        mov r0, TP_STRAIGHT
+        bl cst_add_piece
+        st r0, drv_result
+        pop lr
+        ret
+
+drv_unlevel:
+        push lr
+        bl drv_begin
+        lea r3, drv_high_loop
+        bl drv_add_pieces
+        ld r0, st_cst_ride
+        bl cst_closed
+        st r0, drv_closed
+        bl cst_finish
+        st r0, drv_finished
+        pop lr
+        ret
+
+drv_ratings:
+        push lr
+        mov r0, 10
+        mov r1, 10
+        lea r3, drv_flat_loop
+        bl drv_build_loop
+        lea r2, drv_short_ratings
+        bl drv_save_ratings
+
+        mov r0, 20
+        mov r1, 10
+        lea r3, drv_long_loop
+        bl drv_build_loop
+        lea r2, drv_long_ratings
+        bl drv_save_ratings
+
+        mov r0, 30
+        mov r1, 10
+        lea r3, drv_hill_loop
+        bl drv_build_loop
+        lea r2, drv_hill_ratings
+        bl drv_save_ratings
+        pop lr
+        ret
+
+drv_train:
+        push lr
+        mov r0, 10
+        mov r1, 10
+        lea r3, drv_hill_loop
+        bl drv_build_loop
+        mov r4, r0
+        mov r0, 0
+        bl ride_toggle
+        mov r2, 14
+        bl drv_train_ticks
+        lea r3, drv_train_moving
+        bl drv_save_train
+
+        mov r0, 0
+        bl ride_toggle
+        mov r2, 10
+        bl drv_train_ticks
+        lea r3, drv_train_closed
+        bl drv_save_train
+
+        mov r0, RS_BROKEN
+        str r0, r4, R_STATUS
+        mov r2, 10
+        bl drv_train_ticks
+        lea r3, drv_train_broken
+        bl drv_save_train
+
+        ; Board a guest while the reopened train is away from the station.
+        mov r0, RS_OPEN
+        str r0, r4, R_STATUS
+        lea r0, st_guests
+        mov r1, 20
+        str r1, r0, G_CASH
+        mov r0, 0
+        mov r1, 0
+        bl ride_enqueue
+        mov r2, 1
+        bl drv_train_ticks
+        lea r3, drv_train_boarded
+        bl drv_save_train
+        ldr r0, r4, R_RIDERS
+        st r0, drv_train_riders
+
+        mov r2, 5
+        bl drv_train_ticks
+        lea r3, drv_train_climbing
+        bl drv_save_train
+        mov r2, 54
+        bl drv_train_ticks
+        lea r3, drv_train_returning
+        bl drv_save_train
+        mov r2, 1
+        bl drv_train_ticks
+        lea r3, drv_train_wrapped
+        bl drv_save_train
+        ldr r0, r4, R_RIDERS
+        st r0, drv_train_unloaded
+        pop lr
+        ret
+
+drv_train_ticks:
+        push lr
+drv_train_tick:
+        bl ride_tick
+        bl cst_tick
+        sub r2, r2, 1
+        brp drv_train_tick
+        pop lr
+        ret
+
+drv_save_train:
+        ldr r0, r4, R_TRAIN_POS
+        str r0, r3, 0
+        ldr r0, r4, R_TRAIN_SPD
+        str r0, r3, 1
+        ret
+
+; Fill the pool with two visible 60x6 rectangles with alternating
+; climbs and descents along each long side.
+drv_full_pool:
+        push lr
+        mov r1, 4
+        bl drv_build_large_loop
+        mov r1, 12
+        bl drv_build_large_loop
+        mov r0, 1
+        bl ride_addr
+        lea r2, drv_large_ratings
+        bl drv_save_ratings
+        lea r0, st_screen
+        bl video_bind
+        mov r0, FRAME_MS
+        sleep r0                 ; measure animation separately from setup
+        mov r4, 60
+drv_full_frame:
+        mov r2, SPEED_MAX
+drv_full_tick:
+        bl cst_tick
+        sub r2, r2, 1
+        brp drv_full_tick
+        bl cst_draw
+        mov r0, FRAME_MS
+        sleep r0
+        sub r4, r4, 1
+        brp drv_full_frame
+        pop lr
+        ret
+
+drv_build_large_loop:
+        push lr
+        mov r0, 2
+        bl cst_begin
+        push r0
+        bl drv_add_hills
+        mov r0, TP_RIGHT
+        bl cst_add_piece
+        mov r2, 4
+        bl drv_add_flats
+        mov r0, TP_RIGHT
+        bl cst_add_piece
+        bl drv_add_hills
+        mov r0, TP_RIGHT
+        bl cst_add_piece
+        mov r2, 4
+        bl drv_add_flats
+        bl cst_finish
+        pop r0
+        bl ride_toggle
+        pop lr
+        ret
+
+drv_add_hills:
+        push lr
+        mov r2, 29
+drv_add_hill:
+        mov r0, TP_UP
+        bl cst_add_piece
+        mov r0, TP_DOWN
+        bl cst_add_piece
+        sub r2, r2, 1
+        brp drv_add_hill
+        pop lr
+        ret
+
+drv_add_flats:
+        push lr
+drv_add_flat:
+        mov r0, TP_STRAIGHT
+        bl cst_add_piece
+        sub r2, r2, 1
+        brp drv_add_flat
+        pop lr
+        ret
+
+drv_begin:
+        mov r0, 10
+        mov r1, 10
+        br cst_begin
+
+; From the station's east edge, build the rest of a 2x3 rectangle.
+drv_rectangle:
+        lea r3, drv_flat_loop
+drv_add_pieces:
+        push lr
+drv_add_next:
+        ldr r0, r3, 0
+        cmp r0, TP_NONE
+        brz drv_add_done
+        bl cst_add_piece
+        add r3, r3, 1
+        br drv_add_next
+drv_add_done:
+        pop lr
+        ret
+
+; Build the circuit described by r3 at station (r0,r1). Return its record.
+drv_build_loop:
+        push lr
+        bl cst_begin
+        push r0
+        bl drv_add_pieces
+        bl cst_finish
+        pop r0
+        bl ride_addr
+        pop lr
+        ret
+
+drv_save_ratings:
+        ldr r1, r0, R_EXCITE
+        str r1, r2, 0
+        ldr r1, r0, R_INTENS
+        str r1, r2, 1
+        ldr r1, r0, R_NAUSEA
+        str r1, r2, 2
+        ret
+
+drv_flat_loop: .word TP_RIGHT
+               .word TP_STRAIGHT
+               .word TP_RIGHT
+               .word TP_RIGHT
+               .word TP_STRAIGHT
+               .word TP_NONE
+drv_long_loop: .word TP_STRAIGHT
+               .word TP_STRAIGHT
+               .word TP_RIGHT
+               .word TP_RIGHT
+               .word TP_STRAIGHT
+               .word TP_STRAIGHT
+               .word TP_RIGHT
+               .word TP_NONE
+drv_hill_loop: .word TP_UP
+               .word TP_DOWN
+               .word TP_RIGHT
+               .word TP_RIGHT
+               .word TP_STRAIGHT
+               .word TP_STRAIGHT
+               .word TP_RIGHT
+               .word TP_NONE
+drv_high_loop: .word TP_UP
+               .word TP_RIGHT
+               .word TP_STRAIGHT
+               .word TP_RIGHT
+               .word TP_STRAIGHT
+               .word TP_RIGHT
+               .word TP_STRAIGHT
+               .word TP_NONE
+
+drv_read_ride:
+        push lr
+        bl ride_addr
+        ldr r1, r0, R_STATUS
+        st r1, drv_ride_status
+        ldr r1, r0, R_TRACK_LEN
+        st r1, drv_track_len
+        ldr r1, r0, R_EXCITE
+        st r1, drv_excite
+        add r1, r0, R_ENT_X
+        lea r0, drv_doors_xy
+        mov r2, 4
+        bl util_memcpy
+        pop lr
+        ret
+
+drv_result:     .word -1
+drv_after:      .word -1
+drv_closed:     .word -1
+drv_finished:   .word -1
+drv_removed:    .word -1
+drv_descended:  .word -1
+drv_ride_status:.word -1
+drv_track_len:  .word -1
+drv_excite:     .word -1
+drv_doors_xy:   .zero 4
+drv_tile:       .word -1
+drv_tile_2:     .word -1
+drv_tile_3:     .word -1
+drv_tile_4:     .word -1
+drv_short_cash: .word 499
+drv_piece_cash: .word 500+COST_TRACK-1
+drv_short_ratings:  .zero 3
+drv_long_ratings:   .zero 3
+drv_hill_ratings:   .zero 3
+drv_large_ratings:  .zero 3
+drv_train_moving:   .zero 2
+drv_train_closed:   .zero 2
+drv_train_broken:   .zero 2
+drv_train_boarded:  .zero 2
+drv_train_climbing: .zero 2
+drv_train_returning: .zero 2
+drv_train_wrapped:  .zero 2
+drv_train_riders:   .word 0
+drv_train_unloaded: .word 0
+
+        .include "../../src/state.ap"
+        .include "../../src/map.ap"
+        .include "../../src/render.ap"
+        .include "../../src/economy.ap"
+        .include "../../src/rides.ap"
+        .include "../../src/ui.ap"
+        .include "../../src/coaster.ap"
+        .include "video.ap"
+        .include "util.ap"

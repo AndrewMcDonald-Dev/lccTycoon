@@ -3,8 +3,8 @@
 ; (static table of RT_COUNT records × RTI_SIZE words, fields RTI_* in
 ; defs.ap, names, original content), ride records in st_rides (R_*),
 ; operation cycle, queues, boarding/unloading, stall sales, income.
-; Guests in a ride's queue have G_STATE=GS_QUEUE, G_TARGET=ride; boarding
-; sets GS_RIDE and G_TIMER; unloading puts them on the exit tile in GS_WALK.
+; GS_QUEUE uses G_TARGET for the ride, G_DIR for the join tick, and
+; G_TIMER for arrival order. Boarding sets GS_RIDE and the cycle timer.
 ; All routines: args r0..r4, result r0, all other registers preserved.
 ;
 ;; ride_init      ()                  -> -              clear st_rides, st_ride_count = 0
@@ -19,23 +19,267 @@
 ;; ride_enqueue   r0=index r1=guest   -> r0=1 joined, 0 refused (closed/broken)   guest → GS_QUEUE, R_QUEUE+1
 ;; ride_buy       r0=index r1=guest   -> r0=1 bought, 0 refused (closed / guest cash < price)   stall sale: guest pays (eco_earn), needs updated per RTI_GOODS
 ;; ride_tick      ()                  -> -              one tick for every open ride: board from queue (charging R_PRICE), run cycle, unload, income (R_INC_*, R_MON_INC, R_TOTAL), breakdown chance from R_RELIAB
+;
+; Details beyond the contract lines:
+; - ride_new also sets default entrance (x, y+h) and exit (x+w-1, y+h) —
+;   the row below the footprint; the builder may overwrite R_ENT_*/R_EXIT_*.
+;   Invalid type → -1. Free records are kept all-zero (init/free clear them).
+; - ride_enqueue refuses stalls (they sell via ride_buy) and free slots; a
+;   guest already queued for the ride is not counted twice.
+; - ride_buy refuses non-stalls. Food: G_HUNGER -RIDE_FILL, drink: G_THIRST
+;   -RIDE_FILL, toilet: RIDE_G_TOILET = 0; every sale +RIDE_BUY_HAPPY.
+;   The guest's G_STATE is not changed (the guest module owns GS_BUY).
+; - Boarding happens when a ride is idle (R_TIMER 0), R_QUEUE > 0 and its
+;   exit can reach the gate. It boards up to RTI_CAP in arrival order, seats riders on
+;   footprint tiles (G_X/G_Y). Guests who can't pay: GS_WALK, target -1,
+;   TH_NO_MONEY, happiness -RIDE_NOPAY_UNHAPPY. Unloading is one scan when
+;   R_TIMER reaches 0.
+; - Unload: happy += excite/16 + RIDE_RIDE_HAPPY - (intensity-RIDE_INTENSE)/8
+;   (if positive), nausea += R_NAUSEA/16, energy -= R_INTENS/32, G_RIDES+1,
+;   thought TH_SICK (nausea > GUEST_SICK) else TH_GREAT_RIDE (excite >=
+;   RIDE_GREAT) else unchanged.
+; - Breakdown: rolled before the first fare of a cycle; chance % = (100-R_RELIAB)^2/100
+;   (reliability 100 never, 90 → 1 %, 0 → always). Broken: RS_BROKEN,
+;   R_DOWN counts ticks broken, and the queue is sent away
+;   (GS_WALK, -RIDE_BREAK_UNHAPPY), ui_msg "<name> has broken
+;   down", sound SND_BREAKDOWN. Repair is the staff module's job (R_STATUS,
+;   R_RELIAB). On st_new_month: R_MON_INC = 0 and R_RELIAB -= 1 + R_AGE/8.
+; - Closing a ride (ride_toggle) puts riders on the exit and sends the
+;   queue away (GS_WALK, no penalty).
+; Calls: eco_earn, map_kind, pth_gate_dist, ui_msg, util_memset.
 ; ---------------------------------------------------------------------
 
-; WP0 stub: no catalog, no rides.
+        .define RIDE_RELIAB_FULL   100
+        .define RIDE_NOPAY_UNHAPPY 24      ; happiness lost when a guest can't pay
+        .define RIDE_BREAK_UNHAPPY 32      ; happiness lost when thrown off a broken ride
+        .define RIDE_RIDE_HAPPY    4       ; flat happiness per ride (plus excitement/16)
+        .define RIDE_INTENSE       700     ; intensity above this costs happiness (excess/8)
+        .define RIDE_GREAT         600     ; excitement for TH_GREAT_RIDE
+        .define RIDE_FILL          160     ; hunger / thirst removed by one food / drink
+        .define RIDE_BUY_HAPPY     6       ; happiness per stall purchase
+        .define RIDE_G_TOILET      G_TOILET ; bladder meter 0..METER_MAX
+        .define RIDE_EV_ALL        1       ; ride_evict: also drop walkers/buyers targeting the ride
+        .define RIDE_EV_HURT       2       ; ride_evict: happiness penalty for riders/queuers
+        .define RIDE_MSG_LEN       40
+
+; ---- catalog (RT_COUNT records × RTI_SIZE words; record 0 = RT_NONE) ------
+; Field order: NAME W H COST UPKEEP PRICE CAP CYCLE EXCITE INTENS NAUSEA
+;              CELL GOODS FLAGS (spare) (spare)
+ride_catalog:
+        .zero RTI_SIZE                          ; RT_NONE
+; RT_CAROUSEL — gentle spinning platform
+        .word ride_n_carousel
+        .word 3
+        .word 3
+        .word 900
+        .word 40
+        .word 2
+        .word 12
+        .word 30
+        .word 300
+        .word 120
+        .word 80
+        .word 14|FG_BYELLOW|BG_MAGENTA          ; ♫
+        .word GOODS_NONE
+        .word 0
+        .zero 2
+; RT_WHEEL — observation wheel
+        .word ride_n_wheel
+        .word 4
+        .word 4
+        .word 1500
+        .word 60
+        .word 3
+        .word 16
+        .word 60
+        .word 420
+        .word 100
+        .word 60
+        .word 9|FG_BWHITE|BG_BLUE               ; ○
+        .word GOODS_NONE
+        .word 0
+        .zero 2
+; RT_SWINGS — chair swings
+        .word ride_n_swings
+        .word 3
+        .word 3
+        .word 1200
+        .word 50
+        .word 3
+        .word 12
+        .word 35
+        .word 500
+        .word 400
+        .word 320
+        .word G_SUN|FG_BYELLOW|BG_CYAN          ; ☼
+        .word GOODS_NONE
+        .word 0
+        .zero 2
+; RT_DROP — drop tower
+        .word ride_n_drop
+        .word 3
+        .word 3
+        .word 2000
+        .word 80
+        .word 4
+        .word 8
+        .word 40
+        .word 680
+        .word 760
+        .word 480
+        .word G_ARROW_D|FG_BWHITE|BG_RED        ; ↓
+        .word GOODS_NONE
+        .word 0
+        .zero 2
+; RT_BUMPER — bumper cars
+        .word ride_n_bumper
+        .word 4
+        .word 3
+        .word 1400
+        .word 50
+        .word 3
+        .word 10
+        .word 45
+        .word 460
+        .word 320
+        .word 140
+        .word G_DIAMOND|FG_BRED|BG_YELLOW       ; ♦
+        .word GOODS_NONE
+        .word 0
+        .zero 2
+; RT_FOOD — food stall
+        .word ride_n_food
+        .word 2
+        .word 1
+        .word 250
+        .word 15
+        .word 3
+        .word 0
+        .word 0
+        .word 0
+        .word 0
+        .word 0
+        .word '%'|FG_BYELLOW|BG_RED
+        .word GOODS_FOOD
+        .word RTF_STALL
+        .zero 2
+; RT_DRINK — drink stall
+        .word ride_n_drink
+        .word 1
+        .word 1
+        .word 200
+        .word 15
+        .word 2
+        .word 0
+        .word 0
+        .word 0
+        .word 0
+        .word 0
+        .word '!'|FG_BWHITE|BG_BLUE
+        .word GOODS_DRINK
+        .word RTF_STALL
+        .zero 2
+; RT_TOILET — restrooms
+        .word ride_n_toilet
+        .word 1
+        .word 1
+        .word 150
+        .word 10
+        .word 1
+        .word 0
+        .word 0
+        .word 0
+        .word 0
+        .word 0
+        .word 'T'|FG_BWHITE|BG_CYAN
+        .word GOODS_TOILET
+        .word RTF_STALL
+        .zero 2
+; RT_COASTER — placeholder: 1x1 station; ratings filled by cst_rate (WP12)
+        .word ride_n_coaster
+        .word 1
+        .word 1
+        .word 500
+        .word 100
+        .word 5
+        .word 8
+        .word 60
+        .word 0
+        .word 0
+        .word 0
+        .word G_DHORIZ|FG_BWHITE|BG_RED         ; ═
+        .word GOODS_NONE
+        .word RTF_TRACK
+        .zero 2
+
+ride_n_carousel: .string "Merry Spinner"
+ride_n_wheel:    .string "Sky Ring"
+ride_n_swings:   .string "Whirl Swings"
+ride_n_drop:     .string "Sky Plunge"
+ride_n_bumper:   .string "Bump Arena"
+ride_n_food:     .string "Snack Hut"
+ride_n_drink:    .string "Fizz Kiosk"
+ride_n_toilet:   .string "Restrooms"
+ride_n_coaster:  .string "Track Coaster"
+ride_s_none:     .string ""
+ride_s_broken:   .string " has broken down"
+
+ride_k_pool:     .word MAX_RIDES*RIDE_SIZE
+ride_k_gsize:    .word GUEST_SIZE
+ride_k_1000:     .word 1000
+ride_k_max:      .word 32767
+ride_k_intense:  .word RIDE_INTENSE
+ride_k_great:    .word RIDE_GREAT
+
+; private scratch (no recursion into these routines)
+ride_v_x:        .word 0
+ride_v_y:        .word 0
+ride_v_mode:     .word 0
+ride_v_cap:      .word 0
+ride_v_cycle:    .word 0
+ride_v_n:        .word 0
+ride_v_oldest:   .word 0
+ride_v_order:    .word 0
+ride_v_tmp:      .word 0
+ride_v_msg:      .zero RIDE_MSG_LEN
+ride_queue_seq:  .word 0
+
+; ---- ride_init ------------------------------------------------------------
 ride_init:
+        push r0
+        push r1
+        push r2
+        push lr
+        lea r0, st_rides
+        mov r1, 0
+        ld r2, ride_k_pool
+        bl util_memset
+        mov r0, 0
+        st r0, st_ride_count
+        st r0, ride_queue_seq
+        pop lr
+        pop r2
+        pop r1
+        pop r0
         ret
 
+; ---- ride_type_info ---------------------------------------------------------
 ride_type_info:
+        cmp r0, 1
+        brlt ride_ti_none
+        cmp r0, RT_COUNT-1
+        brgt ride_ti_none
+        push r1
+        sll r0, RTI_SHIFT
+        lea r1, ride_catalog
+        add r0, r0, r1
+        pop r1
+        ret
+ride_ti_none:
         mov r0, 0
         ret
 
-ride_new:
-        mov r0, -1
-        ret
-
-ride_free:
-        ret
-
+; ---- ride_addr / ride_gaddr (private: guest index -> record) ---------------
 ride_addr:
         push r1
         sll r0, RIDE_SHIFT
@@ -44,29 +288,918 @@ ride_addr:
         pop r1
         ret
 
-ride_at:
-        mov r0, -1
+ride_gaddr:
+        push r1
+        sll r0, GUEST_SHIFT
+        lea r1, st_guests
+        add r0, r0, r1
+        pop r1
         ret
 
+; ---- ride_new ---------------------------------------------------------------
+ride_new:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        st r1, ride_v_x
+        st r2, ride_v_y
+        mov r4, r0              ; type
+        bl ride_type_info
+        cmp r0, 0
+        brz ride_new_fail
+        mov r3, r0              ; catalog record
+        mov r2, 0               ; index
+ride_new_find:
+        mov r0, r2
+        bl ride_addr
+        ldr r1, r0, R_TYPE
+        cmp r1, 0
+        brz ride_new_got
+        add r2, r2, 1
+        mov r1, MAX_RIDES
+        cmp r2, r1
+        brlt ride_new_find
+ride_new_fail:
+        mov r0, -1
+        br ride_new_done
+ride_new_got:                   ; r0 = record, r2 = index, r3 = catalog, r4 = type
+        str r4, r0, R_TYPE
+        ld r1, ride_v_x
+        str r1, r0, R_X
+        str r1, r0, R_ENT_X     ; entrance (x, y+h)
+        ldr r4, r3, RTI_W
+        str r4, r0, R_W
+        add r1, r1, r4
+        sub r1, r1, 1
+        str r1, r0, R_EXIT_X    ; exit (x+w-1, y+h)
+        ld r1, ride_v_y
+        str r1, r0, R_Y
+        ldr r4, r3, RTI_H
+        str r4, r0, R_H
+        add r1, r1, r4
+        str r1, r0, R_ENT_Y
+        str r1, r0, R_EXIT_Y
+        mov r1, RS_CLOSED
+        str r1, r0, R_STATUS
+        ldr r1, r3, RTI_PRICE
+        str r1, r0, R_PRICE
+        ldr r1, r3, RTI_EXCITE
+        str r1, r0, R_EXCITE
+        ldr r1, r3, RTI_INTENS
+        str r1, r0, R_INTENS
+        ldr r1, r3, RTI_NAUSEA
+        str r1, r0, R_NAUSEA
+        mov r1, RIDE_RELIAB_FULL
+        str r1, r0, R_RELIAB
+        ld r1, st_ride_count
+        add r1, r1, 1
+        st r1, st_ride_count
+        mov r0, r2
+ride_new_done:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; ---- ride_free ----------------------------------------------------------------
+ride_free:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        mov r4, r0
+        bl ride_addr
+        mov r3, r0
+        ldr r0, r3, R_TYPE
+        cmp r0, 0
+        brz ride_free_done
+        mov r0, RIDE_EV_ALL
+        bl ride_evict
+        mov r0, r3
+        mov r1, 0
+        mov r2, RIDE_SIZE
+        bl util_memset
+        ld r0, st_ride_count
+        sub r0, r0, 1
+        st r0, st_ride_count
+ride_free_done:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; ---- ride_evict (private) r0=mode r3=record r4=index -------------------------
+; Riders → exit tile, riders and queuers → GS_WALK with target -1
+; (RIDE_EV_HURT: -RIDE_BREAK_UNHAPPY). RIDE_EV_ALL: every other guest
+; targeting the ride drops the target (GS_BUY → GS_WALK). Zeroes R_QUEUE,
+; R_RIDERS, R_TIMER. Preserves all registers.
+ride_evict:
+        push r0
+        push r1
+        push r2
+        push lr
+        st r0, ride_v_mode
+        lea r2, st_guests
+        mov r1, MAX_GUESTS
+ride_ev_loop:
+        ldr r0, r2, G_STATE
+        cmp r0, GS_FREE
+        brz ride_ev_next
+        ldr r0, r2, G_TARGET
+        cmp r4, r0
+        brnz ride_ev_next
+        ldr r0, r2, G_STATE
+        cmp r0, GS_RIDE
+        brz ride_ev_rider
+        cmp r0, GS_QUEUE
+        brz ride_ev_queuer
+        ld r0, ride_v_mode
+        and r0, r0, RIDE_EV_ALL
+        brz ride_ev_next
+        mov r0, -1
+        str r0, r2, G_TARGET
+        ldr r0, r2, G_STATE
+        cmp r0, GS_BUY
+        brnz ride_ev_next
+        mov r0, GS_WALK
+        str r0, r2, G_STATE
+        br ride_ev_next
+ride_ev_rider:
+        ldr r0, r3, R_EXIT_X
+        str r0, r2, G_X
+        ldr r0, r3, R_EXIT_Y
+        str r0, r2, G_Y
+        br ride_ev_walk
+ride_ev_queuer:
+        mov r0, 0
+        str r0, r2, G_TIMER
+ride_ev_walk:
+        mov r0, GS_WALK
+        str r0, r2, G_STATE
+        mov r0, -1
+        str r0, r2, G_TARGET
+        ld r0, ride_v_mode
+        and r0, r0, RIDE_EV_HURT
+        brz ride_ev_next
+        push r1
+        add r0, r2, G_HAPPY
+        mov r1, -RIDE_BREAK_UNHAPPY
+        bl ride_meter
+        pop r1
+ride_ev_next:
+        ld r0, ride_k_gsize
+        add r2, r2, r0
+        sub r1, r1, 1
+        brp ride_ev_loop
+        mov r0, 0
+        str r0, r3, R_QUEUE
+        str r0, r3, R_RIDERS
+        str r0, r3, R_TIMER
+        pop lr
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; ---- ride_meter (private) r0=address of a meter r1=delta -> clamped 0..METER_MAX
+; Preserves all registers.
+ride_meter:
+        push r1
+        push r2
+        ldr r2, r0, 0
+        add r2, r2, r1
+        brn ride_meter_zero
+        mov r1, METER_MAX
+        cmp r2, r1
+        brgt ride_meter_max
+        br ride_meter_store
+ride_meter_max:
+        mov r2, r1
+        br ride_meter_store
+ride_meter_zero:
+        mov r2, 0
+ride_meter_store:
+        str r2, r0, 0
+        pop r2
+        pop r1
+        ret
+
+; ---- ride_at --------------------------------------------------------------------
+ride_at:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        mov r3, r0              ; x
+        mov r4, r1              ; y
+        mov r2, 0               ; index
+ride_at_loop:
+        mov r0, r2
+        bl ride_addr
+        mov r1, r0
+        ldr r0, r1, R_TYPE
+        cmp r0, 0
+        brz ride_at_next
+        ldr r0, r1, R_X
+        sub r0, r3, r0          ; dx
+        brn ride_at_ent
+        push r2
+        ldr r2, r1, R_W
+        cmp r0, r2
+        pop r2
+        brlt ride_at_dy
+        br ride_at_ent
+ride_at_dy:
+        ldr r0, r1, R_Y
+        sub r0, r4, r0          ; dy
+        brn ride_at_ent
+        push r2
+        ldr r2, r1, R_H
+        cmp r0, r2
+        pop r2
+        brlt ride_at_hit
+ride_at_ent:
+        ldr r0, r1, R_ENT_X
+        cmp r0, r3
+        brnz ride_at_exit
+        ldr r0, r1, R_ENT_Y
+        cmp r4, r0
+        brz ride_at_hit
+ride_at_exit:
+        ldr r0, r1, R_EXIT_X
+        cmp r0, r3
+        brnz ride_at_next
+        ldr r0, r1, R_EXIT_Y
+        cmp r4, r0
+        brz ride_at_hit
+ride_at_next:
+        add r2, r2, 1
+        mov r0, MAX_RIDES
+        cmp r2, r0
+        brlt ride_at_loop
+        mov r0, -1
+        br ride_at_done
+ride_at_hit:
+        mov r0, r2
+ride_at_done:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; ---- ride_name ------------------------------------------------------------------
 ride_name:
+        cmp r0, 0
+        brn ride_name_empty
+        push r1
+        mov r1, MAX_RIDES
+        cmp r0, r1
+        pop r1
+        brlt ride_name_ok
+ride_name_empty:
         lea r0, ride_s_none
         ret
-ride_s_none: .string ""
+ride_name_ok:
+        push lr
+        bl ride_addr
+        ldr r0, r0, R_TYPE
+        bl ride_type_info
+        pop lr
+        cmp r0, 0
+        brz ride_name_empty
+        ldr r0, r0, RTI_NAME
+        ret
 
+; ---- ride_set_price ---------------------------------------------------------------
 ride_set_price:
+        push r0
+        push r1
+        push r2
+        push lr
+        bl ride_addr
+        cmp r1, 0
+        brn ride_sp_low
+        mov r2, PRICE_MAX
+        cmp r1, r2
+        brlt ride_sp_store
+        mov r1, r2
+        br ride_sp_store
+ride_sp_low:
+        mov r1, 0
+ride_sp_store:
+        str r1, r0, R_PRICE
+        pop lr
+        pop r2
+        pop r1
+        pop r0
         ret
 
+; ---- ride_toggle -------------------------------------------------------------------
 ride_toggle:
+        push r3
+        push r4
+        push lr
+        mov r4, r0
+        bl ride_addr
+        mov r3, r0
+        ldr r0, r3, R_TYPE
+        cmp r0, 0
+        brz ride_tg_status
+        ldr r0, r3, R_STATUS
+        cmp r0, RS_CLOSED
+        brz ride_tg_open
+        cmp r0, RS_OPEN
+        brnz ride_tg_done
+        mov r0, 0
+        bl ride_evict
         mov r0, RS_CLOSED
+        str r0, r3, R_STATUS
+        br ride_tg_done
+ride_tg_open:
+        mov r0, RS_OPEN
+        str r0, r3, R_STATUS
+        br ride_tg_done
+ride_tg_status:
+        ldr r0, r3, R_STATUS
+ride_tg_done:
+        pop lr
+        pop r4
+        pop r3
         ret
 
+; ---- ride_enqueue --------------------------------------------------------------------
 ride_enqueue:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        mov r4, r0
+        bl ride_addr
+        mov r3, r0
+        ldr r0, r3, R_STATUS
+        cmp r0, RS_OPEN
+        brnz ride_eq_refuse
+        ldr r0, r3, R_TYPE
+        bl ride_type_info
+        cmp r0, 0
+        brz ride_eq_refuse
+        ldr r0, r0, RTI_FLAGS
+        and r0, r0, RTF_STALL
+        brnz ride_eq_refuse
+        mov r0, r1
+        bl ride_gaddr
+        ldr r2, r0, G_STATE
+        cmp r2, GS_QUEUE
+        brnz ride_eq_join
+        ldr r2, r0, G_TARGET
+        cmp r4, r2
+        brz ride_eq_ok          ; already in this queue
+ride_eq_join:
+        mov r2, GS_QUEUE
+        str r2, r0, G_STATE
+        str r4, r0, G_TARGET
+        ld r2, st_ticks_total
+        str r2, r0, G_DIR
+        ld r2, ride_queue_seq
+        str r2, r0, G_TIMER
+        add r2, r2, 1
+        st r2, ride_queue_seq
+        ldr r2, r3, R_QUEUE
+        add r2, r2, 1
+        str r2, r3, R_QUEUE
+ride_eq_ok:
+        mov r0, 1
+        br ride_eq_done
+ride_eq_refuse:
         mov r0, 0
+ride_eq_done:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
         ret
 
+; ---- ride_book (private) r0=$ r3=record: eco_earn + R_INC_K/U + R_MON_INC
+; (saturating) + R_TOTAL+1 (saturating). Preserves all registers.
+ride_book:
+        push r0
+        push r1
+        push r2
+        push lr
+        mov r2, r0
+        bl eco_earn
+        ldr r0, r3, R_INC_U
+        add r0, r0, r2
+        ld r1, ride_k_1000
+ride_book_carry:
+        cmp r0, r1
+        brlt ride_book_units
+        sub r0, r0, r1
+        push r0
+        ldr r0, r3, R_INC_K
+        add r0, r0, 1
+        str r0, r3, R_INC_K
+        pop r0
+        br ride_book_carry
+ride_book_units:
+        str r0, r3, R_INC_U
+        ldr r0, r3, R_MON_INC
+        add r0, r0, r2
+        brn ride_book_sat
+        br ride_book_mon
+ride_book_sat:
+        ld r0, ride_k_max
+ride_book_mon:
+        str r0, r3, R_MON_INC
+        ldr r0, r3, R_TOTAL
+        add r0, r0, 1
+        brn ride_book_done
+        str r0, r3, R_TOTAL
+ride_book_done:
+        pop lr
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; ---- ride_buy ---------------------------------------------------------------------------
 ride_buy:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        mov r4, r0
+        bl ride_addr
+        mov r3, r0
+        ldr r0, r3, R_STATUS
+        cmp r0, RS_OPEN
+        brnz ride_buy_refuse
+        ldr r0, r3, R_TYPE
+        bl ride_type_info
+        cmp r0, 0
+        brz ride_buy_refuse
+        mov r2, r0              ; catalog
+        ldr r0, r2, RTI_FLAGS
+        and r0, r0, RTF_STALL
+        brz ride_buy_refuse
+        mov r0, r1
+        bl ride_gaddr
+        mov r1, r0              ; guest record
+        ldr r4, r3, R_PRICE
+        ldr r0, r1, G_CASH
+        cmp r4, r0
+        brgt ride_buy_refuse          ; price > cash
+        sub r0, r0, r4
+        str r0, r1, G_CASH
+        mov r0, r4
+        bl ride_book
+        ldr r0, r2, RTI_GOODS
+        mov r2, r1              ; r2 = guest record from here on
+        cmp r0, GOODS_FOOD
+        brz ride_buy_food
+        cmp r0, GOODS_DRINK
+        brz ride_buy_drink
+        cmp r0, GOODS_TOILET
+        brz ride_buy_toilet
+        br ride_buy_happy
+ride_buy_food:
+        add r0, r2, G_HUNGER
+        br ride_buy_fill
+ride_buy_drink:
+        add r0, r2, G_THIRST
+ride_buy_fill:
+        mov r1, -RIDE_FILL
+        bl ride_meter
+        br ride_buy_happy
+ride_buy_toilet:
         mov r0, 0
+        str r0, r2, RIDE_G_TOILET
+ride_buy_happy:
+        add r0, r2, G_HAPPY
+        mov r1, RIDE_BUY_HAPPY
+        bl ride_meter
+        mov r0, 1
+        br ride_buy_done
+ride_buy_refuse:
+        mov r0, 0
+ride_buy_done:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
         ret
 
+; ---- ride_tick ------------------------------------------------------------------------------
 ride_tick:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        mov r4, 0               ; index
+ride_tick_loop:
+        mov r0, r4
+        bl ride_addr
+        mov r3, r0
+        ldr r0, r3, R_TYPE
+        cmp r0, 0
+        brz ride_tick_next
+        ld r1, st_new_month
+        cmp r1, 0
+        brz ride_tick_status
+        bl ride_month
+ride_tick_status:
+        ldr r1, r3, R_STATUS
+        cmp r1, RS_BROKEN
+        brnz ride_tick_open
+        ldr r1, r3, R_DOWN
+        add r1, r1, 1
+        brn ride_tick_next
+        str r1, r3, R_DOWN
+        br ride_tick_next
+ride_tick_open:
+        cmp r1, RS_OPEN
+        brnz ride_tick_next
+        bl ride_type_info       ; r0 = type -> catalog
+        cmp r0, 0
+        brz ride_tick_next
+        ldr r1, r0, RTI_FLAGS
+        and r1, r1, RTF_STALL
+        brnz ride_tick_next
+        bl ride_run
+ride_tick_next:
+        add r4, r4, 1
+        mov r0, MAX_RIDES
+        cmp r4, r0
+        brlt ride_tick_loop
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
         ret
+
+; ---- ride_month (private) r3=record: new month bookkeeping ------------------
+ride_month:
+        push r0
+        push r1
+        mov r0, 0
+        str r0, r3, R_MON_INC
+        ldr r0, r3, R_AGE
+        srl r0, 3
+        add r0, r0, 1
+        ldr r1, r3, R_RELIAB
+        sub r1, r1, r0
+        brp ride_month_store
+        mov r1, 0
+ride_month_store:
+        str r1, r3, R_RELIAB
+        pop r1
+        pop r0
+        ret
+
+; ---- ride_run (private) r0=catalog r3=record r4=index: one tick of an open ride
+ride_run:
+        push r0
+        push r1
+        push lr
+        mov r1, r0
+        ldr r0, r3, R_TIMER
+        cmp r0, 0
+        brz ride_run_idle
+        sub r0, r0, 1
+        str r0, r3, R_TIMER
+        cmp r0, 0
+        brnz ride_run_done
+        bl ride_unload
+        br ride_run_done
+ride_run_idle:
+        ldr r0, r3, R_QUEUE
+        cmp r0, 0
+        brp ride_run_board
+        br ride_run_done
+ride_run_board:
+        ; A stand-alone ride simulation may omit the park gate.
+        ld r0, st_gate_x
+        ld r1, st_gate_y
+        bl map_kind
+        cmp r0, T_GATE
+        brnz ride_run_ready
+        ldr r0, r3, R_EXIT_X
+        ldr r1, r3, R_EXIT_Y
+        bl pth_gate_dist
+        cmp r0, 0
+        brn ride_run_done
+ride_run_ready:
+        ldr r1, sp, 2           ; catalog saved on entry
+        mov r0, r1
+        bl ride_board           ; r0 = riders boarded
+        cmp r0, 0
+        brz ride_run_done
+        ldr r0, r1, RTI_CYCLE
+        cmp r0, 0
+        brp ride_run_cycle
+        mov r0, 1
+ride_run_cycle:
+        str r0, r3, R_TIMER
+ride_run_done:
+        pop lr
+        pop r1
+        pop r0
+        ret
+
+; ---- ride_board (private) r0=catalog r3=record r4=index -> r0=riders boarded
+ride_board:
+        push r1
+        push r2
+        push lr
+        ldr r1, r0, RTI_CAP
+        st r1, ride_v_cap
+        ldr r1, r0, RTI_CYCLE
+        st r1, ride_v_cycle
+        mov r1, 0
+        st r1, ride_v_n
+ride_bd_select:
+        ldr r0, r3, R_QUEUE
+        cmp r0, 0
+        brz ride_bd_done
+        mov r1, 0
+        st r1, ride_v_oldest
+        lea r2, st_guests
+        mov r1, MAX_GUESTS
+ride_bd_loop:
+        ldr r0, r2, G_STATE
+        cmp r0, GS_QUEUE
+        brnz ride_bd_next
+        ldr r0, r2, G_TARGET
+        cmp r4, r0
+        brnz ride_bd_next
+        ld r0, ride_v_oldest
+        cmp r0, 0
+        brz ride_bd_oldest
+        ; Guest patience limits the number of joins between two queued
+        ; guests to less than half the 16-bit sequence range.
+        ld r0, ride_v_order
+        push r1
+        ldr r1, r2, G_TIMER
+        sub r0, r1, r0
+        pop r1
+        brn ride_bd_oldest
+        br ride_bd_next
+ride_bd_oldest:
+        st r2, ride_v_oldest
+        ldr r0, r2, G_TIMER
+        st r0, ride_v_order
+ride_bd_next:
+        ld r0, ride_k_gsize
+        add r2, r2, r0
+        sub r1, r1, 1
+        brp ride_bd_loop
+        ld r2, ride_v_oldest
+        cmp r2, 0
+        brnz ride_bd_try
+        str r2, r3, R_QUEUE     ; discard stale counts
+        br ride_bd_done
+ride_bd_try:
+        ldr r0, r2, G_CASH
+        ldr r1, r3, R_PRICE
+        cmp r0, r1
+        brlt ride_bd_nopay
+        ld r0, ride_v_n
+        cmp r0, 0
+        brnz ride_bd_charge
+        bl ride_roll
+        cmp r0, 0
+        brz ride_bd_charge
+        bl ride_breakdown
+        br ride_bd_done
+ride_bd_charge:
+        ldr r0, r2, G_CASH
+        sub r0, r0, r1
+        str r0, r2, G_CASH
+        mov r0, r1
+        bl ride_book
+        mov r0, GS_RIDE
+        str r0, r2, G_STATE
+        ld r0, ride_v_cycle
+        str r0, r2, G_TIMER
+        ld r0, ride_v_n         ; seat n: x + n%w, y + (n/w)%h
+        ldr r1, r3, R_W
+        rem r0, r1
+        ldr r1, r3, R_X
+        add r0, r0, r1
+        str r0, r2, G_X
+        ld r0, ride_v_n
+        ldr r1, r3, R_W
+        div r0, r1
+        ldr r1, r3, R_H
+        rem r0, r1
+        ldr r1, r3, R_Y
+        add r0, r0, r1
+        str r0, r2, G_Y
+        ld r0, ride_v_n
+        add r0, r0, 1
+        st r0, ride_v_n
+        br ride_bd_taken
+ride_bd_nopay:
+        mov r0, GS_WALK
+        str r0, r2, G_STATE
+        mov r0, 0
+        str r0, r2, G_TIMER
+        mov r0, -1
+        str r0, r2, G_TARGET
+        mov r0, TH_NO_MONEY
+        str r0, r2, G_THOUGHT
+        add r0, r2, G_HAPPY
+        mov r1, -RIDE_NOPAY_UNHAPPY
+        bl ride_meter
+ride_bd_taken:
+        ldr r0, r3, R_QUEUE
+        sub r0, r0, 1
+        str r0, r3, R_QUEUE
+        ld r0, ride_v_n
+        ld r1, ride_v_cap
+        cmp r0, r1
+        brlt ride_bd_select
+ride_bd_done:
+        ld r0, ride_v_n
+        str r0, r3, R_RIDERS
+        pop lr
+        pop r2
+        pop r1
+        ret
+
+; ---- ride_unload (private) r3=record r4=index: riders → exit, GS_WALK ----------
+ride_unload:
+        push r0
+        push r1
+        push r2
+        push lr
+        lea r2, st_guests
+        mov r1, MAX_GUESTS
+ride_ul_loop:
+        ldr r0, r2, G_STATE
+        cmp r0, GS_RIDE
+        brnz ride_ul_next
+        ldr r0, r2, G_TARGET
+        cmp r4, r0
+        brnz ride_ul_next
+        push r1
+        ldr r0, r3, R_EXIT_X
+        str r0, r2, G_X
+        ldr r0, r3, R_EXIT_Y
+        str r0, r2, G_Y
+        mov r0, GS_WALK
+        str r0, r2, G_STATE
+        mov r0, -1
+        str r0, r2, G_TARGET
+        ldr r0, r2, G_RIDES
+        add r0, r0, 1
+        brn ride_ul_happy
+        str r0, r2, G_RIDES
+ride_ul_happy:
+        ldr r0, r3, R_INTENS    ; penalty = (intensity - RIDE_INTENSE)/8 if > 0
+        ld r1, ride_k_intense
+        sub r0, r0, r1
+        brp ride_ul_pen
+        mov r0, 0
+ride_ul_pen:
+        srl r0, 3
+        st r0, ride_v_tmp
+        ldr r1, r3, R_EXCITE
+        srl r1, 4
+        add r1, r1, RIDE_RIDE_HAPPY
+        ld r0, ride_v_tmp
+        sub r1, r1, r0
+        add r0, r2, G_HAPPY
+        bl ride_meter
+        ldr r1, r3, R_NAUSEA
+        srl r1, 4
+        add r0, r2, G_NAUSEA
+        bl ride_meter
+        ldr r1, r3, R_INTENS
+        srl r1, 5
+        mov r0, 0
+        sub r1, r0, r1
+        add r0, r2, G_ENERGY
+        bl ride_meter
+        ldr r0, r2, G_NAUSEA
+        mov r1, GUEST_SICK
+        cmp r0, r1
+        brgt ride_ul_sick
+        ldr r0, r3, R_EXCITE
+        ld r1, ride_k_great
+        cmp r0, r1
+        brlt ride_ul_pop
+        mov r0, TH_GREAT_RIDE
+        br ride_ul_thought
+ride_ul_sick:
+        mov r0, TH_SICK
+ride_ul_thought:
+        str r0, r2, G_THOUGHT
+ride_ul_pop:
+        pop r1
+ride_ul_next:
+        ld r0, ride_k_gsize
+        add r2, r2, r0
+        sub r1, r1, 1
+        brp ride_ul_loop
+        mov r0, 0
+        str r0, r3, R_RIDERS
+        str r0, r3, R_TIMER
+        pop lr
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; ---- ride_roll (private) r3=record -> r0=1 breaks down this cycle ------------
+ride_roll:
+        push r1
+        push r2
+        ldr r1, r3, R_RELIAB
+        mov r0, RIDE_RELIAB_FULL
+        sub r1, r0, r1          ; 100 - reliability
+        brn ride_roll_no
+        brz ride_roll_no
+        mov r0, r1
+        mul r0, r1
+        mov r1, 100
+        div r0, r1              ; chance % 0..100
+        mov r1, 0
+        mov r2, 99
+        rand r1, r2
+        cmp r1, r0
+        brlt ride_roll_yes
+ride_roll_no:
+        mov r0, 0
+        br ride_roll_done
+ride_roll_yes:
+        mov r0, 1
+ride_roll_done:
+        pop r2
+        pop r1
+        ret
+
+; ---- ride_breakdown (private) r3=record r4=index -----------------------------
+ride_breakdown:
+        push r0
+        push r1
+        push lr
+        mov r0, RIDE_EV_HURT
+        bl ride_evict
+        mov r0, RS_BROKEN
+        str r0, r3, R_STATUS
+        mov r0, 0
+        str r0, r3, R_DOWN
+        mov r0, r4
+        bl ride_name
+        lea r1, ride_v_msg
+        bl ride_copy
+        lea r0, ride_s_broken
+        bl ride_copy
+        lea r0, ride_v_msg
+        bl ui_msg
+        mov r0, SND_BREAKDOWN
+        sound r0
+        pop lr
+        pop r1
+        pop r0
+        ret
+
+; ---- ride_copy (private) r0=src r1=dst -> r1 = address of the copied NUL -------
+; Clobbers r0.
+ride_copy:
+        push r2
+ride_copy_loop:
+        ldr r2, r0, 0
+        str r2, r1, 0
+        cmp r2, 0
+        brz ride_copy_done
+        add r0, r0, 1
+        add r1, r1, 1
+        br ride_copy_loop
+ride_copy_done:
+        pop r2
+        ret
+
+        .include "map.ap"
+        .include "path.ap"

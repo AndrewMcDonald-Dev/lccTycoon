@@ -1,15 +1,14 @@
-; Unit driver for src/map.ap (WP1 owns and extends this file).
-; Pattern: include only defs, state and the module under test (plus any
-; module it calls, or a stub of your own in tests/unit/), call routines,
-; store each result in a drv_* cell, halt; map.test.json checks the cells.
-; The assertions below hold for the WP0 stub *and* the real module
-; (out-of-bounds handling); WP1 adds in-bounds cases.
+; Unit driver for world generation and the map API.
         .lccplus
         .start drv_main
         .include "video_defs.ap"
         .include "../../src/defs.ap"
 drv_main:
-        bl map_init
+        bl drv_world
+        bl drv_access
+        bl drv_kinds
+        bl drv_areas
+        bl drv_fills
         mov r0, -1              ; x = -1: outside
         mov r1, 0
         bl map_in_bounds
@@ -38,5 +37,479 @@ drv_addr_right: .word 99
 drv_idx_bottom: .word 99
 drv_walk_top:   .word 99
 drv_area_edge:  .word 99
+
+drv_world:
+        push lr
+        mov r0, -1
+        st r0, st_gate_x
+        st r0, st_gate_y
+        mov r0, 0
+        st r0, st_map_dirty
+        mov r0, 17
+        srand r0
+        bl map_init
+        ld r0, st_map_dirty
+        st r0, drv_init_dirty
+
+        ; Check the entire perimeter, including the one gate exception.
+        mov r4, 0
+        ld r3, st_gate_x
+        mov r0, MAP_W-1
+drv_border_x:
+        mov r1, 0
+        mov r2, T_FENCE
+        bl drv_expect_tile
+        mov r1, MAP_H-1
+        cmp r0, r3
+        brne drv_border_south
+        mov r2, T_GATE
+drv_border_south:
+        bl drv_expect_tile
+        sub r0, r0, 1
+        brn drv_border_middle
+        br drv_border_x
+drv_border_middle:
+        mov r1, MAP_H-2
+        mov r2, T_FENCE
+drv_border_y:
+        mov r0, 0
+        bl drv_expect_tile
+        mov r0, MAP_W-1
+        bl drv_expect_tile
+        sub r1, r1, 1
+        brp drv_border_y
+        st r4, drv_border_errors
+
+        ; Check the 12x10 starter area, with exactly three path tiles.
+        mov r4, 0
+        mov r1, MAP_H-2
+drv_starter_row:
+        mov r0, r3
+        add r0, r0, 5
+drv_starter_tile:
+        mov r2, T_GRASS
+        cmp r0, r3
+        brnz drv_starter_check
+        mov r2, MAP_H-4
+        cmp r1, r2
+        mov r2, T_GRASS
+        brn drv_starter_check
+        mov r2, T_PATH
+drv_starter_check:
+        bl drv_expect_tile
+        sub r0, r0, 1
+        sub r2, r3, 6
+        cmp r0, r2
+        brlt drv_starter_next
+        br drv_starter_tile
+drv_starter_next:
+        sub r1, r1, 1
+        mov r2, MAP_H-11
+        cmp r1, r2
+        brlt drv_starter_done
+        br drv_starter_row
+drv_starter_done:
+        st r4, drv_starter_errors
+
+        lea r4, drv_gate_walk
+        mov r1, MAP_H-1
+        mov r2, 4
+drv_walk_gate:
+        mov r0, r3
+        bl map_walkable
+        str r0, r4, 0
+        add r4, r4, 1
+        sub r1, r1, 1
+        sub r2, r2, 1
+        brp drv_walk_gate
+
+        ; Snapshot all tiles and check that both feature kinds occur.
+        lea r0, st_map
+        lea r1, drv_snapshot
+        ld r2, drv_map_words
+        mov r4, 0
+drv_snapshot_tile:
+        ldr r3, r0, 0
+        str r3, r1, 0
+        cmp r3, T_TREE
+        brnz drv_snapshot_water
+        mov r3, 1
+        or r4, r3
+        br drv_snapshot_next
+drv_snapshot_water:
+        cmp r3, T_WATER
+        brnz drv_snapshot_next
+        mov r3, 2
+        or r4, r3
+drv_snapshot_next:
+        add r0, r0, 1
+        add r1, r1, 1
+        sub r2, r2, 1
+        brp drv_snapshot_tile
+        st r4, drv_feature_kinds
+
+        ; Reinitialization should replace even terrain that changed since startup.
+        mov r0, 1
+        mov r1, 1
+        mov r2, T_RIDE
+        bl map_set
+        mov r0, 17
+        srand r0
+        bl map_init
+        bl drv_snapshot_equal
+        st r0, drv_same_seed
+        mov r0, 93
+        srand r0
+        bl map_init
+        bl drv_snapshot_equal
+        st r0, drv_other_seed
+        pop lr
+        ret
+
+; Increment the caller's mismatch count, retaining coordinates for loops.
+drv_expect_tile:
+        push r0
+        push lr
+        bl map_get
+        cmp r0, r2
+        brz drv_expect_tile_done
+        add r4, r4, 1
+drv_expect_tile_done:
+        pop lr
+        pop r0
+        ret
+
+drv_snapshot_equal:
+        lea r0, st_map
+        lea r1, drv_snapshot
+        ld r2, drv_map_words
+drv_compare_tile:
+        ldr r3, r0, 0
+        ldr r4, r1, 0
+        cmp r4, r3
+        brnz drv_compare_different
+        add r0, r0, 1
+        add r1, r1, 1
+        sub r2, r2, 1
+        brp drv_compare_tile
+        mov r0, 1
+        ret
+drv_compare_different:
+        mov r0, 0
+        ret
+
+drv_map_words:      .word MAP_SIZE
+drv_init_dirty:     .word 99
+drv_border_errors:  .word 99
+drv_starter_errors: .word 99
+drv_gate_walk:      .zero 4
+drv_feature_kinds:  .word 99
+drv_same_seed:      .word 99
+drv_other_seed:     .word 99
+
+drv_access:
+        push lr
+        mov r0, 0
+        mov r1, 0
+        mov r2, MAP_W
+        mov r3, MAP_H
+        mov r4, T_GRASS
+        bl map_fill
+
+        ; Include tile metadata and a sign bit to exercise kind masking.
+        mov r1, 2
+        ld r2, drv_marked_path
+        mov r3, 42
+        mov r4, 43
+        mov r0, 0
+        st r0, st_map_dirty
+        mov r0, 1
+        bl map_set
+        ld r0, st_map_dirty
+        st r0, drv_dirty_add
+        st r1, drv_preserved
+        st r2, drv_preserved+1
+        st r3, drv_preserved+2
+        st r4, drv_preserved+3
+
+        mov r0, 1
+        bl map_get
+        st r0, drv_tile
+        mov r0, 1
+        bl map_kind
+        st r0, drv_kind
+        mov r0, 1
+        bl map_index
+        st r0, drv_index
+        mov r0, 1
+        bl map_addr
+        lea r2, st_map
+        sub r0, r0, r2
+        st r0, drv_offset
+        mov r0, MAP_W-1
+        mov r1, MAP_H-1
+        bl map_in_bounds
+        st r0, drv_last_in_bounds
+
+        ; A metadata change and path-to-queue both preserve walkability.
+        mov r0, 0
+        st r0, st_map_dirty
+        mov r0, 1
+        mov r1, 2
+        mov r2, T_PATH
+        bl map_set
+        ld r0, st_map_dirty
+        st r0, drv_dirty_metadata
+        mov r0, 1
+        mov r2, T_QUEUE
+        bl map_set
+        ld r0, st_map_dirty
+        st r0, drv_dirty_walkable
+        mov r0, 1
+        mov r2, T_TREE
+        bl map_set
+        ld r0, st_map_dirty
+        st r0, drv_dirty_remove
+        mov r0, 0
+        st r0, st_map_dirty
+        mov r0, 1
+        mov r2, T_FLOWERS
+        bl map_set
+        ld r0, st_map_dirty
+        st r0, drv_dirty_blocked
+
+        mov r0, MAP_W
+        mov r1, 0
+        mov r2, T_PATH
+        bl map_set
+        ld r0, st_map_dirty
+        st r0, drv_dirty_out
+        mov r0, 0
+        mov r1, 1
+        bl map_get
+        st r0, drv_no_wrap
+        mov r0, MAP_W
+        mov r1, 0
+        bl map_get
+        st r0, drv_get_out
+        mov r0, 0
+        mov r1, MAP_H
+        bl map_kind
+        st r0, drv_kind_out
+        mov r0, -1
+        mov r1, -1
+        bl map_buildable
+        st r0, drv_build_out
+        pop lr
+        ret
+
+drv_marked_path:    .word T_PATH|T_VOMIT|T_LITTER|(7<<T_RIDE_SHIFT)|(3<<T_HEIGHT_SHIFT)
+drv_preserved:      .zero 4
+drv_tile:           .word 99
+drv_kind:           .word 99
+drv_index:          .word 99
+drv_offset:         .word 99
+drv_last_in_bounds: .word 99
+drv_dirty_add:      .word 99
+drv_dirty_metadata: .word 99
+drv_dirty_walkable: .word 99
+drv_dirty_remove:   .word 99
+drv_dirty_blocked:  .word 99
+drv_dirty_out:      .word 99
+drv_no_wrap:        .word 99
+drv_get_out:        .word 99
+drv_kind_out:       .word 99
+drv_build_out:      .word 99
+
+drv_kinds:
+        push lr
+        mov r2, 0
+        mov r1, 1
+        lea r3, drv_walkable
+        lea r4, drv_buildable
+drv_test_kind:
+        mov r0, 1
+        bl map_set
+        mov r0, 1
+        bl map_walkable
+        str r0, r3, 0
+        mov r0, 1
+        bl map_buildable
+        str r0, r4, 0
+        add r3, r3, 1
+        add r4, r4, 1
+        add r2, r2, 1
+        cmp r2, T_KIND_COUNT
+        brlt drv_test_kind
+        pop lr
+        ret
+
+drv_walkable:  .zero T_KIND_COUNT
+drv_buildable: .zero T_KIND_COUNT
+
+drv_areas:
+        push lr
+        mov r0, 20
+        mov r1, 20
+        mov r2, 3
+        mov r3, 2
+        bl map_area_free
+        st r0, drv_area_inside
+        mov r0, MAP_W-2
+        mov r1, MAP_H-2
+        mov r2, 2
+        bl map_area_free
+        st r0, drv_area_corner
+
+        ; Put each test kind on the last tile in the second row.
+        lea r4, drv_area_kinds
+        mov r2, T_TREE
+        bl drv_area_at_last
+        mov r2, T_WATER
+        bl drv_area_at_last
+        mov r2, T_PATH
+        bl drv_area_at_last
+
+        mov r0, 20
+        mov r1, MAP_H-1
+        mov r2, 3
+        mov r3, 2
+        bl map_area_free
+        st r0, drv_area_south
+        mov r0, -1
+        mov r1, 20
+        bl map_area_free
+        st r0, drv_area_west
+        mov r0, 20
+        mov r2, 0
+        bl map_area_free
+        st r0, drv_area_empty
+        mov r0, 20
+        ld r2, drv_large
+        bl map_area_free
+        st r0, drv_area_large
+        pop lr
+        ret
+
+drv_area_at_last:
+        push lr
+        mov r0, 22
+        mov r1, 21
+        bl map_set
+        mov r0, 20
+        mov r1, 20
+        mov r2, 3
+        mov r3, 2
+        bl map_area_free
+        str r0, r4, 0
+        add r4, r4, 1
+        pop lr
+        ret
+
+drv_area_inside: .word 99
+drv_area_corner: .word 99
+drv_area_kinds:  .zero 3
+drv_area_south:  .word 99
+drv_area_west:   .word 99
+drv_area_empty:  .word 99
+drv_area_large:  .word 99
+drv_large:       .word 32767
+
+drv_fills:
+        push lr
+        mov r0, 0
+        st r0, st_map_dirty
+        mov r0, -2
+        mov r1, -1
+        mov r2, 4
+        mov r3, 3
+        mov r4, T_TREE
+        bl map_fill
+        ld r0, st_map_dirty
+        st r0, drv_dirty_fill
+
+        ; Large positive extents still clip to the last 2x2 tiles.
+        mov r0, MAP_W-2
+        mov r1, MAP_H-2
+        ld r2, drv_large
+        mov r3, r2
+        mov r4, T_WATER
+        bl map_fill
+
+        ; A nonpositive size or completely outside rectangle writes no tile.
+        mov r0, 0
+        mov r1, 0
+        mov r2, -1
+        mov r3, 2
+        mov r4, T_PATH
+        bl map_fill
+        mov r0, MAP_W
+        mov r1, 0
+        mov r2, 2
+        bl map_fill
+        mov r0, -4
+        mov r1, 0
+        bl map_fill
+
+        ; Check both clipped rectangles, neighboring grass, and that
+        ; clipping did not spill into the pool immediately after the map.
+        mov r4, 0
+        lea r3, drv_fill_cases
+drv_fill_case:
+        ldr r0, r3, 0
+        cmp r0, -1
+        brz drv_fill_done
+        ldr r1, r3, 1
+        ldr r2, r3, 2
+        bl drv_expect_tile
+        add r3, r3, 3
+        br drv_fill_case
+drv_fill_done:
+        st r4, drv_fill_errors
+        pop lr
+        ret
+
+drv_dirty_fill:  .word 99
+drv_fill_errors: .word 99
+drv_fill_cases:
+        .word 0
+        .word 0
+        .word T_TREE
+        .word 1
+        .word 0
+        .word T_TREE
+        .word 0
+        .word 1
+        .word T_TREE
+        .word 1
+        .word 1
+        .word T_TREE
+        .word 2
+        .word 0
+        .word T_GRASS
+        .word 0
+        .word 2
+        .word T_GRASS
+        .word MAP_W-2
+        .word MAP_H-2
+        .word T_WATER
+        .word MAP_W-1
+        .word MAP_H-2
+        .word T_WATER
+        .word MAP_W-2
+        .word MAP_H-1
+        .word T_WATER
+        .word MAP_W-1
+        .word MAP_H-1
+        .word T_WATER
+        .word MAP_W-3
+        .word MAP_H-1
+        .word T_GRASS
+        .word MAP_W-1
+        .word MAP_H-3
+        .word T_GRASS
+        .word -1
+
         .include "../../src/state.ap"
         .include "../../src/map.ap"
+drv_snapshot: .zero MAP_SIZE

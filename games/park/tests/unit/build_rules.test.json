@@ -1,0 +1,13 @@
+{
+  "game": "build_driver.ap",
+  "scenarios": [
+    {
+      "name": "construction quotes, transactions, access tiles, demolition and refusals",
+      "frames": 3,
+      "expect": {
+        "status": "halted",
+        "memory": { "drv_case": 0, "drv_actual": 0, "drv_expected": 0 }
+      }
+    }
+  ]
+}

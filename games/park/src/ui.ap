@@ -10,9 +10,38 @@
 ;; ui_msg_num     r0=str r1=n -> -       like ui_msg with " " and signed decimal n appended
 ;; ui_tick        ()          -> -       age messages by one frame (call once per frame)
 ;; ui_tool_name   r0=tool     -> r0=str  name of a TOOL_* (for panel/help)
+;
+; Reads: st_tool st_tool_item st_cur_x/y st_map st_guest_count st_rating
+; st_speed st_paused st_quit_ask st_msg_*; st_day/month/year and
+; st_cash_k only as fallbacks while eco_cash_text/eco_date_text return "".
+; Calls: eco_cash_text eco_date_text ride_type_info ride_at ride_name.
+; Cost: ~12K instructions per frame (direct cell writes, no video_put).
+;
+; Private helpers below the public routines are documented where they are
+; defined; "clobbers r0-r4" helpers are only called from ui_draw, which
+; saves every register.
 ; ---------------------------------------------------------------------
 
-; WP0 stub: placeholder regions so the layout is visible.
+        .define UI_IN_COL       PANEL_COL+2     ; panel text column
+        .define UI_IN_W         PANEL_COLS-4    ; panel text width
+        .define UI_VAL_COL      PANEL_COL+10    ; panel value column
+        .define UI_VAL_W        PANEL_COLS-12
+        .define UI_R_TITLE      PANEL_ROW+1
+        .define UI_R_SEP1       PANEL_ROW+2
+        .define UI_R_TOOL       PANEL_ROW+3
+        .define UI_R_ITEM       PANEL_ROW+4
+        .define UI_R_SEP2       PANEL_ROW+5
+        .define UI_R_CURSOR     PANEL_ROW+6
+        .define UI_R_TILE       PANEL_ROW+7
+        .define UI_R_RIDE       PANEL_ROW+8
+        .define UI_PAUSED_COL   SCR_COLS-8
+        .define UI_MSG_FRESH    200             ; frames a message stays bright (10 s)
+        .define A_UI_VALUE      FG_BWHITE
+        .define A_UI_PAUSED     FG_BYELLOW|BG_BLUE
+        .define UI_TBUF_LEN     16
+
+; ======================= public routines ==============================
+
 ui_draw:
         push r0
         push r1
@@ -20,85 +49,10 @@ ui_draw:
         push r3
         push r4
         push lr
-        ; panel: blank + frame + title
-        mov r0, PANEL_ROW
-        mov r1, PANEL_COL
-        mov r2, PANEL_ROWS
-        mov r3, PANEL_COLS
-        mov r4, G_SPACE
-        bl video_fill
-        ld r4, ui_a_frame
-        bl video_box
-        mov r0, PANEL_ROW+1
-        mov r1, PANEL_COL+2
-        lea r2, ui_s_title
-        ld r3, ui_a_title
-        bl video_text
-        ; status bar
-        mov r0, STATUS_ROW
-        mov r1, 0
-        mov r2, 1
-        mov r3, SCR_COLS
-        ld r4, ui_c_status
-        bl video_fill
-        mov r1, 1
-        lea r2, ui_s_status
-        ld r3, ui_a_status
-        bl video_text
-        mov r1, 9
-        ld r2, st_cash_k
-        bl video_num
-        mov r1, 22
-        ld r2, st_guest_count
-        bl video_num
-        mov r1, 34
-        ld r2, st_rating
-        bl video_num
-        mov r1, 43
-        ld r2, st_day
-        bl video_num
-        mov r1, 54
-        ld r2, st_month
-        add r2, r2, 1
-        bl video_num
-        mov r1, 64
-        ld r2, st_year
-        bl video_num
-        ld r2, st_paused
-        cmp r2, 0
-        brz ui_draw_msgs
-        mov r1, 90
-        lea r2, ui_s_paused
-        bl video_text
-ui_draw_msgs:
-        ; messages: blank rows + placeholder
-        mov r0, MSG_ROW
-        mov r1, 0
-        mov r2, MSG_ROWS
-        mov r3, SCR_COLS
-        mov r4, G_SPACE
-        bl video_fill
-        mov r1, 1
-        lea r2, ui_s_msg
-        ld r3, ui_a_msg
-        bl video_text
-        ; help line
-        mov r0, HELP_ROW
-        mov r1, 0
-        mov r2, 1
-        mov r3, SCR_COLS
-        ld r4, ui_c_help
-        bl video_fill
-        mov r1, 1
-        lea r2, ui_s_help
-        ld r0, st_quit_ask
-        cmp r0, 0
-        brz ui_draw_help
-        lea r2, ui_s_quit
-ui_draw_help:
-        mov r0, HELP_ROW
-        ld r3, ui_a_help
-        bl video_text
+        bl ui_draw_panel
+        bl ui_draw_status
+        bl ui_draw_msgs
+        bl ui_draw_help
         pop lr
         pop r4
         pop r3
@@ -106,30 +60,758 @@ ui_draw_help:
         pop r1
         pop r0
         ret
-ui_a_frame:  .word A_FRAME
+
+; ui_msg r0=str: copy into the next ring slot.
+ui_msg:
+        push r0
+        push r1
+        push lr
+        mov r1, r0
+        bl ui_msg_slot
+        mov r0, r1
+        bl ui_cat
+        pop lr
+        pop r1
+        pop r0
+        ret
+
+; ui_msg_num r0=str r1=n: copy str, then " ", then signed decimal n.
+ui_msg_num:
+        push r0
+        push r1
+        push r2
+        push lr
+        mov r2, r0
+        bl ui_msg_slot
+        mov r0, r2
+        bl ui_cat
+        mov r0, ' '
+        bl ui_catch
+        mov r0, r1
+        bl ui_catnum
+        pop lr
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; ui_tick: every slot's age +1, saturating at 32767.
+ui_tick:
+        push r0
+        push r1
+        push r2
+        lea r1, st_msg_age
+        mov r2, MSG_COUNT
+ui_tick_lp:
+        ldr r0, r1, 0
+        add r0, r0, 1
+        brn ui_tick_sat         ; overflowed past 32767: keep the old value
+        str r0, r1, 0
+ui_tick_sat:
+        add r1, r1, 1
+        sub r2, r2, 1
+        brnz ui_tick_lp
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; ui_tool_name r0=tool -> r0=str ("" outside 0..TOOL_COUNT-1)
+ui_tool_name:
+        push r1
+        cmp r0, 0
+        brn ui_tool_name_bad
+        cmp r0, TOOL_COUNT
+        brlt ui_tool_name_ok
+ui_tool_name_bad:
+        lea r0, ui_s_empty
+        pop r1
+        ret
+ui_tool_name_ok:
+        lea r1, ui_tool_tab
+        add r1, r1, r0
+        ldr r0, r1, 0
+        pop r1
+        ret
+
+; tool names, indexed by TOOL_*
+ui_tool_tab: .word ui_s_t0
+             .word ui_s_t1
+             .word ui_s_t2
+             .word ui_s_t3
+             .word ui_s_t4
+             .word ui_s_t5
+             .word ui_s_t6
+             .word ui_s_t7
+
+; ======================= private helpers =================================
+
+; ui_fill r0=row r1=col r2=h r3=w r4=cell: rectangle (h,w >= 1, inside the
+; screen; no clipping). Clobbers r0-r3. ~4 instructions per cell.
+ui_fill:
+        push lr
+        st r3, ui_fw
+        bl video_addr                   ; r0 = first cell
+ui_fill_row:
+        mov r1, r0
+        ld r3, ui_fw
+ui_fill_col:
+        str r4, r1, 0
+        add r1, r1, 1
+        sub r3, r3, 1
+        brnz ui_fill_col
+        ld r3, ui_k_cols
+        add r0, r0, r3
+        sub r2, r2, 1
+        brnz ui_fill_row
+        pop lr
+        ret
+
+; ui_text r0=row r1=col r2=str r3=attr r4=max chars: write str|attr cells
+; (no clipping beyond max). Clobbers r0-r2, r4; keeps r3.
+ui_text:
+        push lr
+        bl video_addr
+ui_text_lp:
+        cmp r4, 0
+        brz ui_text_done
+        ldr r1, r2, 0
+        cmp r1, 0
+        brz ui_text_done
+        or r1, r3
+        str r1, r0, 0
+        add r0, r0, 1
+        add r2, r2, 1
+        sub r4, r4, 1
+        br ui_text_lp
+ui_text_done:
+        pop lr
+        ret
+
+; ui_field r0=row r1=label r2=value: panel line "Label   value". Clobbers r0-r3.
+ui_field:
+        push r4
+        push lr
+        push r2
+        push r0
+        mov r2, r1
+        mov r1, UI_IN_COL
+        ld r3, ui_a_dim
+        mov r4, UI_VAL_COL-UI_IN_COL
+        bl ui_text
+        pop r0
+        pop r2
+        mov r1, UI_VAL_COL
+        ld r3, ui_a_value
+        mov r4, UI_VAL_W
+        bl ui_text
+        pop lr
+        pop r4
+        ret
+
+; ui_hline r0=row r1=left end cell r2=right end cell: panel-wide line
+; end ─────── end. Clobbers r0-r3.
+ui_hline:
+        push r4
+        push lr
+        push r2
+        push r1
+        push r0
+        mov r1, PANEL_COL
+        mov r2, 1
+        mov r3, PANEL_COLS
+        ld r4, ui_c_hline
+        bl ui_fill
+        ldr r0, sp, 0
+        mov r1, PANEL_COL
+        ldr r2, sp, 1
+        bl video_put
+        pop r0
+        mov r1, PANEL_COL+PANEL_COLS-1
+        pop r2                          ; (left end, discarded)
+        pop r2
+        bl video_put
+        pop lr
+        pop r4
+        ret
+
+; ui_msg_slot: advance st_msg_head, age 0, start the string builder on the
+; slot (empty string). -> r0 = slot address.
+ui_msg_slot:
+        push r1
+        push lr
+        ld r1, st_msg_head
+        add r1, r1, 1
+        and r1, r1, MSG_COUNT-1
+        st r1, st_msg_head
+        lea r0, st_msg_age
+        add r0, r0, r1
+        push r2
+        mov r2, 0
+        str r2, r0, 0
+        pop r2
+        sll r1, MSG_SHIFT
+        lea r0, st_msg_text
+        add r0, r0, r1
+        mov r1, MSG_LEN
+        bl ui_begin
+        pop lr
+        pop r1
+        ret
+
+; ---- string builder: ui_begin, then ui_cat / ui_catch / ui_catnum append
+; while room is left (always NUL-terminated, silently truncated).
+
+; ui_begin r0=buf r1=capacity in words (incl. NUL, >= 1)
+ui_begin:
+        push r2
+        st r0, ui_bp
+        add r2, r0, r1
+        sub r2, r2, 1
+        st r2, ui_bend
+        mov r2, 0
+        str r2, r0, 0
+        pop r2
+        ret
+
+; ui_cat r0=str
+ui_cat:
+        push r0
+        push r1
+        push r2
+        push r3
+        ld r1, ui_bp
+        ld r2, ui_bend
+ui_cat_lp:
+        ldr r3, r0, 0
+        cmp r3, 0
+        brz ui_cat_end
+        cmp r1, r2                      ; equality only (addresses may exceed 32767)
+        brz ui_cat_end
+        str r3, r1, 0
+        add r1, r1, 1
+        add r0, r0, 1
+        br ui_cat_lp
+ui_cat_end:
+        mov r3, 0
+        str r3, r1, 0
+        st r1, ui_bp
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; ui_catch r0=char
+ui_catch:
+        push r0
+        push lr
+        st r0, ui_chbuf
+        lea r0, ui_chbuf
+        bl ui_cat
+        pop lr
+        pop r0
+        ret
+
+; ui_catnum r0=n (signed decimal, -32768..32767)
+ui_catnum:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        lea r4, ui_nend                 ; digits written backwards before the NUL
+        mov r3, 0                       ; negative flag
+        cmp r0, 0
+        brp ui_catnum_dg
+        bre ui_catnum_dg
+        ld r1, ui_k_min
+        cmp r0, r1
+        brne ui_catnum_neg
+        lea r0, ui_s_min                ; -32768 has no positive twin
+        bl ui_cat
+        br ui_catnum_done
+ui_catnum_neg:
+        mov r3, 1
+        not r0, r0
+        add r0, r0, 1
+ui_catnum_dg:
+        mov r1, r0
+        mov r2, 10
+        rem r1, r2
+        mov r2, '0'
+        add r1, r1, r2
+        sub r4, r4, 1
+        str r1, r4, 0
+        mov r2, 10
+        div r0, r2
+        cmp r0, 0
+        brnz ui_catnum_dg
+        cmp r3, 0
+        brz ui_catnum_out
+        sub r4, r4, 1
+        mov r1, '-'
+        str r1, r4, 0
+ui_catnum_out:
+        mov r0, r4
+        bl ui_cat
+ui_catnum_done:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; ======================= data =============================================
+
+ui_bp:       .word 0                    ; builder write pointer
+ui_bend:     .word 0                    ; builder last writable word (NUL slot)
+ui_fw:       .word 0                    ; ui_fill width
+ui_chbuf:    .word 0
+             .word 0
+ui_nbuf:     .zero 7
+ui_nend:     .word 0
+ui_line:     .zero SCR_COLS             ; status / panel line buffer
+ui_tbuf:     .zero UI_TBUF_LEN          ; eco_*_text output
+
+ui_k_cols:   .word SCR_COLS
+ui_k_min:    .word -32768
+ui_k_fresh:  .word UI_MSG_FRESH
 ui_a_title:  .word A_TITLE
+ui_a_dim:    .word A_DIM
+ui_a_value:  .word A_UI_VALUE
 ui_a_status: .word A_STATUS
 ui_c_status: .word G_SPACE|A_STATUS
+ui_a_paused: .word A_UI_PAUSED
 ui_a_msg:    .word A_MSG
 ui_a_help:   .word A_HELP
 ui_c_help:   .word G_SPACE|A_HELP
+ui_c_hline:  .word 196|A_FRAME          ; ─
+ui_c_vline:  .word 179|A_FRAME          ; │
+ui_c_tl:     .word 218|A_FRAME          ; ┌
+ui_c_tr:     .word 191|A_FRAME          ; ┐
+ui_c_bl:     .word 192|A_FRAME          ; └
+ui_c_br:     .word 217|A_FRAME          ; ┘
+ui_c_ml:     .word 195|A_FRAME          ; ├
+ui_c_mr:     .word 180|A_FRAME          ; ┤
+
+ui_s_empty:  .word 0
+ui_s_min:    .string "-32768"
+
+
+; ======================= regions (called by ui_draw) ===================
+
+; ---- side panel: frame, title, tool + item, cursor tile info ----------
+ui_draw_panel:                          ; clobbers r0-r4
+        push lr
+        mov r0, PANEL_ROW
+        mov r1, PANEL_COL
+        mov r2, PANEL_ROWS
+        mov r3, PANEL_COLS
+        mov r4, G_SPACE
+        bl ui_fill
+        ; frame: side edges, then top / bottom / separator lines
+        mov r0, PANEL_ROW
+        mov r1, PANEL_COL
+        mov r2, PANEL_ROWS
+        mov r3, 1
+        ld r4, ui_c_vline
+        bl ui_fill
+        mov r0, PANEL_ROW
+        mov r1, PANEL_COL+PANEL_COLS-1
+        mov r2, PANEL_ROWS
+        mov r3, 1
+        bl ui_fill
+        mov r0, PANEL_ROW
+        ld r1, ui_c_tl
+        ld r2, ui_c_tr
+        bl ui_hline
+        mov r0, PANEL_ROW+PANEL_ROWS-1
+        ld r1, ui_c_bl
+        ld r2, ui_c_br
+        bl ui_hline
+        ld r1, ui_c_ml
+        ld r2, ui_c_mr
+        mov r0, UI_R_SEP1
+        bl ui_hline
+        ld r1, ui_c_ml
+        ld r2, ui_c_mr
+        mov r0, UI_R_SEP2
+        bl ui_hline
+        ; title
+        mov r0, UI_R_TITLE
+        mov r1, UI_IN_COL
+        lea r2, ui_s_title
+        ld r3, ui_a_title
+        mov r4, UI_IN_W
+        bl ui_text
+        ; tool
+        ld r0, st_tool
+        bl ui_tool_name
+        mov r2, r0
+        mov r0, UI_R_TOOL
+        lea r1, ui_s_l_tool
+        bl ui_field
+        ; item (ride / stall / scenery tools only)
+        bl ui_item_name                 ; r0 = str or 0
+        cmp r0, 0
+        brz ui_dp_cursor
+        mov r2, r0
+        mov r0, UI_R_ITEM
+        lea r1, ui_s_l_item
+        bl ui_field
+ui_dp_cursor:
+        ; cursor coordinates "x,y"
+        lea r0, ui_line
+        mov r1, UI_TBUF_LEN
+        bl ui_begin
+        ld r0, st_cur_x
+        bl ui_catnum
+        mov r0, ','
+        bl ui_catch
+        ld r0, st_cur_y
+        bl ui_catnum
+        mov r0, UI_R_CURSOR
+        lea r1, ui_s_l_cursor
+        lea r2, ui_line
+        bl ui_field
+        ; tile kind under the cursor
+        ld r0, st_cur_y
+        sll r0, MAP_SHIFT
+        ld r1, st_cur_x
+        add r0, r0, r1
+        lea r1, st_map
+        add r1, r1, r0
+        ldr r4, r1, 0
+        and r4, r4, T_KIND_MASK         ; r4 = kind (kept for the ride check)
+        lea r2, ui_kind_tab
+        add r2, r2, r4
+        ldr r2, r2, 0
+        mov r0, UI_R_TILE
+        lea r1, ui_s_l_tile
+        bl ui_field
+        ; ride name when the tile belongs to a ride / stall / track
+        cmp r4, T_RIDE
+        brlt ui_dp_done
+        cmp r4, T_TRACK
+        brgt ui_dp_done
+        ld r0, st_cur_x
+        ld r1, st_cur_y
+        bl ride_at
+        cmp r0, 0
+        brn ui_dp_done
+        bl ride_name
+        ldr r1, r0, 0
+        cmp r1, 0
+        brz ui_dp_done                  ; free slot / stub: no name
+        mov r2, r0
+        mov r0, UI_R_RIDE
+        lea r1, ui_s_l_ride
+        bl ui_field
+ui_dp_done:
+        pop lr
+        ret
+
+; ui_item_name -> r0 = name of st_tool_item for the current tool, 0 if none
+ui_item_name:                           ; clobbers r0-r1
+        push lr
+        ld r1, st_tool
+        cmp r1, TOOL_RIDE
+        bre ui_in_ride
+        cmp r1, TOOL_STALL
+        bre ui_in_ride
+        cmp r1, TOOL_SCENERY
+        bre ui_in_scen
+        br ui_in_none
+ui_in_ride:
+        ld r0, st_tool_item
+        bl ride_type_info               ; record or 0
+        cmp r0, 0
+        brz ui_in_done
+        ldr r0, r0, RTI_NAME
+        br ui_in_done
+ui_in_scen:
+        ld r0, st_tool_item
+        cmp r0, 0
+        brn ui_in_none
+        cmp r0, SC_COUNT
+        brlt ui_in_scen_ok
+ui_in_none:
+        mov r0, 0
+        br ui_in_done
+ui_in_scen_ok:
+        lea r1, ui_scen_tab
+        add r1, r1, r0
+        ldr r0, r1, 0
+ui_in_done:
+        pop lr
+        ret
+
 ui_s_title:  .string "PARK BUILDER"
-ui_s_status: .string "Cash k$       Guests      Rating      Day      Month      Year"
+ui_s_l_tool: .string "Tool"
+ui_s_l_item: .string "Item"
+ui_s_l_cursor: .string "Cursor"
+ui_s_l_tile: .string "Tile"
+ui_s_l_ride: .string "Ride"
+; scenery item names, indexed by SC_*
+ui_scen_tab: .word ui_s_sc0
+             .word ui_s_sc1
+             .word ui_s_sc2
+             .word ui_s_sc3
+; tile kind names, indexed by T_* (16 entries: kind is 4 bits)
+ui_kind_tab: .word ui_s_k0
+             .word ui_s_k1
+             .word ui_s_k2
+             .word ui_s_k3
+             .word ui_s_k4
+             .word ui_s_k5
+             .word ui_s_k6
+             .word ui_s_k7
+             .word ui_s_k8
+             .word ui_s_k9
+             .word ui_s_k10
+             .word ui_s_k11
+             .word ui_s_k12
+             .word ui_s_k13
+             .word ui_s_k14
+             .word ui_s_k15
+
+; ---- status bar: cash guests rating date speed [PAUSED] ------------------
+ui_draw_status:                         ; clobbers r0-r4
+        push lr
+        lea r0, ui_line
+        mov r1, SCR_COLS
+        bl ui_begin
+        mov r0, ' '
+        bl ui_catch
+        lea r0, ui_tbuf
+        bl eco_cash_text
+        ldr r1, r0, 0
+        cmp r1, 0
+        brnz ui_ds_cash
+        mov r0, '$'                     ; fallback while economy is a stub: "$10k"
+        bl ui_catch
+        ld r0, st_cash_k
+        bl ui_catnum
+        mov r0, 'k'
+        bl ui_catch
+        br ui_ds_guests
+ui_ds_cash:
+        bl ui_cat
+ui_ds_guests:
+        lea r0, ui_s_guests
+        bl ui_cat
+        ld r0, st_guest_count
+        bl ui_catnum
+        lea r0, ui_s_rating
+        bl ui_cat
+        ld r0, st_rating
+        bl ui_catnum
+        lea r0, ui_s_gap
+        bl ui_cat
+        lea r0, ui_tbuf
+        bl eco_date_text
+        ldr r1, r0, 0
+        cmp r1, 0
+        brnz ui_ds_date
+        lea r0, ui_s_day                ; fallback: "Day 1 M3 Y1"
+        bl ui_cat
+        ld r0, st_day
+        bl ui_catnum
+        lea r0, ui_s_mon
+        bl ui_cat
+        ld r0, st_month
+        add r0, r0, 1
+        bl ui_catnum
+        lea r0, ui_s_yr
+        bl ui_cat
+        ld r0, st_year
+        bl ui_catnum
+        br ui_ds_speed
+ui_ds_date:
+        bl ui_cat
+ui_ds_speed:
+        lea r0, ui_s_speed
+        bl ui_cat
+        ld r0, st_speed
+        bl ui_catnum
+        ; draw
+        mov r0, STATUS_ROW
+        mov r1, 0
+        mov r2, 1
+        mov r3, SCR_COLS
+        ld r4, ui_c_status
+        bl ui_fill
+        mov r0, STATUS_ROW
+        mov r1, 0
+        lea r2, ui_line
+        ld r3, ui_a_status
+        mov r4, UI_PAUSED_COL-1
+        bl ui_text
+        ld r0, st_paused
+        cmp r0, 0
+        brz ui_ds_done
+        mov r0, STATUS_ROW
+        mov r1, UI_PAUSED_COL
+        lea r2, ui_s_paused
+        ld r3, ui_a_paused
+        mov r4, 8
+        bl ui_text
+ui_ds_done:
+        pop lr
+        ret
+
+ui_s_guests: .string "   Guests "
+ui_s_rating: .string "   Rating "
+ui_s_gap:    .string "   "
+ui_s_day:    .string "Day "
+ui_s_mon:    .string " M"
+ui_s_yr:     .string " Y"
+ui_s_speed:  .string "   Speed "
 ui_s_paused: .string "PAUSED"
-ui_s_msg:    .string "Welcome to Park Builder!"
-ui_s_help:   .string "q quit   p pause"
-ui_s_quit:   .string "Quit? y = yes, any other key = no"
 
-ui_msg:
+; ---- message log: newest at MSG_ROW, older below ---------------------------
+ui_draw_msgs:                           ; clobbers r0-r4
+        push lr
+        mov r0, MSG_ROW
+        mov r1, 0
+        mov r2, MSG_ROWS
+        mov r3, SCR_COLS
+        mov r4, G_SPACE
+        bl ui_fill
+        ; empty log (nothing posted yet): show the welcome line
+        ld r0, st_msg_head
+        sll r0, MSG_SHIFT
+        lea r1, st_msg_text
+        add r1, r1, r0
+        ldr r1, r1, 0
+        cmp r1, 0
+        brnz ui_dm_log
+        mov r0, MSG_ROW
+        mov r1, 1
+        lea r2, ui_s_welcome
+        ld r3, ui_a_msg
+        mov r4, MSG_LEN
+        bl ui_text
+        br ui_dm_done
+ui_dm_log:
+        mov r4, 0                       ; r4 = i (row offset, newest first)
+ui_dm_lp:
+        push r4
+        ld r0, st_msg_head
+        sub r0, r0, r4
+        and r0, r0, MSG_COUNT-1         ; slot
+        lea r1, st_msg_age
+        add r1, r1, r0
+        ldr r3, r1, 0                   ; age
+        ld r1, ui_k_fresh
+        cmp r3, r1
+        ld r3, ui_a_msg
+        brlt ui_dm_attr
+        ld r3, ui_a_dim
+ui_dm_attr:
+        sll r0, MSG_SHIFT
+        lea r2, st_msg_text
+        add r2, r2, r0
+        mov r0, MSG_ROW
+        add r0, r0, r4
+        mov r1, 1
+        mov r4, MSG_LEN
+        bl ui_text
+        pop r4
+        add r4, r4, 1
+        cmp r4, MSG_ROWS
+        brlt ui_dm_lp
+ui_dm_done:
+        pop lr
         ret
 
-ui_msg_num:
+ui_s_welcome: .string "Welcome to Park Builder!"
+
+; ---- help line: per tool, or the quit prompt -------------------------------
+ui_draw_help:                           ; clobbers r0-r4
+        push lr
+        mov r0, HELP_ROW
+        mov r1, 0
+        mov r2, 1
+        mov r3, SCR_COLS
+        ld r4, ui_c_help
+        bl ui_fill
+        lea r2, ui_s_quit
+        ld r0, st_quit_ask
+        cmp r0, 0
+        brnz ui_dh_draw
+        lea r2, ui_s_help_none
+        ld r0, st_tool
+        cmp r0, 0
+        brn ui_dh_draw
+        cmp r0, TOOL_COUNT
+        brlt ui_dh_tool
+        br ui_dh_draw
+ui_dh_tool:
+        lea r2, ui_help_tab
+        add r2, r2, r0
+        ldr r2, r2, 0
+ui_dh_draw:
+        mov r0, HELP_ROW
+        mov r1, 0
+        ld r3, ui_a_help
+        mov r4, SCR_COLS
+        bl ui_text
+        pop lr
         ret
 
-ui_tick:
-        ret
+ui_s_quit:   .string " Quit? y = yes, any other key = no"
+; help lines, indexed by TOOL_*
+ui_help_tab: .word ui_s_help_none
+             .word ui_s_h1
+             .word ui_s_h2
+             .word ui_s_h3
+             .word ui_s_h4
+             .word ui_s_h5
+             .word ui_s_h6
+             .word ui_s_h7
 
-ui_tool_name:
-        lea r0, ui_s_none
-        ret
-ui_s_none:   .string ""
+; ---- strings reached only through the tables above
+ui_s_t0:     .string "Look"
+ui_s_t1:     .string "Path"
+ui_s_t2:     .string "Queue"
+ui_s_t3:     .string "Ride"
+ui_s_t4:     .string "Stall"
+ui_s_t5:     .string "Scenery"
+ui_s_t6:     .string "Coaster"
+ui_s_t7:     .string "Demolish"
+
+ui_s_help_none: .string " wasd move (WASD x5)  1-6 tools  x demolish  i info  f finance  p pause  > speed  q quit"
+ui_s_h1:     .string " space lay path  wasd move (WASD x5)  1-6 tools  x demolish  i info  p pause  q quit"
+ui_s_h2:     .string " space lay queue  wasd move (WASD x5)  1-6 tools  x demolish  i info  p pause  q quit"
+ui_s_h3:     .string " [ ] choose ride  space build  wasd move  1-6 tools  + - price  o open/close  p pause  q quit"
+ui_s_h4:     .string " [ ] choose stall  space build  wasd move  1-6 tools  + - price  o open/close  p pause  q quit"
+ui_s_h5:     .string " [ ] choose item  space place  wasd move  1-6 tools  x demolish  p pause  q quit"
+ui_s_h6:     .string " space start a coaster here  wasd move  1-6 tools  i info  p pause  q quit"
+ui_s_h7:     .string " space demolish  wasd move (WASD x5)  1-6 tools  i info  p pause  q quit"
+
+ui_s_sc0:    .string "Flowers"
+ui_s_sc1:    .string "Bench"
+ui_s_sc2:    .string "Litter bin"
+ui_s_sc3:    .string "Tree"
+
+ui_s_k0:     .string "Grass"
+ui_s_k1:     .string "Tree"
+ui_s_k2:     .string "Water"
+ui_s_k3:     .string "Path"
+ui_s_k4:     .string "Queue"
+ui_s_k5:     .string "Park gate"
+ui_s_k6:     .string "Ride"
+ui_s_k7:     .string "Ride entrance"
+ui_s_k8:     .string "Ride exit"
+ui_s_k9:     .string "Stall"
+ui_s_k10:    .string "Coaster track"
+ui_s_k11:    .string "Flowers"
+ui_s_k12:    .string "Bench"
+ui_s_k13:    .string "Litter bin"
+ui_s_k14:    .string "Fence"
+ui_s_k15:    .string "?"

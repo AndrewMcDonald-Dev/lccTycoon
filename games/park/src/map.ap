@@ -16,44 +16,479 @@
 ;; map_fill       r0=x r1=y r2=w r3=h r4=tile -> -       set every tile of the rectangle (clipped); sets st_map_dirty=1
 ; ---------------------------------------------------------------------
 
-; WP0 stub: no terrain yet (st_map is all T_GRASS = 0).
+        .define MAP_GATE_X      MAP_W/2
+        .define MAP_GATE_Y      MAP_H-1
+        .define MAP_GATE_PATH  3
+
 map_init:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+
+        mov r0, 0
+        mov r1, 0
+        mov r2, MAP_W
+        mov r3, MAP_H
+        mov r4, T_GRASS
+        bl map_fill
+
+        ; Fence the four sides, then replace the central south tile with the gate.
+        mov r0, 0
+        mov r1, 0
+        mov r3, 1
+        mov r4, T_FENCE
+        bl map_fill
+        mov r0, 0
+        mov r1, MAP_H-1
+        bl map_fill
+        mov r0, 0
+        mov r1, 1
+        mov r2, 1
+        mov r3, MAP_H-2
+        bl map_fill
+        mov r0, MAP_W-1
+        bl map_fill
+
+        ; Each feature has its own placement range, away from the starter area.
+        lea r3, map_features
+map_init_feature:
+        ldr r0, r3, 0           ; min center x (0 ends the table)
+        cmp r0, 0
+        brz map_init_gate
+        ldr r1, r3, 1           ; max center x
+        rand r0, r1
+        mov r2, r0
+        ldr r0, r3, 2           ; min first row y
+        ldr r1, r3, 3           ; max first row y
+        rand r0, r1
+        mov r1, r0
+        mov r0, r2
+        ldr r2, r3, 4           ; row widths
+        ldr r4, r3, 5           ; tile
+        bl map_stamp
+        add r3, r3, 6
+        br map_init_feature
+
+map_init_gate:
+        mov r0, MAP_GATE_X
+        mov r1, MAP_GATE_Y
+        st r0, st_gate_x
+        st r1, st_gate_y
+        mov r2, T_GATE
+        bl map_set
+        mov r0, MAP_GATE_X
+        mov r1, MAP_GATE_Y-MAP_GATE_PATH
+        mov r2, 1
+        mov r3, MAP_GATE_PATH
+        mov r4, T_PATH
+        bl map_fill
+
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; Draw a feature from its zero-terminated row widths, centered on r0=x.
+; r1 is the first row, r2 the width table and r4 the terrain kind.
+map_stamp:
+        push r1
+        push r2
+        push r3
+        push lr
+        push r0
+map_stamp_row:
+        ldr r3, r2, 0
+        cmp r3, 0
+        brz map_stamp_done
+        push r2
+        mov r2, r3
+        srl r3, 1
+        ldr r0, sp, 1
+        sub r0, r0, r3
+        mov r3, 1
+        bl map_fill
+        pop r2
+        add r2, r2, 1
+        add r1, r1, 1
+        br map_stamp_row
+map_stamp_done:
+        pop r0
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; Coordinates must fit in six bits, with a tighter upper bound for y.
+map_addr:
+        push r2
+        mov r2, r0
+        or r2, r1
+        srl r2, MAP_SHIFT
+        brnz map_addr_out
+        mov r2, MAP_H
+        cmp r1, r2
+        brn map_addr_inside
+map_addr_out:
+        mov r0, 0
+        pop r2
+        ret
+map_addr_inside:
+        mov r2, r1
+        sll r2, MAP_SHIFT
+        add r0, r0, r2
+        ld r2, map_base
+        add r0, r0, r2
+        pop r2
         ret
 
 map_index:
-        mov r0, -1
-        ret
-
-map_addr:
-        mov r0, 0
+        push lr
+        bl map_addr
+        pop lr
+        cmp r0, 0
+        brz map_return_out
+        push r1
+        ld r1, map_base
+        sub r0, r0, r1
+        pop r1
         ret
 
 map_in_bounds:
-        mov r0, 0
+        push lr
+        bl map_addr
+        pop lr
+        cmp r0, 0
+        brz map_in_bounds_done
+        mov r0, 1
+map_in_bounds_done:
         ret
 
 map_get:
-        mov r0, T_GRASS
+        push lr
+        bl map_addr
+        pop lr
+        cmp r0, 0
+        brz map_return_out
+        ldr r0, r0, 0
         ret
 
 map_kind:
-        mov r0, T_GRASS
+        push lr
+        bl map_addr
+        pop lr
+        cmp r0, 0
+        brz map_return_out
+        ldr r0, r0, 0
+        and r0, r0, T_KIND_MASK
+        ret
+
+map_return_out:
+        mov r0, T_OUT
         ret
 
 map_set:
+        push lr
+        bl map_addr
+        pop lr
+        cmp r0, 0
+        brz map_set_done
+        push r1
+        push r3
+        ldr r1, r0, 0
+        str r2, r0, 0
+        and r1, r1, T_KIND_MASK
+        and r0, r2, T_KIND_MASK
+        cmp r0, r1
+        brz map_set_restore
+        lea r3, map_walkability
+        add r0, r0, r3
+        add r1, r1, r3
+        ldr r0, r0, 0
+        ldr r1, r1, 0
+        cmp r0, r1
+        brz map_set_restore
+        mov r0, 1
+        st r0, st_map_dirty
+map_set_restore:
+        pop r3
+        pop r1
+map_set_done:
         ret
 
 map_walkable:
-        mov r0, 0
-        ret
+        push r2
+        lea r2, map_walkability
+        br map_test_kind
 
 map_buildable:
-        mov r0, 0
+        push r2
+        lea r2, map_buildability
+map_test_kind:
+        push lr
+        bl map_addr
+        pop lr
+        cmp r0, 0
+        brz map_test_kind_done
+        ldr r0, r0, 0
+        and r0, r0, T_KIND_MASK
+        add r0, r0, r2
+        ldr r0, r0, 0
+map_test_kind_done:
+        pop r2
         ret
 
+map_base: .word st_map
+
 map_area_free:
+        push r1
+        push r2
+        push r3
+        push r4
+
+        mov r4, r0
+        or r4, r1
+        brn map_area_blocked
+        cmp r2, 0
+        brn map_area_blocked
+        brz map_area_blocked
+        cmp r3, 0
+        brn map_area_blocked
+        brz map_area_blocked
+
+        ; Compare sizes to available space so x+w and y+h cannot overflow.
+        mov r4, MAP_W
+        sub r4, r4, r0
+        cmp r4, r2
+        brlt map_area_blocked
+        mov r4, MAP_H
+        sub r4, r4, r1
+        cmp r4, r3
+        brlt map_area_blocked
+
+        sll r1, MAP_SHIFT
+        add r0, r0, r1
+        ld r1, map_base
+        add r0, r0, r1
+        lea r4, map_buildability
+map_area_row:
+        ldr r1, sp, 2           ; original width
+map_area_tile:
+        ldr r2, r0, 0
+        and r2, r2, T_KIND_MASK
+        add r2, r2, r4
+        ldr r2, r2, 0
+        cmp r2, 0
+        brz map_area_blocked
+        add r0, r0, 1
+        sub r1, r1, 1
+        brp map_area_tile
+        sub r3, r3, 1
+        brz map_area_clear
+        ldr r2, sp, 2
+        mov r1, MAP_W
+        sub r1, r1, r2
+        add r0, r0, r1
+        br map_area_row
+map_area_clear:
+        mov r0, 1
+        br map_area_done
+map_area_blocked:
         mov r0, 0
+map_area_done:
+        pop r4
+        pop r3
+        pop r2
+        pop r1
         ret
 
 map_fill:
+        push r1
+        push r2
+        push r3
+        push lr
+
+        mov r1, r2
+        mov r2, MAP_W
+        bl map_clip_span
+        cmp r1, 0
+        brz map_fill_done
+        mov r3, r0              ; clipped x
+        push r1                 ; clipped width
+        ldr r0, sp, 4           ; original y
+        ldr r1, sp, 2           ; original height
+        mov r2, MAP_H
+        bl map_clip_span
+        pop r2
+        cmp r1, 0
+        brz map_fill_done
+
+        sll r0, MAP_SHIFT       ; r0 = tile address, r1 = rows left
+        add r0, r0, r3
+        ld r3, map_base
+        add r0, r0, r3
+map_fill_row:
+        mov r3, r2
+map_fill_tile:
+        str r4, r0, 0
+        add r0, r0, 1
+        sub r3, r3, 1
+        brp map_fill_tile
+        sub r1, r1, 1
+        brz map_fill_done
+        mov r3, MAP_W
+        sub r3, r3, r2
+        add r0, r0, r3
+        br map_fill_row
+map_fill_done:
+        mov r0, 1
+        st r0, st_map_dirty
+        pop lr
+        pop r3
+        pop r2
+        pop r1
         ret
+
+; Clip [r0, r0+r1) to [0, r2). Returns start in r0 and length in r1,
+; clobbers r2. Trim the length without forming a possibly overflowing end.
+map_clip_span:
+        cmp r1, 0
+        brz map_clip_empty
+        brn map_clip_empty
+        cmp r0, 0
+        brn map_clip_low
+map_clip_high:
+        sub r2, r2, r0
+        brz map_clip_empty
+        brn map_clip_empty
+        cmp r1, r2
+        brn map_clip_done
+        mov r1, r2
+map_clip_done:
+        ret
+map_clip_low:
+        add r1, r1, r0
+        mov r0, 0
+        brp map_clip_high
+map_clip_empty:
+        mov r1, 0
+        ret
+
+map_walkability:
+        .word 0                 ; grass
+        .word 0                 ; tree
+        .word 0                 ; water
+        .word 1                 ; path
+        .word 1                 ; queue
+        .word 1                 ; gate
+        .word 0                 ; ride
+        .word 1                 ; entrance
+        .word 1                 ; exit
+        .word 0                 ; stall
+        .word 0                 ; track
+        .word 0                 ; flowers
+        .word 0                 ; bench
+        .word 0                 ; bin
+        .word 0                 ; fence
+        .word 0                 ; unused
+
+map_buildability:
+        .word 1                 ; grass
+        .word 1                 ; tree
+        .word 0                 ; water
+        .word 0                 ; path
+        .word 0                 ; queue
+        .word 0                 ; gate
+        .word 0                 ; ride
+        .word 0                 ; entrance
+        .word 0                 ; exit
+        .word 0                 ; stall
+        .word 0                 ; track
+        .word 1                 ; flowers
+        .word 0                 ; bench
+        .word 0                 ; bin
+        .word 0                 ; fence
+        .word 0                 ; unused
+
+; Records: center x range, first row y range, row widths, tile kind.
+; Keep the 12x10 area immediately north of the gate clear of terrain.
+map_features:
+        .word 8
+        .word 13
+        .word 4
+        .word 8
+        .word map_grove
+        .word T_TREE
+        .word 27
+        .word 35
+        .word 5
+        .word 10
+        .word map_wood
+        .word T_TREE
+        .word 50
+        .word 55
+        .word 5
+        .word 9
+        .word map_grove
+        .word T_TREE
+        .word 12
+        .word 17
+        .word 24
+        .word 29
+        .word map_wood
+        .word T_TREE
+        .word 47
+        .word 52
+        .word 26
+        .word 31
+        .word map_grove
+        .word T_TREE
+        .word 7
+        .word 12
+        .word 37
+        .word 41
+        .word map_grove
+        .word T_TREE
+        .word 52
+        .word 56
+        .word 37
+        .word 40
+        .word map_wood
+        .word T_TREE
+        .word 28
+        .word 34
+        .word 18
+        .word 22
+        .word map_lake
+        .word T_WATER
+        .word 0
+
+map_grove: .word 3
+        .word 5
+        .word 7
+        .word 5
+        .word 3
+        .word 0
+map_wood: .word 3
+        .word 5
+        .word 7
+        .word 9
+        .word 7
+        .word 5
+        .word 3
+        .word 0
+map_lake: .word 5
+        .word 9
+        .word 11
+        .word 13
+        .word 15
+        .word 15
+        .word 13
+        .word 11
+        .word 9
+        .word 5
+        .word 0

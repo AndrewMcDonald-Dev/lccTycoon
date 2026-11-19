@@ -1,0 +1,74 @@
+{
+  "game": "map_driver.ap",
+  "scenarios": [
+    {
+      "name": "seeded valley has a fenced edge, lake, trees and a clear starter area with a walkable gate path",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "st_gate_x": 32,
+          "st_gate_y": 47,
+          "drv_init_dirty": 1,
+          "drv_border_errors": 0,
+          "drv_starter_errors": 0,
+          "drv_gate_walk": [1, 1, 1, 1],
+          "drv_feature_kinds": 3,
+          "drv_same_seed": 1,
+          "drv_other_seed": 0
+        }
+      }
+    },
+    {
+      "name": "coordinate access preserves tile metadata and invalidates only on walkability changes",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_index": 129,
+          "drv_offset": 129,
+          "drv_last_in_bounds": 1,
+          "drv_preserved": [2, -14733, 42, 43],
+          "drv_tile": -14733,
+          "drv_kind": 3,
+          "drv_get_out": -1,
+          "drv_kind_out": -1,
+          "drv_build_out": 0,
+          "drv_no_wrap": 0,
+          "drv_dirty_add": 1,
+          "drv_dirty_metadata": 0,
+          "drv_dirty_walkable": 0,
+          "drv_dirty_remove": 1,
+          "drv_dirty_blocked": 0,
+          "drv_dirty_out": 0
+        }
+      }
+    },
+    {
+      "name": "terrain kinds and whole footprints follow the walkability and building rules",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_walkable": [0, 0, 0, 1, 1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0],
+          "drv_buildable": [1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0],
+          "drv_area_inside": 1,
+          "drv_area_corner": 1,
+          "drv_area_kinds": [1, 0, 0],
+          "drv_area_south": 0,
+          "drv_area_west": 0,
+          "drv_area_empty": 0,
+          "drv_area_large": 0
+        }
+      }
+    },
+    {
+      "name": "fill clips across each edge, leaves neighbors intact, and invalidates for non-walkable tiles",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_dirty_fill": 1,
+          "drv_fill_errors": 0,
+          "st_guests": [0, 0, 0, 0]
+        }
+      }
+    }
+  ]
+}

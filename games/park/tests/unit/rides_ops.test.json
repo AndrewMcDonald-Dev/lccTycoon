@@ -1,0 +1,97 @@
+{
+  "game": "rides_driver.ap",
+  "scenarios": [
+    {
+      "name": "catalog: every type has a short name, footprint, cost, upkeep, distinct cell; invalid types -> 0",
+      "keys": "a",
+      "expect": { "status": "halted", "memory": {
+        "drv_cat_ok": 9, "drv_cat_bad": 0, "drv_cat_dups": 0,
+        "drv_cat_food_goods": 1, "drv_cat_food_flags": 1, "drv_cat_car_flags": 0, "drv_cat_car_cap": 12
+      } }
+    },
+    {
+      "name": "records: new fills from the catalog, at covers footprint/entrance/exit, name, free sends guests walking and reuses the slot",
+      "keys": "b",
+      "expect": { "status": "halted", "memory": {
+        "drv_new0": 0, "drv_new1": 1, "drv_new_bad": -1, "drv_count2": 2,
+        "drv_r0_fields": [1, 3, 3, 0, 2, 100, 300],
+        "drv_at": [0, 0, 0, 0, -1, -1, 1, -1],
+        "drv_name0": "Merry Spinner", "drv_name1": "Snack Hut",
+        "drv_name_free": 0, "drv_name_bad": 0,
+        "drv_count_after": 1, "drv_at_freed": -1, "drv_name_freed": 0, "drv_freed_rec": 0,
+        "drv_gs": [2, -1, 0, 0,  2, -1, 12, 8,  2, -1, 0, 0,  5, 1, 0, 0],
+        "drv_reuse": 0
+      } }
+    },
+    {
+      "name": "price clamps to 0..PRICE_MAX; toggle opens/closes, leaves broken/building/free alone",
+      "keys": "c",
+      "expect": { "status": "halted", "memory": {
+        "drv_prices": [20, 0, 7, 20],
+        "drv_toggles": [1, 1, 0, 2, 3, 0]
+      } }
+    },
+    {
+      "name": "enqueue refused when closed, for stalls and when broken; joins once; closing sends the queue away",
+      "keys": "d",
+      "expect": { "status": "halted", "memory": {
+        "drv_eq": [0, 0, 1, 1, 1, 3, 0, 2, 0, 0]
+      } }
+    },
+    {
+      "name": "full cycle: board charges price (income booked, cash down), non-payer leaves unhappy, unload to exit after RTI_CYCLE ticks",
+      "keys": "e",
+      "expect": { "status": "halted", "memory": {
+        "drv_cy_board": [2, 0, 30, 4, 4, 2],
+        "drv_cy_g": [4, 48, 10, 5, 100, 0,  4, 48, 11, 5, 100, 0,  2, 1, 0, 0, 76, 9],
+        "drv_cy_mid": [2, 4],
+        "drv_cy_end": [0, 0],
+        "drv_cy_g2": [2, 48, 12, 8, 122, 0,  2, 48, 12, 8, 122, 0,  2, 1, 0, 0, 76, 9],
+        "drv_cy_extra": [1, 5, 197, -1],
+        "st_cash_k": [10, 4], "st_mon_inc_k": [0, 4]
+      } }
+    },
+    {
+      "name": "the 12 earliest arrivals board first even when higher slots arrive first on the same tick",
+      "keys": "f",
+      "expect": { "status": "halted", "memory": {
+        "drv_cap": [12, 2, 3, 2, 0, 14, 28, 4, 4]
+      } }
+    },
+    {
+      "name": "stall sales: food/drink/toilet change meters and book income; broke guest, ride and closed stall refused",
+      "keys": "g",
+      "expect": { "status": "halted", "memory": {
+        "drv_buy": [1, 1, 1, 0, 0, 0],
+        "drv_buy_g0": [4, 40, 40, 0, 118],
+        "drv_buy_g1": [2, 200],
+        "drv_buy_rec": [1, 3, 3],
+        "st_cash_k": [10, 6]
+      } }
+    },
+    {
+      "name": "a breakdown before boarding evicts the queue and preserves cash and all fare totals",
+      "keys": "h",
+      "expect": { "status": "halted", "sounds": ["beep"], "memory": {
+        "drv_brk": [2, 0, 0, 0, 3, 0, 2],
+        "drv_brk_g": [2, -1, 0, 0, 68, 0, 20, 20],
+        "drv_brk_fares": [0, 0, 0, 0],
+        "st_cash_k": [10, 0], "st_mon_inc_k": [0, 0],
+        "drv_msg": "Sky Plunge has broken down", "drv_msgs": 1
+      } }
+    },
+    {
+      "name": "new month: reliability -= 1 + age/8, month income reset",
+      "keys": "i",
+      "expect": { "status": "halted", "memory": { "drv_mon": [97, 0, 97] } }
+    },
+    {
+      "name": "an exit on a path island blocks boarding until a path connects it to the gate",
+      "keys": "j",
+      "expect": { "status": "halted", "memory": {
+        "drv_exit_counts": [1, 0, 0, 1],
+        "st_cash_k": [10, 2]
+      } }
+    }
+  ]
+}

@@ -1,0 +1,737 @@
+; Construction unit driver with real map, economy and UI, and a private
+; catalog. drv_case identifies the first assertion group that fails.
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+        .include "build_stub_rides.ap"
+
+drv_main:
+        lea r0, st_screen
+        bl video_bind
+        bl drv_tiles
+        bl drv_ride
+        bl drv_stall
+        mov r0, 0
+        st r0, drv_case
+        halt
+
+; Rows: original tile, tool, item, cost/preview (-1 refused), resulting tile.
+drv_tiles:
+        push lr
+        lea r4, drv_tile_cases
+        mov r3, 1
+drv_tiles_next:
+        ldr r2, r4, 0
+        cmp r2, T_OUT
+        brz drv_tiles_cash
+        st r3, drv_case
+        mov r0, 30
+        mov r1, 30
+        bl map_set
+        ldr r0, r4, 1
+        st r0, st_tool
+        ldr r0, r4, 2
+        st r0, st_tool_item
+        bl eco_init
+
+        mov r0, 30
+        mov r1, 30
+        bl bld_can_place
+        ldr r2, r4, 3
+        bl drv_expect
+        ld r0, st_mon_exp_u
+        mov r2, 0
+        bl drv_expect
+
+        mov r0, 30
+        bl bld_apply
+        ldr r2, r4, 3
+        cmp r2, 0
+        mov r2, 0
+        brn drv_tiles_applied
+        mov r2, 1
+drv_tiles_applied:
+        bl drv_expect
+        mov r0, 30
+        bl map_get
+        ldr r2, r4, 4
+        bl drv_expect
+        ld r0, st_mon_exp_u
+        ldr r2, r4, 3
+        cmp r2, 0
+        brp drv_tiles_expense
+        mov r2, 0
+drv_tiles_expense:
+        bl drv_expect
+        ld r0, st_mon_inc_u
+        mov r2, 0
+        ldr r1, r4, 1
+        cmp r1, TOOL_DEMOLISH
+        brnz drv_tiles_income
+        ldr r1, r4, 3
+        cmp r1, 0
+        brn drv_tiles_income
+        ldr r1, r4, 0
+        lea r2, drv_tile_refunds
+        add r2, r2, r1
+        ldr r2, r2, 0
+drv_tiles_income:
+        bl drv_expect
+        add r4, r4, 5
+        add r3, r3, 1
+        br drv_tiles_next
+
+drv_tiles_cash:
+        mov r0, 30
+        st r0, drv_case
+        mov r0, 31
+        mov r1, 30
+        mov r2, T_TREE
+        bl map_set
+        mov r0, TOOL_PATH
+        st r0, st_tool
+        mov r0, 0
+        st r0, st_cash_k
+        st r0, st_map_dirty
+        mov r0, COST_PATH+COST_CLEAR_TREE-1
+        st r0, st_cash_u
+        mov r0, 31
+        bl bld_can_place
+        mov r2, -1
+        bl drv_expect
+        mov r0, 31
+        bl bld_apply
+        mov r2, 0
+        bl drv_expect
+        ld r0, st_cash_u
+        mov r2, COST_PATH+COST_CLEAR_TREE-1
+        bl drv_expect
+        ld r0, st_map_dirty
+        mov r2, 0
+        bl drv_expect
+        mov r0, 31
+        bl map_get
+        mov r2, T_TREE
+        bl drv_expect
+
+        mov r0, -1
+        bl bld_apply
+        mov r2, 0
+        bl drv_expect
+        pop lr
+        ret
+
+drv_ride:
+        push lr
+        mov r0, 40
+        st r0, drv_case
+        bl eco_init
+        mov r0, TOOL_RIDE
+        st r0, st_tool
+        mov r1, RT_CAROUSEL
+        st r1, st_tool_item
+        bl bld_cost
+        ld r2, drv_ride_cost
+        bl drv_expect
+
+        ; The footprint blocks on any occupied tile.
+        mov r0, 11
+        mov r1, 10
+        mov r2, T_WATER
+        bl map_set
+        mov r0, 10
+        bl bld_can_place
+        mov r2, -1
+        bl drv_expect
+        mov r0, 10
+        bl bld_apply
+        mov r2, 0
+        bl drv_expect
+        ld r0, st_cash_k
+        mov r2, START_CASH_K
+        bl drv_expect
+        ld r0, st_cash_u
+        mov r2, 0
+        bl drv_expect
+        ld r0, st_ride_count
+        bl drv_expect
+        mov r0, 11
+        bl map_get
+        mov r2, T_WATER
+        bl drv_expect
+        bl drv_ride_needs_exit
+
+        mov r0, 41
+        st r0, drv_case
+        mov r0, 11
+        mov r2, T_GRASS
+        bl map_set
+        mov r0, 10
+        mov r2, T_TREE
+        bl map_set
+        mov r0, 11
+        mov r1, 11
+        bl map_set
+        mov r0, 12
+        bl map_set              ; tree on the linked exit
+        mov r0, 13
+        mov r2, T_QUEUE
+        bl map_set
+        mov r0, 13
+        mov r1, 10
+        mov r2, T_PATH
+        bl map_set              ; two east doors touch paths; north is fallback
+        mov r0, 10
+        mov r1, 10
+        bl bld_can_place
+        ld r2, drv_ride_total
+        bl drv_expect
+        ld r0, st_ride_count
+        mov r2, 0
+        bl drv_expect
+
+        ; Cash shortfall and the allocator's refusal both leave the map alone.
+        mov r0, 42
+        st r0, drv_case
+        mov r0, 1
+        st r0, st_cash_k
+        mov r0, 15
+        st r0, st_cash_u
+        mov r0, RT_CAROUSEL
+        mov r1, 10
+        mov r2, 10
+        bl bld_place_ride
+        mov r2, -1
+        bl drv_expect
+        ld r0, st_cash_u
+        mov r2, 15
+        bl drv_expect
+        bl drv_check_unbuilt
+        bl eco_init
+
+        mov r0, 43
+        st r0, drv_case
+        mov r0, MAX_RIDES
+        st r0, st_ride_count
+        mov r0, 10
+        mov r1, 10
+        bl bld_can_place
+        mov r2, -1
+        bl drv_expect
+        mov r0, 0
+        st r0, st_ride_count
+        mov r0, 1
+        st r0, drv_alloc_refuse
+        mov r0, RT_CAROUSEL
+        mov r2, 10
+        bl bld_place_ride
+        mov r2, -1
+        bl drv_expect
+        ld r0, st_cash_u
+        mov r2, 0
+        bl drv_expect
+        bl drv_check_unbuilt
+        mov r0, 0
+        st r0, drv_alloc_refuse
+
+        mov r0, 44
+        st r0, drv_case
+        mov r0, RT_CAROUSEL
+        mov r1, 10
+        mov r2, 10
+        bl bld_place_ride
+        mov r2, DRV_RIDE_INDEX
+        bl drv_expect
+        ld r0, st_mon_exp_k
+        mov r2, 1
+        bl drv_expect
+        ld r0, st_mon_exp_u
+        mov r2, 16
+        bl drv_expect
+        mov r0, DRV_RIDE_INDEX
+        bl ride_addr
+        mov r4, r0
+        ldr r0, r4, R_ENT_X
+        mov r2, 12
+        bl drv_expect
+        ldr r0, r4, R_ENT_Y
+        mov r2, 10
+        bl drv_expect
+        ldr r0, r4, R_EXIT_X
+        mov r2, 12
+        bl drv_expect
+        ldr r0, r4, R_EXIT_Y
+        mov r2, 11
+        bl drv_expect
+
+        mov r0, 45
+        st r0, drv_case
+        lea r4, drv_ride_tiles
+        mov r3, 6
+        bl drv_check_tiles
+        mov r0, 10
+        st r0, st_cur_x
+        mov r0, 10
+        st r0, st_cur_y
+        mov r0, 0
+        st r0, st_view_y
+        bl drv_frame
+
+        ; Demolish from the exit. Refund 50% of $1,001, excluding tree fees.
+        mov r0, 46
+        st r0, drv_case
+        mov r0, TOOL_DEMOLISH
+        st r0, st_tool
+        mov r0, 12
+        mov r1, 11
+        bl bld_apply
+        mov r2, 1
+        bl drv_expect
+        ld r0, drv_exit_kind_at_free
+        mov r2, T_EXIT
+        bl drv_expect
+        ld r0, st_ride_count
+        mov r2, 0
+        bl drv_expect
+        ld r0, st_mon_inc_u
+        ld r2, drv_ride_refund
+        bl drv_expect
+        lea r4, drv_cleared_ride_tiles
+        mov r3, 7
+        bl drv_check_tiles
+        bl drv_frame
+        pop lr
+        ret
+
+; A clear 2x2 footprint has exactly one buildable perimeter tile.
+drv_ride_needs_exit:
+        push r1
+        push lr
+        mov r0, 47
+        st r0, drv_case
+        mov r0, 24
+        mov r1, 24
+        mov r2, 4
+        mov r3, 4
+        mov r4, T_WATER
+        bl map_fill
+        mov r0, 25
+        mov r1, 25
+        mov r2, 2
+        mov r3, 2
+        mov r4, T_GRASS
+        bl map_fill
+        mov r0, 25
+        mov r1, 24
+        mov r2, T_GRASS
+        bl map_set
+        mov r0, 25
+        mov r1, 25
+        bl bld_can_place
+        mov r2, -1
+        bl drv_expect
+        ld r0, st_ride_count
+        mov r2, 0
+        bl drv_expect
+        ld r0, st_mon_exp_u
+        bl drv_expect
+        pop lr
+        pop r1
+        ret
+
+drv_stall:
+        push lr
+        mov r0, 50
+        st r0, drv_case
+        mov r0, 19
+        mov r1, 19
+        mov r2, 3
+        mov r3, 3
+        mov r4, T_WATER
+        bl map_fill
+        mov r0, 20
+        mov r1, 20
+        mov r2, T_GRASS
+        bl map_set
+        mov r0, RT_CAROUSEL
+        mov r2, 20
+        bl bld_place_ride
+        mov r2, -1
+        bl drv_expect
+
+        mov r0, TOOL_STALL
+        st r0, st_tool
+        mov r0, RT_FOOD
+        st r0, st_tool_item
+        mov r0, 20
+        bl bld_can_place        ; clear footprint, but no serving tile
+        mov r2, -1
+        bl drv_expect
+        mov r0, 20
+        bl bld_apply
+        mov r2, 0
+        bl drv_expect
+
+        ; One free edge tile suffices for a stall.
+        mov r0, 51
+        st r0, drv_case
+        mov r0, 19
+        mov r2, T_GRASS
+        bl map_set
+        mov r0, 20
+        bl bld_apply
+        mov r2, 1
+        bl drv_expect
+        mov r0, 20
+        bl map_get
+        mov r2, DRV_RIDE_TAG|T_STALL
+        bl drv_expect
+        mov r0, 19
+        bl map_get
+        mov r2, DRV_RIDE_TAG|T_ENTRANCE
+        bl drv_expect
+        mov r0, DRV_RIDE_INDEX
+        bl ride_addr
+        mov r4, r0
+        ldr r0, r4, R_ENT_X
+        mov r2, 19
+        bl drv_expect
+        ldr r0, r4, R_ENT_Y
+        mov r2, 20
+        bl drv_expect
+        ldr r0, r4, R_EXIT_X
+        mov r2, -1
+        bl drv_expect
+        ldr r0, r4, R_EXIT_Y
+        bl drv_expect
+
+        mov r0, 52
+        st r0, drv_case
+        mov r0, 19
+        mov r1, 20
+        bl bld_demolish
+        mov r2, 1
+        bl drv_expect
+        lea r4, drv_cleared_stall_tiles
+        mov r3, 5
+        bl drv_check_tiles
+        ld r0, st_ride_count
+        mov r2, 0
+        bl drv_expect
+        ld r0, st_mon_inc_u
+        ld r2, drv_total_refund
+        bl drv_expect
+        pop lr
+        ret
+
+drv_check_unbuilt:
+        push lr
+        ld r0, st_ride_count
+        mov r2, 0
+        bl drv_expect
+        lea r4, drv_unbuilt_ride_tiles
+        mov r3, 6
+        bl drv_check_tiles
+        pop lr
+        ret
+
+; r4=tile expectations {x,y,word}, r3=count.
+drv_check_tiles:
+        push lr
+drv_check_tile:
+        ldr r0, r4, 0
+        ldr r1, r4, 1
+        bl map_get
+        ldr r2, r4, 2
+        bl drv_expect
+        add r4, r4, 3
+        sub r3, r3, 1
+        brp drv_check_tile
+        pop lr
+        ret
+
+drv_expect:
+        cmp r0, r2
+        brz drv_expect_ok
+        st r0, drv_actual
+        st r2, drv_expected
+        halt
+drv_expect_ok:
+        ret
+
+drv_frame:
+        push lr
+        bl ren_draw
+        bl ui_draw
+        bl video_present
+        mov r0, 1
+        sleep r0
+        pop lr
+        ret
+
+drv_case: .word -1
+drv_actual: .word 0
+drv_expected: .word 0
+drv_ride_cost: .word DRV_RIDE_COST
+drv_ride_total: .word DRV_RIDE_COST+3*COST_CLEAR_TREE
+drv_ride_refund: .word DRV_RIDE_COST*REFUND_PCT/100
+drv_total_refund: .word DRV_RIDE_COST*REFUND_PCT/100+DRV_STALL_COST*REFUND_PCT/100
+
+drv_tile_cases:
+        ; path on grass
+        .word T_GRASS
+        .word TOOL_PATH
+        .word 0
+        .word COST_PATH
+        .word T_PATH
+        ; queue on path
+        .word T_PATH
+        .word TOOL_QUEUE
+        .word 0
+        .word COST_QUEUE
+        .word T_QUEUE
+        ; path on queue
+        .word T_QUEUE
+        .word TOOL_PATH
+        .word 0
+        .word COST_PATH
+        .word T_PATH
+        ; path on tree
+        .word T_TREE
+        .word TOOL_PATH
+        .word 0
+        .word COST_PATH+COST_CLEAR_TREE
+        .word T_PATH
+        ; scenery on grass
+        .word T_GRASS
+        .word TOOL_SCENERY
+        .word SC_FLOWERS
+        .word COST_FLOWERS
+        .word T_FLOWERS
+        ; scenery on tree
+        .word T_TREE
+        .word TOOL_SCENERY
+        .word SC_BENCH
+        .word COST_BENCH+COST_CLEAR_TREE
+        .word T_BENCH
+        ; scenery on flowers
+        .word T_FLOWERS
+        .word TOOL_SCENERY
+        .word SC_BIN
+        .word COST_BIN
+        .word T_BIN
+        ; scenery on grass
+        .word T_GRASS
+        .word TOOL_SCENERY
+        .word SC_TREE
+        .word COST_TREE
+        .word T_TREE
+        ; scenery on path
+        .word T_PATH
+        .word TOOL_SCENERY
+        .word SC_TREE
+        .word -1
+        .word T_PATH
+        ; scenery on grass
+        .word T_GRASS
+        .word TOOL_SCENERY
+        .word SC_COUNT
+        .word -1
+        .word T_GRASS
+        ; queue on queue
+        .word T_QUEUE
+        .word TOOL_QUEUE
+        .word 0
+        .word -1
+        .word T_QUEUE
+        ; bench on bench
+        .word T_BENCH
+        .word TOOL_SCENERY
+        .word SC_BENCH
+        .word -1
+        .word T_BENCH
+        ; path on water
+        .word T_WATER
+        .word TOOL_PATH
+        .word 0
+        .word -1
+        .word T_WATER
+        ; queue on fence
+        .word T_FENCE
+        .word TOOL_QUEUE
+        .word 0
+        .word -1
+        .word T_FENCE
+        ; path on gate
+        .word T_GATE
+        .word TOOL_PATH
+        .word 0
+        .word -1
+        .word T_GATE
+        ; demolish on path
+        .word T_PATH
+        .word TOOL_DEMOLISH
+        .word 0
+        .word 0
+        .word T_GRASS
+        ; demolish on queue
+        .word T_QUEUE
+        .word TOOL_DEMOLISH
+        .word 0
+        .word 0
+        .word T_GRASS
+        ; demolish on flowers
+        .word T_FLOWERS
+        .word TOOL_DEMOLISH
+        .word 0
+        .word 0
+        .word T_GRASS
+        ; demolish on bench
+        .word T_BENCH
+        .word TOOL_DEMOLISH
+        .word 0
+        .word 0
+        .word T_GRASS
+        ; demolish on bin
+        .word T_BIN
+        .word TOOL_DEMOLISH
+        .word 0
+        .word 0
+        .word T_GRASS
+        ; demolish on tree
+        .word T_TREE
+        .word TOOL_DEMOLISH
+        .word 0
+        .word 0
+        .word T_GRASS
+        ; demolish on gate
+        .word T_GATE
+        .word TOOL_DEMOLISH
+        .word 0
+        .word -1
+        .word T_GATE
+        ; demolish on fence
+        .word T_FENCE
+        .word TOOL_DEMOLISH
+        .word 0
+        .word -1
+        .word T_FENCE
+        ; demolish on water
+        .word T_WATER
+        .word TOOL_DEMOLISH
+        .word 0
+        .word -1
+        .word T_WATER
+        ; demolish on grass
+        .word T_GRASS
+        .word TOOL_DEMOLISH
+        .word 0
+        .word -1
+        .word T_GRASS
+        .word T_OUT
+
+drv_tile_refunds:
+        .word 0
+        .word 0
+        .word 0
+        .word COST_PATH*REFUND_PCT/100
+        .word COST_QUEUE*REFUND_PCT/100
+        .word 0
+        .word 0
+        .word 0
+        .word 0
+        .word 0
+        .word 0
+        .word COST_FLOWERS*REFUND_PCT/100
+        .word COST_BENCH*REFUND_PCT/100
+        .word COST_BIN*REFUND_PCT/100
+
+drv_unbuilt_ride_tiles:
+        .word 10
+        .word 10
+        .word T_TREE
+        .word 11
+        .word 10
+        .word T_GRASS
+        .word 10
+        .word 11
+        .word T_GRASS
+        .word 11
+        .word 11
+        .word T_TREE
+        .word 12
+        .word 11
+        .word T_TREE
+        .word 12
+        .word 10
+        .word T_GRASS
+
+drv_ride_tiles:
+        .word 10
+        .word 10
+        .word DRV_RIDE_TAG|T_RIDE
+        .word 11
+        .word 10
+        .word DRV_RIDE_TAG|T_RIDE
+        .word 10
+        .word 11
+        .word DRV_RIDE_TAG|T_RIDE
+        .word 11
+        .word 11
+        .word DRV_RIDE_TAG|T_RIDE
+        .word 12
+        .word 10
+        .word DRV_RIDE_TAG|T_ENTRANCE
+        .word 12
+        .word 11
+        .word DRV_RIDE_TAG|T_EXIT
+
+drv_cleared_ride_tiles:
+        .word 10
+        .word 10
+        .word T_GRASS
+        .word 11
+        .word 10
+        .word T_GRASS
+        .word 10
+        .word 11
+        .word T_GRASS
+        .word 11
+        .word 11
+        .word T_GRASS
+        .word 12
+        .word 11
+        .word T_GRASS
+        .word 12
+        .word 10
+        .word T_GRASS
+        .word 13
+        .word 11
+        .word T_QUEUE
+
+drv_cleared_stall_tiles:
+        .word 20
+        .word 20
+        .word T_GRASS
+        .word 19
+        .word 20
+        .word T_GRASS
+        .word 20
+        .word 19
+        .word T_WATER
+        .word 21
+        .word 20
+        .word T_WATER
+        .word 20
+        .word 21
+        .word T_WATER
+
+        .include "../../src/state.ap"
+        .include "../../src/build.ap"
+        .include "../../src/map.ap"
+        .include "../../src/economy.ap"
+        .include "../../src/render.ap"
+        .include "../../src/ui.ap"
+        .include "video.ap"
+        .include "util.ap"

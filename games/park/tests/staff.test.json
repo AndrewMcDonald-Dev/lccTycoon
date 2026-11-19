@@ -1,0 +1,24 @@
+{
+  "scenarios": [
+    {
+      "name": "finance hires a handyman and a mechanic at the gate while paused",
+      "keys": "<enter> p f h m",
+      "expect": {
+        "status": "frames-complete",
+        "maxStepsPerFrame": 200000,
+        "memory": {
+          "st_paused": 1,
+          "st_window": 3,
+          "st_cash_k": [10, 0],
+          "st_staff_count": 2,
+          "st_staff": [1, 32, 47, -1, 0, -1, 0, 0, 2, 32, 47, -1, 0, -1, 0, 0]
+        },
+        "frames": [
+          { "frame": 2, "screen": { "contains": ["Handymen    0", "Mechanics   0", "Hire: h handyman  m mechanic"] } },
+          { "frame": 3, "screen": { "contains": ["Handymen    1", "Mechanics   0", "Handyman hired."] } }
+        ],
+        "screen": { "contains": ["Handymen    1", "Mechanics   1", "Mechanic hired."] }
+      }
+    }
+  ]
+}

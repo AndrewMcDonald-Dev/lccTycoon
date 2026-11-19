@@ -1,0 +1,167 @@
+; Unit driver for src/windows.ap (WP10). Hand-fills a guest record (index 3
+; on (5,5)), a ride record (index 0 on (10,10)) and map tiles, opens windows
+; through win_info_at / win_key, and draws one frame per step (clear,
+; win_draw, present, sleep) so windows_guest.test.json can pin each frame.
+; Guests/rides/map/ui calls go to windows_stubs.ap; economy.ap is real.
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+        .include "../../src/state.ap"
+        .include "../../src/windows.ap"
+        .include "../../src/economy.ap"
+        .include "windows_stubs.ap"
+drv_main:
+        lea r0, st_screen
+        bl video_bind
+        ; ---- frame 0: guest window via win_info_at(5,5) -------------------
+        mov r0, 3
+        bl gst_addr
+        mov r4, r0
+        mov r0, GS_WALK
+        str r0, r4, G_STATE
+        mov r0, 5
+        str r0, r4, G_X
+        str r0, r4, G_Y
+        mov r0, 45
+        str r0, r4, G_CASH
+        mov r0, 255
+        str r0, r4, G_HAPPY
+        mov r0, 128
+        str r0, r4, G_HUNGER
+        mov r0, 0
+        str r0, r4, G_THIRST
+        mov r0, 200
+        str r0, r4, G_ENERGY
+        mov r0, 16
+        str r0, r4, G_NAUSEA
+        mov r0, 1
+        str r0, r4, G_TOILET
+        mov r0, 2
+        str r0, r4, G_RIDES
+        mov r0, TH_HUNGRY
+        str r0, r4, G_THOUGHT
+        mov r0, 5
+        mov r1, 5
+        bl win_info_at
+        st r0, drv_open_guest
+        bl drv_frame
+        ; ---- frame 1: values change -> window shows them (live) ----------
+        mov r0, 0
+        str r0, r4, G_HAPPY
+        str r0, r4, G_THOUGHT
+        mov r0, 255
+        str r0, r4, G_HUNGER
+        mov r0, GS_QUEUE
+        str r0, r4, G_STATE
+        mov r0, -5
+        str r0, r4, G_CASH
+        bl drv_frame
+        ; ---- frame 2: guest left (slot freed) ----------------------------
+        mov r0, GS_FREE
+        str r0, r4, G_STATE
+        bl drv_frame
+        ; ---- frame 3: closed window no longer consumes keys -------------
+        mov r0, KEY_OPEN
+        bl win_key
+        st r0, drv_key_o
+        mov r0, KEY_INFO
+        bl win_key
+        st r0, drv_key_i
+        bl drv_frame
+        ; ---- frame 4: tile window on (1,2) path with litter + vomit -------
+        mov r0, 1
+        mov r1, 2
+        ld r2, drv_dirty_path
+        bl drv_set_tile
+        bl win_info_at
+        st r0, drv_open_tile
+        bl drv_frame
+        ; ---- frame 5: outside the map opens nothing; ride window ----------
+        mov r0, -1
+        mov r1, 0
+        bl win_info_at
+        st r0, drv_open_out
+        mov r0, 0
+        bl ride_addr
+        mov r4, r0
+        mov r0, RT_WHEEL
+        str r0, r4, R_TYPE
+        mov r0, RS_BROKEN
+        str r0, r4, R_STATUS
+        mov r0, PRICE_MAX
+        str r0, r4, R_PRICE
+        mov r0, 12
+        str r0, r4, R_INC_K
+        ld r0, drv_k345
+        str r0, r4, R_INC_U
+        ld r0, drv_k999
+        str r0, r4, R_EXCITE
+        mov r0, 37
+        str r0, r4, R_RELIAB
+        mov r0, 10
+        mov r1, 10
+        bl win_info_at
+        mov r0, KEY_PLUS        ; clamped at PRICE_MAX
+        bl win_key
+        st r0, drv_key_plus
+        mov r0, KEY_OPEN
+        bl win_key
+        bl drv_frame
+        ; ---- frame 6: ride demolished -> window closes on draw ------------
+        mov r0, RT_NONE
+        str r0, r4, R_TYPE
+        bl drv_frame
+        ; ---- frame 7: same slot reused between draws -> auto-close ------
+        mov r0, 3
+        bl gst_addr
+        mov r4, r0
+        mov r0, GS_WALK
+        str r0, r4, G_STATE
+        mov r0, WIN_GUEST
+        mov r1, 3
+        bl win_open
+        mov r0, 42
+        str r0, r4, G_NAME
+        bl drv_frame
+        halt
+
+drv_frame:
+        push r0
+        push lr
+        mov r0, 0
+        bl video_clear
+        bl win_draw
+        bl video_present
+        mov r0, 1
+        sleep r0
+        pop lr
+        pop r0
+        ret
+
+; drv_set_tile r0=x r1=y r2=tile
+drv_set_tile:
+        push r0
+        push r1
+        sll r1, MAP_SHIFT
+        add r0, r0, r1
+        lea r1, st_map
+        add r1, r1, r0
+        str r2, r1, 0
+        pop r1
+        pop r0
+        ret
+
+drv_open_guest: .word 99
+drv_open_tile:  .word 99
+drv_open_out:   .word 99
+drv_key_o:      .word 99
+drv_key_i:      .word 99
+drv_key_plus:   .word 99
+drv_toggled:    .word 99
+drv_msg:        .word 0
+drv_k345:       .word 345
+drv_k999:       .word 999
+drv_dirty_path: .word T_PATH|T_LITTER|T_VOMIT
+        .include "video.ap"
+        .include "util.ap"

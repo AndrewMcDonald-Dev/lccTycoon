@@ -16,17 +16,209 @@
 ;; gst_remove     r0=index          -> -               free the slot (leaving / removed), st_guest_count-1
 ;; gst_name       r0=index r1=buf   -> r0=buf          guest name from G_NAME, NUL-terminated (≤ 16 words)
 ;; gst_thought_text r0=code         -> r0=str          text of a TH_* code ("" for TH_NONE)
+;; gst_attraction_reachable r0=ride record r1=GOODS_* -> r0=1 reachable, 0 otherwise   entrance and, for rides, exit must connect to the gate
 ; ---------------------------------------------------------------------
 
-; WP0 stub: nobody comes.
+        .define GST_START_HAPPY   190
+        .define GST_CALM_HAPPY    155
+        .define GST_START_ENERGY  235
+        .define GST_LOW_HAPPY     42
+        .define GST_TIRED         64
+        .define GST_EXHAUSTED     8
+        .define GST_RESTED        184
+        .define GST_NEED          110
+        .define GST_CRITICAL_NEED 218
+        .define GST_STAY          650   ; updates per guest (one update per slice rotation)
+        .define GST_RETRY         5
+        .define GST_BUY_STEPS     4     ; updates to reach a path after a sale
+        .define GST_QUEUE_LONG    12
+        .define GST_QUEUE_PATIENCE 480  ; ticks, checked on each guest's slice
+        .define GST_ROUTE_DELAY   9     ; ticks between cold attraction fields
+        .define GST_TOL_BASE      300
+
 gst_init:
+        push r0
+        push r1
+        push r2
+        push lr
+        mov r1, 0
+        lea r0, st_guests
+        ld r2, gst_pool_words
+        bl util_memset
+        lea r0, gst_age
+        mov r2, MAX_GUESTS
+        bl util_memset
+        st r1, st_guest_count
+        st r1, st_guests_total
+        st r1, gst_phase
+        st r1, gst_arrival_ticks
+        st r1, gst_route_wait
+        pop lr
+        pop r2
+        pop r1
+        pop r0
         ret
 
 gst_tick:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        ld r0, gst_route_wait
+        cmp r0, 0
+        brz gst_tick_arrive
+        sub r0, r0, 1
+        st r0, gst_route_wait
+gst_tick_arrive:
+        mov r0, 0
+        st r0, gst_options_ready
+        bl gst_arrivals
+        ld r3, gst_phase
+        add r0, r3, 1
+        and r0, r0, GUEST_SLICES-1
+        st r0, gst_phase
+        mov r0, r3
+        bl gst_addr
+        mov r4, r0
+gst_tick_slot:
+        ldr r0, r4, G_STATE
+        cmp r0, GS_FREE
+        brz gst_tick_next
+        bl gst_update
+gst_tick_next:
+        add r3, r3, GUEST_SLICES
+        mov r0, MAX_GUESTS
+        cmp r3, r0
+        brgt gst_tick_done
+        brz gst_tick_done
+        mov r0, GUEST_SLICES*GUEST_SIZE
+        add r4, r4, r0
+        br gst_tick_slot
+gst_tick_done:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; Roughly 1.5x the base interval at zero rating and 0.5x at full rating.
+gst_arrivals:
+        ld r0, st_park_open
+        cmp r0, 0
+        brz gst_arrivals_reset
+        ld r0, st_rating
+        mov r1, GUEST_SPAWN_TICKS
+        mul r0, r1
+        ld r1, gst_rating_max
+        div r0, r1
+        mov r1, GUEST_SPAWN_TICKS*3/2
+        sub r1, r1, r0
+        ld r0, gst_arrival_ticks
+        add r0, r0, 1
+        cmp r0, r1
+        brlt gst_arrivals_save
+        push lr
+        bl gst_spawn
+        pop lr
+gst_arrivals_reset:
+        mov r0, 0
+gst_arrivals_save:
+        st r0, gst_arrival_ticks
         ret
 
 gst_spawn:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        ld r0, st_guest_count
+        mov r1, MAX_GUESTS
+        cmp r0, r1
+        brz gst_spawn_fail
+        lea r4, st_guests
+        mov r3, 0
+        mov r2, GUEST_SIZE
+gst_spawn_slot:
+        ldr r0, r4, G_STATE
+        cmp r0, GS_FREE
+        brz gst_spawn_gate
+        add r4, r4, r2
+        add r3, r3, 1
+        cmp r3, r1
+        brlt gst_spawn_slot
+        br gst_spawn_fail
+gst_spawn_gate:
+        ld r0, st_gate_x
+        ld r1, st_gate_y
+        bl map_kind
+        cmp r0, T_GATE
+        brnz gst_spawn_fail
+        ld r0, st_gate_x
+        bl pth_random_dir
+        cmp r0, DIR_NONE
+        brz gst_spawn_fail
+        ; Prime the gate field before arrivals begin querying ride routes.
+        ld r0, st_gate_x
+        bl pth_gate_dist
+
+        mov r0, r4
+        mov r1, 0
+        mov r2, GUEST_SIZE
+        bl util_memset
+        lea r0, gst_age
+        add r0, r0, r3
+        str r1, r0, 0
+        ld r0, st_gate_x
+        str r0, r4, G_X
+        ld r0, st_gate_y
+        str r0, r4, G_Y
         mov r0, -1
+        str r0, r4, G_DIR
+        str r0, r4, G_TARGET
+        mov r0, GST_START_HAPPY
+        str r0, r4, G_HAPPY
+        mov r0, GST_START_ENERGY
+        str r0, r4, G_ENERGY
+        mov r0, 36
+        mov r1, 64
+        rand r0, r1
+        str r0, r4, G_HUNGER
+        mov r0, 16
+        str r0, r4, G_THIRST
+        mov r0, GUEST_CASH_MIN
+        mov r1, GUEST_CASH_MAX
+        rand r0, r1
+        str r0, r4, G_CASH       ; spending money after admission
+        mov r0, 0
+        ld r1, gst_seed_max
+        rand r0, r1
+        str r0, r4, G_NAME
+        mov r0, GS_ENTER
+        str r0, r4, G_STATE
+
+        ld r0, st_guest_count
+        add r0, r0, 1
+        st r0, st_guest_count
+        ld r0, st_guests_total
+        add r0, r0, 1
+        brn gst_spawn_fee
+        st r0, st_guests_total
+gst_spawn_fee:
+        ld r0, st_entry_fee
+        bl eco_earn
+        mov r0, r3
+        br gst_spawn_done
+gst_spawn_fail:
+        mov r0, -1
+gst_spawn_done:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
         ret
 
 gst_addr:
@@ -38,21 +230,987 @@ gst_addr:
         ret
 
 gst_at:
-        mov r0, -1
-        ret
-
-gst_remove:
-        ret
-
-gst_name:
         push r2
-        mov r2, 0
-        str r2, r1, 0
-        mov r0, r1
+        push r3
+        push r4
+        lea r2, st_guests
+        mov r3, 0
+gst_at_slot:
+        ldr r4, r2, G_STATE
+        cmp r4, GS_FREE
+        brz gst_at_next
+        ldr r4, r2, G_X
+        cmp r4, r0
+        brnz gst_at_next
+        ldr r4, r2, G_Y
+        cmp r4, r1
+        brz gst_at_found
+gst_at_next:
+        mov r4, GUEST_SIZE
+        add r2, r2, r4
+        add r3, r3, 1
+        mov r4, MAX_GUESTS
+        cmp r4, r3
+        brgt gst_at_slot
+        mov r3, -1
+gst_at_found:
+        mov r0, r3
+        pop r4
+        pop r3
         pop r2
         ret
 
-gst_thought_text:
-        lea r0, gst_s_none
+gst_remove:
+        push r0
+        push r1
+        push r2
+        push r3
+        push lr
+        cmp r0, 0
+        brn gst_remove_done
+        mov r1, MAX_GUESTS
+        cmp r0, r1
+        brz gst_remove_done
+        brgt gst_remove_done
+        bl gst_addr
+        mov r3, r0
+        ldr r0, r3, G_STATE
+        cmp r0, GS_FREE
+        brz gst_remove_done
+        mov r2, R_QUEUE
+        cmp r0, GS_QUEUE
+        brz gst_remove_count
+        mov r2, R_RIDERS
+        cmp r0, GS_RIDE
+        brnz gst_remove_free
+gst_remove_count:
+        ldr r0, r3, G_TARGET
+        cmp r0, 0
+        brn gst_remove_free
+        mov r1, MAX_RIDES
+        cmp r0, r1
+        brz gst_remove_free
+        brgt gst_remove_free
+        bl ride_addr
+        add r0, r0, r2
+        ldr r1, r0, 0
+        sub r1, r1, 1
+        brn gst_remove_free
+        str r1, r0, 0
+gst_remove_free:
+        mov r0, GS_FREE
+        str r0, r3, G_STATE
+        ld r0, st_guest_count
+        sub r0, r0, 1
+        brn gst_remove_done
+        st r0, st_guest_count
+gst_remove_done:
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        pop r0
         ret
-gst_s_none: .string ""
+
+gst_pool_words:    .word MAX_GUESTS*GUEST_SIZE
+gst_rating_max:    .word RATING_MAX
+gst_seed_max:      .word 32767
+gst_phase:         .word 0
+gst_arrival_ticks: .word 0
+gst_route_wait:    .word 0
+gst_age:           .zero MAX_GUESTS
+
+; Update a live guest (r3=index, r4=record). Only rides move riders and
+; queued guests. Their needs still change while they wait.
+gst_update:
+        push lr
+        lea r0, gst_age
+        add r1, r0, r3
+        ldr r0, r1, 0
+        ld r2, gst_stay_limit
+        cmp r0, r2
+        brz gst_update_drift
+        add r0, r0, 1
+        str r0, r1, 0
+gst_update_drift:
+        bl gst_drift
+        ldr r0, r4, G_STATE
+        cmp r0, GS_QUEUE
+        brz gst_queue_wait
+        cmp r0, GS_RIDE
+        brz gst_update_done
+        bl gst_location
+        bl map_walkable
+        cmp r0, 0
+        brz gst_recover
+        bl gst_location
+        bl map_kind
+        cmp r0, T_EXIT
+        brnz gst_update_dirt
+        bl gst_location
+        bl pth_gate_dist
+        cmp r0, 0
+        brn gst_begin_leave
+gst_update_dirt:
+        bl gst_dirt
+        ldr r0, r4, G_STATE
+        cmp r0, GS_LEAVE
+        brz gst_leave
+        cmp r0, GS_REST
+        brz gst_rest
+        cmp r0, GS_BUY
+        brz gst_after_buy
+        ldr r0, r4, G_CASH
+        cmp r0, 0
+        brp gst_check_energy
+        mov r0, TH_NO_MONEY
+        br gst_decide_leave
+gst_check_energy:
+        ldr r0, r4, G_ENERGY
+        cmp r0, GST_EXHAUSTED
+        brgt gst_check_happy
+        mov r0, TH_TIRED
+        br gst_decide_leave
+gst_check_happy:
+        mov r1, GST_LOW_HAPPY
+        ldr r0, r4, G_HAPPY
+        cmp r0, r1
+        brlt gst_begin_leave
+        lea r0, gst_age
+        add r0, r0, r3
+        ldr r0, r0, 0
+        ld r1, gst_stay_limit
+        cmp r0, r1
+        brz gst_begin_leave
+        ldr r0, r4, G_STATE
+        cmp r0, GS_ENTER
+        brz gst_enter
+        br gst_walk
+gst_decide_leave:
+        str r0, r4, G_THOUGHT
+gst_begin_leave:
+        bl gst_mark_leaving
+gst_leave:
+        bl gst_location
+        bl pth_to_gate
+        cmp r0, DIR_NONE
+        brnz gst_move_done
+        ; At the gate, or cut off from it by construction.
+        mov r0, r3
+        bl gst_remove
+gst_update_done:
+        pop lr
+        ret
+
+gst_queue_wait:
+        ldr r0, r4, G_TARGET
+        cmp r0, 0
+        brn gst_update_done
+        mov r1, MAX_RIDES
+        cmp r0, r1
+        brz gst_update_done
+        brgt gst_update_done
+        bl ride_addr
+        mov r2, r0
+        ldr r0, r4, G_ENERGY
+        cmp r0, GST_EXHAUSTED
+        brgt gst_queue_happy
+        mov r0, TH_TIRED
+        br gst_queue_leave
+gst_queue_happy:
+        mov r1, GST_LOW_HAPPY
+        ldr r0, r4, G_HAPPY
+        cmp r0, r1
+        brlt gst_queue_impatient
+        ld r0, st_ticks_total
+        ldr r1, r4, G_DIR      ; join tick, wraps with st_ticks_total
+        sub r0, r0, r1
+        ld r1, gst_queue_patience
+        cmp r0, r1
+        brlt gst_queue_thought
+gst_queue_impatient:
+        mov r0, TH_QUEUE_LONG
+gst_queue_leave:
+        str r0, r4, G_THOUGHT
+        ldr r0, r2, R_QUEUE
+        cmp r0, 0
+        brz gst_begin_leave
+        sub r0, r0, 1
+        str r0, r2, R_QUEUE
+        br gst_begin_leave
+gst_queue_thought:
+        ldr r0, r2, R_QUEUE
+        cmp r0, GST_QUEUE_LONG
+        brlt gst_update_done
+        mov r0, TH_QUEUE_LONG
+        str r0, r4, G_THOUGHT
+        br gst_update_done
+
+gst_queue_patience: .word GST_QUEUE_PATIENCE
+
+gst_mark_leaving:
+        mov r0, GS_LEAVE
+        str r0, r4, G_STATE
+        mov r0, -1
+        str r0, r4, G_TARGET
+        ret
+
+; A ride exit or the tile beneath a walking guest may have been demolished.
+; Try a neighboring walkable tile once before heading home.
+gst_recover:
+        mov r0, TH_LOST
+        str r0, r4, G_THOUGHT
+        ldr r0, r4, G_STATE
+        cmp r0, GS_LEAVE
+        brz gst_leave
+        bl gst_mark_leaving
+        bl gst_location
+        bl pth_random_dir
+        cmp r0, DIR_NONE
+        brz gst_leave
+        br gst_move_done
+
+gst_enter:
+        mov r0, GS_WALK
+        str r0, r4, G_STATE
+        bl gst_location
+        bl pth_random_dir
+        cmp r0, DIR_NONE
+        brz gst_begin_leave
+        br gst_move_done
+
+gst_rest:
+        mov r0, T_BENCH
+        bl gst_near_kind
+        cmp r0, DIR_NONE
+        brz gst_rest_done
+        add r0, r4, G_ENERGY
+        mov r1, 14
+        bl gst_meter
+        mov r1, GST_RESTED
+        cmp r0, r1
+        brlt gst_update_done
+gst_rest_done:
+        mov r0, GS_WALK
+        str r0, r4, G_STATE
+        br gst_update_done
+
+gst_after_buy:
+        ldr r0, r4, G_TIMER
+        cmp r0, 0
+        brz gst_buy_done
+        sub r0, r0, 1
+        str r0, r4, G_TIMER
+        bl gst_location
+        bl map_kind
+        cmp r0, T_PATH
+        brz gst_buy_litter
+        mov r0, T_PATH
+        bl gst_near_kind
+        cmp r0, DIR_NONE
+        brnz gst_move_done
+        bl gst_location
+        bl pth_to_gate
+        cmp r0, DIR_NONE
+        brnz gst_move_done
+        br gst_wander
+gst_buy_litter:
+        bl gst_litter
+gst_buy_done:
+        mov r0, GS_WALK
+        str r0, r4, G_STATE
+        bl gst_retry_delay
+        br gst_wander
+
+gst_walk:
+        ldr r0, r4, G_ENERGY
+        mov r1, GST_TIRED
+        cmp r0, r1
+        brgt gst_walk_target
+        mov r0, TH_TIRED
+        str r0, r4, G_THOUGHT
+        mov r0, T_BENCH
+        bl gst_near_kind
+        cmp r0, DIR_NONE
+        brz gst_walk_target
+        mov r0, GS_REST
+        str r0, r4, G_STATE
+        mov r0, -1
+        str r0, r4, G_TARGET
+        br gst_update_done
+gst_walk_target:
+        ldr r0, r4, G_TARGET
+        cmp r0, 0
+        brp gst_follow
+        brz gst_follow
+        ldr r0, r4, G_TIMER
+        cmp r0, 0
+        brz gst_walk_choose
+        brn gst_walk_choose
+        ; The ride's former cycle timer may still be in this field.
+        mov r1, GST_RETRY+3
+        cmp r0, r1
+        brlt gst_walk_wait
+        mov r0, r1
+gst_walk_wait:
+        sub r0, r0, 1
+        str r0, r4, G_TIMER
+        br gst_wander
+gst_walk_choose:
+        bl gst_choose
+        str r0, r4, G_TARGET
+        cmp r0, 0
+        brn gst_forget_target
+        br gst_follow
+gst_lost_target:
+        mov r0, TH_LOST
+        str r0, r4, G_THOUGHT
+gst_forget_target:
+        mov r0, -1
+        str r0, r4, G_TARGET
+        bl gst_retry_delay
+gst_wander:
+        bl gst_location
+        bl pth_random_dir
+gst_move_done:
+        cmp r0, DIR_NONE
+        brz gst_update_done
+        bl gst_step
+        br gst_update_done
+
+; Set a short, staggered pause between decisions.
+gst_retry_delay:
+        ldr r0, r4, G_NAME
+        srl r0, 8
+        and r0, r0, 3
+        add r0, r0, GST_RETRY
+        str r0, r4, G_TIMER
+        ret
+
+gst_stay_limit: .word GST_STAY
+
+; Follow a valid attraction target. A cache miss waits until another field
+; may be built. Nine ticks stagger rebuild opportunities across all slices.
+gst_follow:
+        mov r1, MAX_RIDES
+        cmp r0, r1
+        brgt gst_forget_target
+        brz gst_forget_target
+        bl ride_addr
+        mov r2, r0
+        ldr r0, r2, R_STATUS
+        cmp r0, RS_OPEN
+        brnz gst_forget_target
+        ldr r0, r2, R_TYPE
+        cmp r0, RT_NONE
+        brz gst_forget_target
+        ldr r0, r2, R_PRICE
+        ldr r1, r4, G_CASH
+        cmp r0, r1
+        brgt gst_forget_target
+        ldr r0, r4, G_X
+        ldr r1, r2, R_ENT_X
+        cmp r0, r1
+        brnz gst_follow_route
+        ldr r0, r4, G_Y
+        ldr r1, r2, R_ENT_Y
+        cmp r0, r1
+        brz gst_visit
+gst_follow_route:
+        ldr r0, r2, R_ENT_X
+        ldr r1, r2, R_ENT_Y
+        bl pth_cached
+        cmp r0, 0
+        brnz gst_follow_ready
+        ld r0, gst_route_wait
+        cmp r0, 0
+        brnz gst_update_done
+        mov r0, GST_ROUTE_DELAY
+        st r0, gst_route_wait
+gst_follow_ready:
+        ldr r1, r2, R_ENT_Y
+        ldr r2, r2, R_ENT_X
+        push r3
+        mov r3, r1
+        bl gst_location
+        bl pth_next
+        pop r3
+        cmp r0, DIR_NONE
+        brz gst_lost_target
+        br gst_move_done
+
+gst_visit:
+        ldr r0, r2, R_TYPE
+        bl ride_type_info
+        cmp r0, 0
+        brz gst_forget_target
+        ldr r2, r0, RTI_GOODS
+        ldr r0, r4, G_TARGET
+        mov r1, r3
+        cmp r2, GOODS_NONE
+        brz gst_queue
+        bl ride_buy
+        cmp r0, 0
+        brz gst_forget_target
+        mov r0, GS_BUY
+        str r0, r4, G_STATE
+        mov r0, TH_NONE
+        str r0, r4, G_THOUGHT
+        mov r0, -1
+        str r0, r4, G_TARGET
+        mov r0, 0
+        cmp r2, GOODS_TOILET
+        brz gst_buy_timer
+        mov r0, GST_BUY_STEPS
+gst_buy_timer:
+        str r0, r4, G_TIMER
+        br gst_update_done
+gst_queue:
+        bl ride_addr            ; recheck: the exit may have been cut off en route
+        mov r1, GOODS_NONE
+        bl gst_attraction_reachable
+        cmp r0, 0
+        brz gst_forget_target
+        ldr r0, r4, G_TARGET
+        mov r1, r3
+        bl ride_enqueue
+        cmp r0, 0
+        brz gst_forget_target
+        br gst_update_done
+
+gst_attraction_reachable:
+        push r1
+        push r2
+        push lr
+        mov r2, r0
+        ldr r0, r2, R_ENT_X
+        ldr r1, r2, R_ENT_Y
+        bl pth_gate_dist
+        cmp r0, 0
+        brn gst_attraction_unreachable
+        ldr r1, sp, 2           ; goods kind
+        cmp r1, GOODS_NONE
+        brnz gst_attraction_connected
+        ldr r0, r2, R_EXIT_X
+        ldr r1, r2, R_EXIT_Y
+        bl pth_gate_dist
+        cmp r0, 0
+        brn gst_attraction_unreachable
+gst_attraction_connected:
+        mov r0, 1
+        br gst_attraction_done
+gst_attraction_unreachable:
+        mov r0, 0
+gst_attraction_done:
+        pop lr
+        pop r2
+        pop r1
+        ret
+
+; Snapshot open, gate-connected attractions once per tick, on the first
+; decision.
+; Each pair is a ride record address and catalog goods kind.
+gst_prepare:
+        push r3
+        push r4
+        push lr
+        mov r0, 1
+        st r0, gst_options_ready
+        lea r3, gst_options
+        lea r4, st_rides
+        mov r0, MAX_RIDES
+        push r0
+gst_prepare_ride:
+        ldr r0, r4, R_STATUS
+        cmp r0, RS_OPEN
+        brnz gst_prepare_next
+        ldr r0, r4, R_TYPE
+        bl ride_type_info
+        cmp r0, 0
+        brz gst_prepare_next
+        ldr r1, r0, RTI_GOODS
+        mov r0, r4
+        bl gst_attraction_reachable
+        cmp r0, 0
+        brz gst_prepare_next
+        str r4, r3, 0
+        str r1, r3, 1
+        add r3, r3, 2
+gst_prepare_next:
+        mov r0, RIDE_SIZE
+        add r4, r4, r0
+        ldr r0, sp, 0
+        sub r0, r0, 1
+        str r0, sp, 0
+        brp gst_prepare_ride
+        str r0, r3, 0            ; zero terminates the list
+        add sp, sp, 1
+        pop lr
+        pop r4
+        pop r3
+        ret
+
+gst_choose:
+        push r3
+        push lr
+        ld r0, gst_options_ready
+        cmp r0, 0
+        brnz gst_choose_begin
+        bl gst_prepare
+gst_choose_begin:
+        mov r1, 0               ; best positive score
+        push r1                 ; best ride address, 0 until selected
+        lea r3, gst_options
+gst_choose_option:
+        ldr r2, r3, 0
+        cmp r2, 0
+        brz gst_choose_result
+        ldr r0, r3, 1
+        bl gst_score
+        cmp r0, r1
+        brlt gst_choose_next
+        brz gst_choose_next
+        str r2, sp, 0
+        mov r1, r0
+gst_choose_next:
+        add r3, r3, 2
+        br gst_choose_option
+gst_choose_result:
+        pop r0
+        cmp r0, 0
+        brz gst_choose_none
+        lea r1, st_rides
+        sub r0, r0, r1
+        srl r0, RIDE_SHIFT
+        br gst_choose_done
+gst_choose_none:
+        mov r0, -1
+gst_choose_done:
+        pop lr
+        pop r3
+        ret
+
+; r0=goods kind, r2=ride, r4=guest -> score. Costs and walking distance
+; apply to everything. Queues and intensity over tolerance penalize rides.
+gst_score:
+        push r1
+        push r3
+        push lr
+        ldr r1, r2, R_PRICE
+        ldr r3, r4, G_CASH
+        cmp r1, r3
+        brgt gst_score_expensive
+        cmp r0, GOODS_NONE
+        brz gst_score_ride
+        lea r1, gst_need_meter
+        add r0, r0, r1
+        ldr r0, r0, 0
+        add r0, r4, r0
+        ldr r0, r0, 0
+        mov r1, GST_NEED
+        cmp r0, r1
+        brlt gst_score_zero
+        mov r3, 130             ; an urgent need generally wins over a ride
+        add r3, r3, r0
+        br gst_score_cost
+gst_score_ride:
+        ldr r3, r2, R_EXCITE
+        srl r3, 2
+        add r3, r3, 15
+        ldr r0, r4, G_NAME      ; tolerance 300..808, stable for a guest
+        srl r0, 8
+        sll r0, 2
+        ld r1, gst_tolerance
+        add r0, r0, r1
+        ldr r1, r2, R_INTENS
+        sub r1, r1, r0
+        brn gst_score_nausea
+        srl r1, 1
+        sub r3, r3, r1
+gst_score_nausea:
+        ldr r0, r2, R_NAUSEA
+        srl r0, 4
+        sub r3, r3, r0
+        ldr r0, r2, R_QUEUE
+        sll r0, 1
+        sub r3, r3, r0
+gst_score_cost:
+        ldr r0, r2, R_PRICE
+        sub r3, r3, r0
+        sll r0, 1
+        sub r3, r3, r0
+        ldr r0, r2, R_ENT_X
+        ldr r1, r4, G_X
+        sub r0, r0, r1
+        bl util_abs
+        sub r3, r3, r0
+        ldr r0, r2, R_ENT_Y
+        ldr r1, r4, G_Y
+        sub r0, r0, r1
+        bl util_abs
+        sub r0, r3, r0
+        br gst_score_done
+gst_score_expensive:
+        ldr r0, r4, G_THOUGHT
+        cmp r0, TH_NONE
+        brnz gst_score_zero
+        mov r0, TH_EXPENSIVE
+        str r0, r4, G_THOUGHT
+gst_score_zero:
+        mov r0, 0
+gst_score_done:
+        pop lr
+        pop r3
+        pop r1
+        ret
+
+gst_need_meter:    .word 0
+                   .word G_HUNGER
+                   .word G_THIRST
+                   .word G_TOILET
+gst_tolerance:     .word GST_TOL_BASE
+gst_options_ready: .word 0
+gst_options:       .zero MAX_RIDES*2+1
+
+; Needs drift once per update. Strong needs cost happiness and set thoughts.
+gst_drift:
+        push lr
+        mov r2, METER_MAX
+        ldr r0, r4, G_HUNGER
+        add r0, r0, 2
+        cmp r0, r2
+        brlt gst_drift_hunger
+        mov r0, r2
+gst_drift_hunger:
+        str r0, r4, G_HUNGER
+        ldr r0, r4, G_THIRST
+        add r0, r0, 3
+        cmp r0, r2
+        brlt gst_drift_thirst
+        mov r0, r2
+gst_drift_thirst:
+        str r0, r4, G_THIRST
+        ldr r0, r4, G_TOILET
+        add r0, r0, 1
+        cmp r0, r2
+        brlt gst_drift_toilet
+        mov r0, r2
+gst_drift_toilet:
+        str r0, r4, G_TOILET
+        ldr r0, r4, G_NAUSEA
+        sub r0, r0, 2
+        brp gst_drift_nausea
+        mov r0, 0
+gst_drift_nausea:
+        str r0, r4, G_NAUSEA
+        ldr r0, r4, G_STATE
+        cmp r0, GS_REST
+        brz gst_drift_happy
+        ldr r0, r4, G_ENERGY
+        cmp r0, 0
+        brz gst_drift_happy
+        sub r0, r0, 1
+        str r0, r4, G_ENERGY
+gst_drift_happy:
+        ldr r0, r4, G_HAPPY
+        mov r1, GST_CALM_HAPPY
+        cmp r0, r1
+        brz gst_drift_thought
+        brlt gst_drift_cheer
+        sub r0, r0, 2
+gst_drift_cheer:
+        add r0, r0, 1
+        str r0, r4, G_HAPPY
+gst_drift_thought:
+        ldr r0, r4, G_HUNGER
+        mov r1, TH_HUNGRY
+        ldr r2, r4, G_THIRST
+        cmp r2, r0
+        brlt gst_drift_check_toilet
+        mov r0, r2
+        mov r1, TH_THIRSTY
+gst_drift_check_toilet:
+        ldr r2, r4, G_TOILET
+        cmp r2, r0
+        brlt gst_drift_check_need
+        mov r0, r2
+        mov r1, TH_TOILET
+gst_drift_check_need:
+        mov r2, GST_NEED
+        cmp r0, r2
+        brlt gst_drift_done
+        str r1, r4, G_THOUGHT
+        mov r2, GST_CRITICAL_NEED
+        cmp r0, r2
+        brlt gst_drift_done
+        add r0, r4, G_HAPPY
+        mov r1, -3
+        bl gst_meter
+gst_drift_done:
+        pop lr
+        ret
+
+; r0=address of meter, r1=delta -> r0=clamped value.
+gst_meter:
+        ldr r2, r0, 0
+        add r1, r1, r2
+        brn gst_meter_floor
+        mov r2, METER_MAX
+        cmp r1, r2
+        brlt gst_meter_store
+        mov r1, r2
+        br gst_meter_store
+gst_meter_floor:
+        mov r1, 0
+gst_meter_store:
+        str r1, r0, 0
+        mov r0, r1
+        ret
+
+gst_dirt:
+        push lr
+        bl gst_location
+        bl map_get
+        ld r1, gst_dirt_mask
+        and r1, r1, r0
+        brz gst_check_sick
+        push r0
+        mov r0, TH_LITTER
+        str r0, r4, G_THOUGHT
+        add r0, r4, G_HAPPY
+        mov r1, -6
+        bl gst_meter
+        pop r0
+gst_check_sick:
+        ldr r1, r4, G_NAUSEA
+        mov r2, GUEST_SICK
+        cmp r1, r2
+        brlt gst_dirt_done
+        brz gst_dirt_done
+        mov r1, TH_SICK
+        str r1, r4, G_THOUGHT
+        and r0, r0, T_KIND_MASK
+        cmp r0, T_PATH
+        brnz gst_dirt_done
+        mov r0, 0
+        mov r1, 3
+        rand r0, r1
+        cmp r0, 0
+        brnz gst_dirt_done
+        add r0, r4, G_NAUSEA
+        mov r1, -72
+        bl gst_meter
+        bl gst_location
+        bl map_addr
+        ld r1, gst_vomit_bit
+        ldr r2, r0, 0
+        or r2, r1
+        str r2, r0, 0
+gst_dirt_done:
+        pop lr
+        ret
+
+; Drop packaging on the current path on some purchases. A neighboring
+; bin lowers the chance.
+gst_litter:
+        push lr
+        mov r0, T_BIN
+        bl gst_near_kind
+        mov r1, 15
+        cmp r0, DIR_NONE
+        brnz gst_litter_roll
+        mov r1, 3
+gst_litter_roll:
+        mov r0, 0
+        rand r0, r1
+        cmp r0, 0
+        brnz gst_litter_done
+        bl gst_location
+        bl map_addr
+        ld r1, gst_litter_bit
+        ldr r2, r0, 0
+        or r2, r1
+        str r2, r0, 0
+gst_litter_done:
+        pop lr
+        ret
+
+gst_dirt_mask:  .word T_LITTER|T_VOMIT
+gst_vomit_bit:  .word T_VOMIT
+gst_litter_bit: .word T_LITTER
+
+; Locate an orthogonal neighbor of the given kind, north first.
+gst_near_kind:
+        mov r2, r0
+        ldr r0, r4, G_X
+        ldr r1, r4, G_Y
+        push r3
+        push r4
+        push lr
+        push r0
+        push r1
+        lea r3, gst_deltas
+        mov r4, DIR_N
+gst_near_tile:
+        ldr r0, sp, 1
+        ldr r1, sp, 0
+        push r2
+        ldr r2, r3, 0
+        add r0, r0, r2
+        ldr r2, r3, 1
+        add r1, r1, r2
+        pop r2
+        bl map_kind
+        cmp r0, r2
+        brz gst_near_found
+        add r3, r3, 2
+        add r4, r4, 1
+        cmp r4, DIR_W
+        brlt gst_near_tile
+        brz gst_near_tile
+        mov r4, DIR_NONE
+gst_near_found:
+        mov r0, r4
+        add sp, sp, 2
+        pop lr
+        pop r4
+        pop r3
+        ret
+
+gst_step:                       ; r0=direction, r4=guest
+        push lr
+        str r0, r4, G_DIR
+        bl gst_neighbor_xy
+        str r0, r4, G_X
+        str r1, r4, G_Y
+        pop lr
+        ret
+
+gst_neighbor_xy:                ; r0=direction, r4=guest -> r0=x, r1=y
+        sll r0, 1
+        lea r1, gst_deltas
+        add r1, r1, r0
+        ldr r0, r1, 0
+        ldr r1, r1, 1
+        ldr r2, r4, G_X
+        add r0, r0, r2
+        ldr r2, r4, G_Y
+        add r1, r1, r2
+        ret
+
+gst_location:
+        ldr r0, r4, G_X
+        ldr r1, r4, G_Y
+        ret
+
+gst_deltas: .word 0
+            .word -1
+            .word 1
+            .word 0
+            .word 0
+            .word 1
+            .word -1
+            .word 0
+
+gst_name:
+        push r1
+        push r2
+        push r3
+        push lr
+        bl gst_addr
+        ldr r3, r0, G_NAME
+        mov r0, r1
+        and r1, r3, 15
+        sll r1, 2
+        lea r2, gst_name_first
+        add r1, r1, r2
+        mov r2, 3
+        bl util_memcpy
+        add r0, r0, 3
+        srl r3, 4
+        and r1, r3, 15
+        sll r1, 2
+        lea r2, gst_name_last
+        add r1, r1, r2
+        mov r2, 4
+        bl util_memcpy
+        sub r0, r0, 3
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+gst_name_first: .string "Ael"
+                .string "Bel"
+                .string "Cor"
+                .string "Dar"
+                .string "Evi"
+                .string "Fen"
+                .string "Gav"
+                .string "Hal"
+                .string "Ilo"
+                .string "Jun"
+                .string "Kes"
+                .string "Lor"
+                .string "Mav"
+                .string "Nor"
+                .string "Oli"
+                .string "Pav"
+
+gst_name_last:  .string "ari"
+                .string "bel"
+                .string "den"
+                .string "ell"
+                .string "fin"
+                .string "iel"
+                .string "kin"
+                .string "len"
+                .string "mer"
+                .string "nen"
+                .string "ora"
+                .string "ren"
+                .string "sil"
+                .string "ton"
+                .string "wen"
+                .string "wyn"
+
+gst_thought_text:
+        push r1
+        cmp r0, 0
+        brn gst_thought_none
+        cmp r0, TH_COUNT
+        brlt gst_thought_lookup
+gst_thought_none:
+        mov r0, TH_NONE
+gst_thought_lookup:
+        lea r1, gst_thoughts
+        add r0, r0, r1
+        ldr r0, r0, 0
+        pop r1
+        ret
+
+gst_thoughts:    .word gst_s_none
+                 .word gst_s_hungry
+                 .word gst_s_thirsty
+                 .word gst_s_tired
+                 .word gst_s_sick
+                 .word gst_s_litter
+                 .word gst_s_expensive
+                 .word gst_s_great
+                 .word gst_s_lost
+                 .word gst_s_no_money
+                 .word gst_s_queue
+                 .word gst_s_toilet
+gst_s_none:      .string ""
+gst_s_hungry:    .string "Something savory, please."
+gst_s_thirsty:   .string "I'd love an icy drink."
+gst_s_tired:     .string "My feet need a break."
+gst_s_sick:      .string "The ground is still spinning."
+gst_s_litter:    .string "Mind the crumpled wrappers."
+gst_s_expensive: .string "Too steep for my pocket."
+gst_s_great:     .string "I'd tell everyone to try it."
+gst_s_lost:      .string "How do I get back?"
+gst_s_no_money:  .string "Spent my last coin."
+gst_s_queue:     .string "This line barely moves."
+gst_s_toilet:    .string "Where are the restrooms?"

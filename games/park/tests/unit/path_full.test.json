@@ -1,0 +1,23 @@
+{
+  "game": "path_full_driver.ap",
+  "scenarios": [
+    {
+      "name": "four full-map fields fit the frame budget and all invalidate on a walkability edit",
+      "frames": 8,
+      "expect": {
+        "status": "halted",
+        "maxStepsPerFrame": 400000,
+        "maxSteps": 1600000,
+        "memory": {
+          "drv_full_distance": 110,
+          "drv_full_to_entrance": 0,
+          "drv_cache_error": 0,
+          "drv_second_dist": 109,
+          "drv_third_dist": 108,
+          "drv_warm_slots": 4,
+          "drv_invalidated_slots": 0
+        }
+      }
+    }
+  ]
+}

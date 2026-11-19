@@ -1,0 +1,226 @@
+; Unit driver for src/render.ap (WP2). Fills st_map by hand, then draws
+; five frames (present + sleep each) while moving the cursor:
+;   frame 0: view 0, cursor (12,10)  — palette row, overlays, cursor
+;   frame 1: cursor y 30  -> view 10 (scrolled down, cursor 3 rows from bottom)
+;   frame 2: cursor y 47  -> view 24 (clamped at MAP_H-VIEW_ROWS)
+;   frame 3: cursor y 26  -> view 23 (scrolled back up, cursor 3 rows from top)
+;   frame 4: cursor y 0   -> view 0  (clamped at 0)
+; Map: row 0 = every tile kind at x 0..14, ride/stall bodies at 15..18,
+; litter/vomit path at 19/20, height+index bits on a path at 21.
+; Row 2: guest on grass (x5), free guest slot (x6), guest on the gate
+; (x8, keeps red bg), handyman (x10), mechanic (x11). Row 30: water.
+; Row 47: fence. Guest at (7,40) is visible only when the view covers it.
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+drv_main:
+        lea r0, st_screen
+        bl video_bind
+        ; ---- row 0: kinds 0..14 at x = kind ---------------------------------
+        lea r1, st_map
+        mov r0, 0
+drv_kinds:
+        str r0, r1, 0
+        add r1, r1, 1
+        add r0, r0, 1
+        cmp r0, T_KIND_COUNT
+        brnz drv_kinds
+        ; x15: ride index 0 (carousel, catalog cell); x16: stall index 1 (food,
+        ; catalog cell); x17: ride index 2 (free record: fallback ride);
+        ; x18: stall index 3 (free record: fallback stall)
+        ld r0, drv_t_ride0
+        str r0, r1, 0
+        ld r0, drv_t_stall1
+        str r0, r1, 1
+        ld r0, drv_t_ride2
+        str r0, r1, 2
+        ld r0, drv_t_stall3
+        str r0, r1, 3
+        ld r0, drv_t_litter
+        str r0, r1, 4
+        ld r0, drv_t_vomit
+        str r0, r1, 5
+        ld r0, drv_t_hpath
+        str r0, r1, 6
+        ; ride records: 0 = carousel, 1 = food stall
+        lea r1, st_rides
+        mov r0, RT_CAROUSEL
+        str r0, r1, R_TYPE
+        ld r2, drv_k_ride_size
+        add r1, r1, r2
+        mov r0, RT_FOOD
+        str r0, r1, R_TYPE
+        ; gate tile at (8,2)
+        mov r0, 8
+        mov r1, 2
+        mov r2, T_GATE
+        bl drv_set
+        ; row 30: water, row 47: fence
+        mov r1, 30
+        mov r2, T_WATER
+        bl drv_row
+        mov r1, 47
+        mov r2, T_FENCE
+        bl drv_row
+        ; guests: 0 at (5,2) walking, 1 free at (6,2), 2 at (8,2) on the gate,
+        ; 3 at (7,40) queueing
+        lea r1, st_guests
+        mov r0, 0
+        mov r2, 5
+        mov r3, 2
+        mov r4, GS_WALK
+        bl drv_guest
+        mov r0, 1
+        mov r2, 6
+        mov r4, GS_FREE
+        bl drv_guest
+        mov r0, 2
+        mov r2, 8
+        mov r4, GS_ENTER
+        bl drv_guest
+        mov r0, 3
+        mov r2, 7
+        mov r3, 40
+        mov r4, GS_QUEUE
+        bl drv_guest
+        ; staff: handyman (10,2), mechanic (11,2)
+        lea r1, st_staff
+        mov r0, SFT_HANDYMAN
+        str r0, r1, SF_TYPE
+        mov r0, 10
+        str r0, r1, SF_X
+        mov r0, 2
+        str r0, r1, SF_Y
+        mov r0, SFT_MECHANIC
+        str r0, r1, STAFF_SIZE+SF_TYPE
+        mov r0, 11
+        str r0, r1, STAFF_SIZE+SF_X
+        mov r0, 2
+        str r0, r1, STAFF_SIZE+SF_Y
+        ; ---- pure routines ----------------------------------------------------
+        mov r0, T_OUT
+        bl ren_tile_cell
+        st r0, drv_tc_out
+        ld r0, drv_t_ride0
+        bl ren_tile_cell
+        st r0, drv_tc_ride0
+        ; ---- frame 0 ------------------------------------------------------------
+        mov r0, 0
+        st r0, st_view_y
+        mov r0, 12
+        st r0, st_cur_x
+        mov r0, 10
+        st r0, st_cur_y
+        bl drv_frame
+        st r0, drv_vy0
+        mov r0, 7                ; guest 3 at (7,40): not visible in view 0
+        mov r1, 40
+        bl ren_map_to_screen
+        st r0, drv_ms_hidden
+        mov r0, 5                ; (5,2) -> row 2, col 5
+        mov r1, 2
+        mov r4, 77               ; r4 must survive
+        bl ren_map_to_screen
+        st r0, drv_ms_row
+        st r1, drv_ms_col
+        st r4, drv_ms_r4
+        ; ---- frames 1..4: scrolling ----------------------------------------------------
+        mov r0, 30
+        st r0, st_cur_y
+        bl drv_frame
+        st r0, drv_vy1
+        mov r0, 47
+        st r0, st_cur_y
+        bl drv_frame
+        st r0, drv_vy2
+        mov r0, 7                ; guest 3 at (7,40) -> row 16 in view 24
+        mov r1, 40
+        bl ren_map_to_screen
+        st r0, drv_ms_g3row
+        mov r0, 26
+        st r0, st_cur_y
+        bl drv_frame
+        st r0, drv_vy3
+        mov r0, 0
+        st r0, st_cur_y
+        bl drv_frame
+        st r0, drv_vy4
+        halt
+
+; draw + present + sleep; r0 = st_view_y after drawing
+drv_frame:
+        push lr
+        bl ren_draw
+        bl video_present
+        mov r0, FRAME_MS
+        sleep r0
+        ld r0, st_view_y
+        pop lr
+        ret
+
+; r0=x r1=y r2=tile
+drv_set:
+        push r3
+        push r4
+        mov r3, r1
+        sll r3, MAP_SHIFT
+        add r3, r3, r0
+        lea r4, st_map
+        add r3, r3, r4
+        str r2, r3, 0
+        pop r4
+        pop r3
+        ret
+
+; r1=y r2=tile: whole map row
+drv_row:
+        push lr
+        push r3
+        mov r0, 0
+        mov r3, MAP_W
+drv_row_lp:
+        bl drv_set
+        add r0, r0, 1
+        sub r3, r3, 1
+        brnz drv_row_lp
+        pop r3
+        pop lr
+        ret
+
+; r0=index r2=x r3=y r4=state
+drv_guest:
+        push r1
+        sll r0, GUEST_SHIFT
+        lea r1, st_guests
+        add r0, r0, r1
+        str r4, r0, G_STATE
+        str r2, r0, G_X
+        str r3, r0, G_Y
+        pop r1
+        ret
+
+drv_t_ride0:     .word T_RIDE|(0<<T_RIDE_SHIFT)
+drv_t_stall1:    .word T_STALL|(1<<T_RIDE_SHIFT)
+drv_t_ride2:     .word T_RIDE|(2<<T_RIDE_SHIFT)
+drv_t_stall3:    .word T_STALL|(3<<T_RIDE_SHIFT)
+drv_t_litter:    .word T_PATH|T_LITTER
+drv_t_vomit:     .word T_PATH|T_LITTER|T_VOMIT
+drv_t_hpath:     .word T_PATH|(5<<T_RIDE_SHIFT)|(3<<T_HEIGHT_SHIFT)
+drv_k_ride_size: .word RIDE_SIZE
+drv_tc_out:      .word 99
+drv_tc_ride0:    .word 99
+drv_ms_hidden:   .word 99
+drv_ms_row:      .word 99
+drv_ms_col:      .word 99
+drv_ms_r4:       .word 99
+drv_ms_g3row:    .word 99
+drv_vy0:         .word 99
+drv_vy1:         .word 99
+drv_vy2:         .word 99
+drv_vy3:         .word 99
+drv_vy4:         .word 99
+        .include "../../src/state.ap"
+        .include "../../src/render.ap"
+        .include "render_stub_rides.ap"
+        .include "video.ap"

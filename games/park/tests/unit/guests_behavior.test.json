@@ -1,0 +1,109 @@
+{
+  "game": "guests_driver.ap",
+  "scenarios": [
+    {
+      "name": "admission books the fee only for successful spawns and lookup visits lowest slots first",
+      "keys": "a",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_closed_total": 0,
+          "drv_first": 0,
+          "drv_last": 127,
+          "drv_full": -1,
+          "drv_cash_in_range": 1,
+          "drv_at_first": 0,
+          "drv_at_second": 1,
+          "drv_at_empty": -1,
+          "drv_name": "Darwen",
+          "drv_thought": "Where are the restrooms?",
+          "drv_empty": "",
+          "st_guest_count": 127,
+          "st_guests_total": 128,
+          "st_cash_k": 11,
+          "st_cash_u": 664,
+          "st_mon_inc_k": 1,
+          "st_mon_inc_u": 664
+        }
+      }
+    },
+    {
+      "name": "one slice drifts, picks the affordable open connected ride or a meal, and leaves when broke",
+      "keys": "b",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_drift": [2, 5, 199, 52, 33, 149, 38],
+          "drv_toilet": 11,
+          "drv_other_hunger": 200,
+          "drv_buy_state": 5,
+          "drv_buy_hunger": 42,
+          "drv_buy_cash": 2,
+          "drv_sales": 1,
+          "drv_leave_state": 7,
+          "drv_leave_y": 11,
+          "drv_leave_thought": 9,
+          "drv_leave_end": 0,
+          "st_guest_count": 1,
+          "st_mon_inc_u": 23
+        }
+      }
+    },
+    {
+      "name": "guests rest by benches, react to litter, get sick and recover from demolition",
+      "keys": "c",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_rest_state": 6,
+          "drv_rest_energy": 43,
+          "drv_dirty_thought": 5,
+          "drv_dirty_happy": 181,
+          "drv_vomit_path": -16381,
+          "drv_sick_thought": 4,
+          "drv_recover_state": 7,
+          "drv_recover_walkable": 1,
+          "drv_boxed": -1,
+          "st_guest_count": 1,
+          "st_mon_inc_u": 10
+        }
+      }
+    },
+    {
+      "name": "low rating admits every 30 ticks and maximum rating every 10",
+      "keys": "d",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_low_before": 0,
+          "drv_low_after": 1,
+          "drv_high_before": 0,
+          "drv_high_after": 1
+        }
+      }
+    },
+    {
+      "name": "exhausted, unhappy and long-waiting guests leave the queue exactly once",
+      "keys": "e",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_queue_left": 1,
+          "drv_queue_guests": [7, -1, 3, 7, -1, 10, 7, -1, 10, 3, 0, 0],
+          "st_guest_count": 4
+        }
+      }
+    },
+    {
+      "name": "a guest on an exit cut off from the gate leaves the park",
+      "keys": "f",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_exit_state": 0,
+          "st_guest_count": 0
+        }
+      }
+    }
+  ]
+}

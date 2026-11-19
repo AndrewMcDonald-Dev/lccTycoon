@@ -1,0 +1,24 @@
+; Stub catalog for the render unit driver: ride_type_info returns a record
+; whose RTI_CELL is a distinctive cell for RT_CAROUSEL and RT_FOOD, and 0
+; (no catalog) for every other type.
+ride_type_info:
+        cmp r0, RT_CAROUSEL
+        brz drv_rti_car
+        cmp r0, RT_FOOD
+        brz drv_rti_food
+        mov r0, 0
+        ret
+drv_rti_car:
+        lea r0, drv_rti_carousel
+        ret
+drv_rti_food:
+        lea r0, drv_rti_foodrec
+        ret
+drv_rti_carousel:
+        .zero RTI_CELL
+        .word G_SUN|FG_BYELLOW|BG_MAGENTA       ; RTI_CELL
+        .zero RTI_SIZE-RTI_CELL-1
+drv_rti_foodrec:
+        .zero RTI_CELL
+        .word '$'|FG_BWHITE|BG_GREEN            ; RTI_CELL
+        .zero RTI_SIZE-RTI_CELL-1

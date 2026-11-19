@@ -8,7 +8,7 @@
 ;; (data only — every st_* cell is documented in this file)
 ;; st_map     MAP_SIZE tile words, index (y<<MAP_SHIFT)|x        W: map
 ;; st_guests  MAX_GUESTS × GUEST_SIZE (G_*)                      W: guests (rides on boarding)
-;; st_rides   MAX_RIDES × RIDE_SIZE (R_*)                        W: rides, coaster, staff
+;; st_rides   MAX_RIDES × RIDE_SIZE (R_*)                        W: rides, build (R_ENT_*/R_EXIT_*), coaster, staff
 ;; st_track   MAX_TRACK × TRACK_SIZE (TK_*)                      W: coaster
 ;; st_staff   MAX_STAFF × STAFF_SIZE (SF_*)                      W: staff
 ;; st_msg_text MSG_COUNT × MSG_LEN strings, st_msg_head/st_msg_age  W: ui_msg
@@ -45,7 +45,7 @@ st_loan_k:      .word START_LOAN_K  ; loan owed — W: economy
 st_loan_u:      .word 0
 st_value_k:     .word 0             ; park value (rides at cost, depreciated) — W: economy
 st_value_u:     .word 0
-st_entry_fee:   .word ENTRY_FEE_DEF ; $ 0..ENTRY_FEE_MAX — W: input (via +/- on gate)
+st_entry_fee:   .word ENTRY_FEE_DEF ; $ 0..ENTRY_FEE_MAX — W: input, windows (via +/- on gate)
 st_mon_inc_k:   .word 0             ; income this month — W: economy
 st_mon_inc_u:   .word 0
 st_mon_exp_k:   .word 0             ; expenses this month — W: economy
@@ -67,8 +67,8 @@ st_ride_count:  .word 0             ; ride records in use — W: rides
 st_staff_count: .word 0             ; staff records in use — W: staff
 
 ; ---- UI state ---------------------------------------------------------------
-st_cur_x:       .word 32            ; cursor tile 0..MAP_W-1 — W: input
-st_cur_y:       .word 40            ; cursor tile 0..MAP_H-1 — W: input
+st_cur_x:       .word 32            ; cursor tile 0..MAP_W-1 — W: input, coaster (follows build head)
+st_cur_y:       .word 40            ; cursor tile 0..MAP_H-1 — W: input, coaster (follows build head)
 st_view_y:      .word MAP_H-VIEW_ROWS ; first map row shown 0..MAP_H-VIEW_ROWS — W: render
 st_tool:        .word TOOL_NONE     ; TOOL_* — W: input
 st_tool_item:   .word 0             ; ride type (TOOL_RIDE/STALL) or SC_* (scenery) — W: input
@@ -86,7 +86,7 @@ st_msg_text:    .zero MSG_COUNT*MSG_LEN ; slot i at st_msg_text + (i << MSG_SHIF
 ; ---- tables -----------------------------------------------------------------
 st_map:         .zero MAP_SIZE      ; tile words, index (y << MAP_SHIFT) | x — W: map_set/map_init (+ staff clears litter bits)
 st_guests:      .zero MAX_GUESTS*GUEST_SIZE ; G_* records — W: guests (rides set GS_RIDE/G_TIMER when boarding)
-st_rides:       .zero MAX_RIDES*RIDE_SIZE   ; R_* records — W: rides, coaster (track/train/ratings fields), staff (R_RELIAB, R_STATUS repair)
+st_rides:       .zero MAX_RIDES*RIDE_SIZE   ; R_* records — W: rides, build (R_ENT_*/R_EXIT_*), coaster (track/train/ratings fields), staff (R_RELIAB, R_STATUS repair)
 st_track:       .zero MAX_TRACK*TRACK_SIZE  ; TK_* pieces — W: coaster
 st_track_used:  .word 0             ; pieces allocated (pool is bump-allocated per coaster) — W: coaster
 st_staff:       .zero MAX_STAFF*STAFF_SIZE  ; SF_* records — W: staff

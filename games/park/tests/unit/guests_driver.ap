@@ -1,0 +1,462 @@
+; Tests admission, walking, scenery, arrival rate, queues and exit recovery.
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        mov r0, 17
+        srand r0
+        bl eco_init
+        bl ride_init
+        bl gst_init
+        bl pth_init
+        mov r0, 0
+        st r0, st_park_open
+        mov r1, 0
+        mov r2, 16
+        mov r3, 12
+        mov r4, T_PATH
+        bl map_fill
+        mov r0, 5
+        st r0, st_gate_x
+        mov r1, 11
+        st r1, st_gate_y
+        mov r2, T_GATE
+        bl map_set
+        nbain r0
+        mov r1, 'a'
+        cmp r0, r1
+        brz drv_admit
+        mov r1, 'b'
+        cmp r0, r1
+        brz drv_walk
+        mov r1, 'd'
+        cmp r0, r1
+        brz drv_rate
+        mov r1, 'e'
+        cmp r0, r1
+        brz drv_queue
+        mov r1, 'f'
+        cmp r0, r1
+        brz drv_exit
+        br drv_scenery
+
+drv_admit:
+        mov r0, 13
+        st r0, st_entry_fee
+        mov r0, 32
+        bl drv_ticks
+        ld r0, st_guests_total
+        st r0, drv_closed_total
+
+        bl gst_spawn
+        st r0, drv_first
+        bl gst_addr
+        ldr r1, r0, G_CASH
+        mov r2, GUEST_CASH_MIN
+        cmp r1, r2
+        brlt drv_admit_bounds
+        mov r2, GUEST_CASH_MAX
+        cmp r1, r2
+        brgt drv_admit_bounds
+        mov r2, 1
+        st r2, drv_cash_in_range
+drv_admit_bounds:
+        mov r2, 0xe3
+        str r2, r0, G_NAME
+        mov r0, 0
+        lea r1, drv_name
+        bl gst_name
+
+        mov r0, TH_TOILET
+        bl gst_thought_text
+        lea r1, drv_thought
+        bl drv_copy_text
+        mov r0, -1
+        bl gst_thought_text
+        lea r1, drv_empty
+        bl drv_copy_text
+
+        mov r4, MAX_GUESTS-1
+drv_fill:
+        bl gst_spawn
+        sub r4, r4, 1
+        brp drv_fill
+        st r0, drv_last
+        bl gst_spawn
+        st r0, drv_full
+        mov r0, 5
+        mov r1, 11
+        bl gst_at
+        st r0, drv_at_first
+        bl gst_remove
+        bl gst_remove           ; a slot can only be freed once
+        mov r0, 5
+        mov r1, 11
+        bl gst_at
+        st r0, drv_at_second
+        mov r0, 0
+        mov r1, 0
+        bl gst_at
+        st r0, drv_at_empty
+        halt
+
+drv_walk:
+        ; The high-rated drop tower is closed, and the wheel costs too much.
+        mov r0, RT_DROP
+        mov r1, 8
+        bl drv_new
+        mov r0, RT_WHEEL
+        mov r1, 7
+        bl drv_new
+        mov r1, PRICE_MAX
+        bl ride_set_price
+        bl ride_toggle
+        mov r0, RT_CAROUSEL
+        mov r1, 6
+        bl drv_new
+        bl ride_toggle
+        mov r0, RT_FOOD
+        mov r1, 4
+        bl drv_new
+        bl ride_toggle
+        mov r0, RT_DROP
+        mov r1, 30              ; entrance is disconnected
+        bl drv_new
+        bl ride_toggle
+
+        bl gst_spawn
+        bl drv_walk_guest
+        mov r4, r0
+        mov r0, 50
+        str r0, r4, G_HUNGER
+        mov r0, 30
+        str r0, r4, G_THIRST
+        mov r0, 10
+        str r0, r4, G_TOILET
+        mov r0, 40
+        str r0, r4, G_NAUSEA
+        mov r0, 150
+        str r0, r4, G_ENERGY
+        mov r0, 200
+        str r0, r4, G_HAPPY
+        bl gst_spawn
+        bl drv_walk_guest
+        mov r3, r0
+        mov r0, 4
+        str r0, r3, G_X
+        mov r0, 5
+        str r0, r3, G_Y
+        mov r0, 200
+        str r0, r3, G_HUNGER
+
+        bl gst_tick
+        add r0, r4, G_TARGET
+        mov r1, r0
+        lea r0, drv_drift
+        mov r2, G_NAUSEA-G_TARGET+1
+        bl util_memcpy
+        ldr r0, r4, G_TOILET
+        st r0, drv_toilet
+        ldr r0, r3, G_HUNGER
+        st r0, drv_other_hunger
+
+        bl gst_tick
+        ldr r0, r3, G_STATE
+        st r0, drv_buy_state
+        ldr r0, r3, G_HUNGER
+        st r0, drv_buy_hunger
+        ldr r0, r3, G_CASH
+        st r0, drv_buy_cash
+        mov r0, 3
+        bl ride_addr
+        ldr r0, r0, R_TOTAL
+        st r0, drv_sales
+
+        ; Move guest 0 back to a path next to the gate and run two slices.
+        mov r0, 0
+        str r0, r4, G_CASH
+        mov r0, 5
+        str r0, r4, G_X
+        mov r0, 10
+        str r0, r4, G_Y
+        mov r0, 3
+        bl drv_ticks
+        ldr r0, r4, G_STATE
+        st r0, drv_leave_state
+        ldr r0, r4, G_Y
+        st r0, drv_leave_y
+        ldr r0, r4, G_THOUGHT
+        st r0, drv_leave_thought
+        mov r0, 4
+        bl drv_ticks
+        ldr r0, r4, G_STATE
+        st r0, drv_leave_end
+        halt
+
+drv_scenery:
+        bl gst_spawn
+        bl drv_walk_guest
+        mov r4, r0
+        mov r0, 30
+        str r0, r4, G_ENERGY
+        mov r0, 6
+        mov r1, 10
+        mov r2, T_BENCH
+        bl map_set
+        bl gst_tick
+        ldr r0, r4, G_STATE
+        st r0, drv_rest_state
+        mov r0, 4
+        bl drv_ticks
+        ldr r0, r4, G_ENERGY
+        st r0, drv_rest_energy
+        mov r0, 5
+        mov r1, 10
+        ld r2, drv_dirty_path
+        bl map_set
+        mov r0, 4
+        bl drv_ticks
+        ldr r0, r4, G_THOUGHT
+        st r0, drv_dirty_thought
+        ldr r0, r4, G_HAPPY
+        st r0, drv_dirty_happy
+
+        ; A sick guest can leave vomit on the same path while resting.
+        mov r0, METER_MAX
+        str r0, r4, G_NAUSEA
+        mov r0, 3               ; fixes the first vomit roll at 0
+        srand r0
+        mov r0, 4
+        bl drv_ticks
+        mov r0, 5
+        mov r1, 10
+        bl map_get
+        st r0, drv_vomit_path
+        ldr r0, r4, G_THOUGHT
+        st r0, drv_sick_thought
+        ; Demolish under the resting guest. It steps onto a path to leave.
+        mov r0, 5
+        mov r1, 10
+        mov r2, T_GRASS
+        bl map_set
+        mov r0, 4
+        bl drv_ticks
+        ldr r0, r4, G_STATE
+        st r0, drv_recover_state
+        ldr r0, r4, G_X
+        ldr r1, r4, G_Y
+        bl map_walkable
+        st r0, drv_recover_walkable
+
+        ; A gate with no connection must not earn an admission fee.
+        mov r0, 4
+        mov r1, 11
+        mov r2, T_GRASS
+        bl map_set
+        mov r0, 6
+        bl map_set
+        bl gst_spawn
+        st r0, drv_boxed
+        halt
+
+drv_rate:
+        mov r0, 1
+        st r0, st_park_open
+        mov r0, 0
+        st r0, st_rating
+        mov r0, GUEST_SPAWN_TICKS*3/2-1
+        bl drv_ticks
+        ld r0, st_guest_count
+        st r0, drv_low_before
+        bl gst_tick
+        ld r0, st_guest_count
+        st r0, drv_low_after
+        bl gst_init
+        ld r0, drv_max_rating
+        st r0, st_rating
+        mov r0, GUEST_SPAWN_TICKS/2-1
+        bl drv_ticks
+        ld r0, st_guest_count
+        st r0, drv_high_before
+        bl gst_tick
+        ld r0, st_guest_count
+        st r0, drv_high_after
+        halt
+
+drv_queue:
+        mov r0, RT_WHEEL
+        mov r1, 10
+        bl drv_new
+        bl ride_toggle
+        mov r3, 0
+drv_queue_spawn:
+        bl gst_spawn
+        bl drv_walk_guest
+        add r3, r3, 1
+        cmp r3, 4
+        brlt drv_queue_spawn
+
+        ; Let guest 2 reach the patience limit across the tick counter wrap.
+        mov r0, -240
+        st r0, st_ticks_total
+        mov r0, 0
+        mov r1, 2
+        bl ride_enqueue
+        mov r0, 240
+        st r0, st_ticks_total
+
+        lea r4, st_guests
+        mov r0, 8
+        str r0, r4, G_ENERGY
+        mov r0, 0
+        str r0, r4, GUEST_SIZE+G_HAPPY
+        mov r1, 0
+        bl ride_enqueue
+        mov r0, 0
+        mov r1, 1
+        bl ride_enqueue
+        mov r0, 0
+        mov r1, 3
+        bl ride_enqueue
+
+        mov r0, 4
+        bl drv_ticks
+        mov r0, 0
+        bl ride_addr
+        ldr r0, r0, R_QUEUE
+        st r0, drv_queue_left
+        lea r1, drv_queue_guests
+        mov r3, 4
+drv_queue_snapshot:
+        ldr r0, r4, G_STATE
+        str r0, r1, 0
+        ldr r0, r4, G_TARGET
+        str r0, r1, 1
+        ldr r0, r4, G_THOUGHT
+        str r0, r1, 2
+        mov r0, GUEST_SIZE
+        add r4, r4, r0
+        add r1, r1, 3
+        sub r3, r3, 1
+        brp drv_queue_snapshot
+        halt
+
+drv_exit:
+        mov r0, 20
+        mov r1, 10
+        mov r2, T_EXIT
+        bl map_set
+        mov r0, 21
+        mov r2, T_PATH
+        bl map_set
+        bl gst_spawn
+        bl drv_walk_guest
+        mov r4, r0
+        mov r0, 20
+        str r0, r4, G_X
+        bl gst_tick
+        ldr r0, r4, G_STATE
+        st r0, drv_exit_state
+        halt
+
+; r0=count
+drv_ticks:
+        push r4
+        push lr
+        mov r4, r0
+drv_tick_loop:
+        bl gst_tick
+        sub r4, r4, 1
+        brp drv_tick_loop
+        pop lr
+        pop r4
+        ret
+
+; r0=type, r1=x. Same x for body and entrance, y=5 for entrance.
+drv_new:
+        push lr
+        mov r2, 4
+        bl ride_new
+        push r0
+        bl ride_addr
+        str r1, r0, R_ENT_X
+        mov r1, 5
+        str r1, r0, R_ENT_Y
+        pop r0
+        pop lr
+        ret
+
+; r0=guest index -> record, walking near the gate with $5.
+drv_walk_guest:
+        push lr
+        bl gst_addr
+        mov r1, GS_WALK
+        str r1, r0, G_STATE
+        mov r1, 5
+        str r1, r0, G_CASH
+        mov r1, 10
+        str r1, r0, G_Y
+        pop lr
+        ret
+
+drv_copy_text:
+        ldr r2, r0, 0
+        str r2, r1, 0
+        add r0, r0, 1
+        add r1, r1, 1
+        cmp r2, 0
+        brnz drv_copy_text
+        ret
+
+drv_closed_total: .word -1
+drv_first: .word -1
+drv_last: .word -1
+drv_full: .word 0
+drv_cash_in_range: .word 0
+drv_at_first: .word -1
+drv_at_second: .word -1
+drv_at_empty: .word 0
+drv_name: .zero 16
+drv_thought: .zero 32
+drv_empty: .word 1
+drv_drift: .zero 7
+drv_toilet: .word 0
+drv_other_hunger: .word 0
+drv_buy_state: .word 0
+drv_buy_hunger: .word 0
+drv_buy_cash: .word 0
+drv_sales: .word 0
+drv_leave_state: .word 0
+drv_leave_y: .word 0
+drv_leave_thought: .word 0
+drv_leave_end: .word -1
+drv_rest_state: .word 0
+drv_rest_energy: .word 0
+drv_dirty_path: .word T_PATH|T_LITTER
+drv_dirty_thought: .word 0
+drv_dirty_happy: .word 0
+drv_vomit_path: .word 0
+drv_sick_thought: .word 0
+drv_recover_state: .word 0
+drv_recover_walkable: .word 0
+drv_boxed: .word 0
+drv_max_rating: .word RATING_MAX
+drv_low_before: .word -1
+drv_low_after: .word -1
+drv_high_before: .word -1
+drv_high_after: .word -1
+drv_queue_left: .word -1
+drv_queue_guests: .zero 12
+drv_exit_state: .word -1
+
+        .include "../../src/state.ap"
+        .include "../../src/map.ap"
+        .include "../../src/economy.ap"
+        .include "../../src/rides.ap"
+        .include "../../src/path.ap"
+        .include "../../src/guests.ap"
+        .include "../../src/ui.ap"
+        .include "video.ap"
+        .include "util.ap"

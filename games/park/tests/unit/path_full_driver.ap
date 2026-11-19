@@ -1,0 +1,126 @@
+; Spread the cold builds across frames. Then verify all cached fields and
+; ensure a walkability edit invalidates all of them.
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        mov r0, 0
+        mov r1, 0
+        mov r2, MAP_W
+        mov r3, MAP_H
+        mov r4, T_PATH
+        bl map_fill
+        mov r0, MAP_W-1
+        st r0, st_gate_x
+        mov r1, MAP_H-1
+        st r1, st_gate_y
+        mov r2, T_GATE
+        bl map_set
+        mov r0, 0
+        mov r1, 0
+        mov r2, T_ENTRANCE
+        bl map_set
+        bl pth_init
+        bl pth_update
+        mov r0, 1
+        sleep r0
+
+        mov r0, 0
+        mov r1, 0
+        mov r2, MAP_W-1
+        mov r3, MAP_H-1
+        bl pth_dist
+        st r0, drv_full_distance
+        mov r0, 1
+        sleep r0
+
+        mov r0, MAP_W-1
+        mov r1, MAP_H-1
+        mov r2, 0
+        mov r3, 0
+        bl pth_next
+        st r0, drv_full_to_entrance
+        mov r0, 1
+        sleep r0
+
+        mov r4, MAX_GUESTS
+drv_cached:
+        mov r0, 0
+        mov r1, 0
+        bl pth_to_gate
+        cmp r0, DIR_E
+        brnz drv_wrong_dir
+        mov r0, MAP_W-1
+        mov r1, MAP_H-1
+        mov r2, 0
+        mov r3, 0
+        bl pth_next
+        cmp r0, DIR_N
+        brnz drv_wrong_dir
+        sub r4, r4, 1
+        brp drv_cached
+
+        mov r0, 1
+        sleep r0
+        mov r0, MAP_W-1
+        mov r1, MAP_H-1
+        mov r2, 1
+        mov r3, 0
+        bl pth_dist
+        st r0, drv_second_dist
+        mov r0, 1
+        sleep r0
+        mov r0, MAP_W-1
+        mov r1, MAP_H-1
+        mov r2, 2
+        mov r3, 0
+        bl pth_dist
+        st r0, drv_third_dist
+        mov r0, 1
+        sleep r0
+
+        bl drv_check_slots
+        st r0, drv_warm_slots
+        mov r0, 3
+        mov r1, 0
+        mov r2, T_WATER
+        bl map_set
+        bl drv_check_slots
+        st r0, drv_invalidated_slots
+        halt
+drv_wrong_dir:
+        st r4, drv_cache_error
+        halt
+
+drv_check_slots:
+        push lr
+        mov r3, 0
+        mov r4, 0
+        mov r1, 0
+drv_count_other:
+        mov r0, r3
+        bl pth_cached
+        add r4, r4, r0
+        add r3, r3, 1
+        cmp r3, 3
+        brlt drv_count_other
+        ld r0, st_gate_x
+        ld r1, st_gate_y
+        bl pth_cached
+        add r0, r0, r4
+        pop lr
+        ret
+
+drv_full_distance:    .word 99
+drv_full_to_entrance: .word 99
+drv_cache_error:      .word 0
+drv_second_dist:      .word -1
+drv_third_dist:       .word -1
+drv_warm_slots:       .word -1
+drv_invalidated_slots: .word -1
+
+        .include "../../src/state.ap"
+        .include "../../src/map.ap"
+        .include "../../src/path.ap"

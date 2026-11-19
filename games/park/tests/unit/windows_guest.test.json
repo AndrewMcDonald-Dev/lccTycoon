@@ -1,0 +1,46 @@
+{
+  "game": "windows_driver.ap",
+  "scenarios": [
+    {
+      "name": "guest window refreshes live and closes on departure or slot reuse",
+      "frames": 20,
+      "expect": {
+        "status": "halted",
+        "memory": { "drv_open_guest": 1, "drv_open_tile": 1, "drv_open_out": 0, "drv_key_o": 0, "drv_key_i": 0,
+                    "drv_key_plus": 1, "drv_toggled": 0, "st_sel_guest": 3, "st_sel_ride": 0, "st_window": 0 },
+        "frames": [
+          { "frame": 0, "screen": { "lines": {
+              "2":  "                                                                ├─┤ Guest ├────────────────────────┤",
+              "3":  "                                                                │ Pat Tester                       │",
+              "4":  "                                                                │ Doing       Walking              │",
+              "5":  "                                                                │ Cash        $45                  │",
+              "6":  "                                                                │ Happiness   ████████████████ 255 │",
+              "7":  "                                                                │ Hunger      ████████░░░░░░░░ 128 │",
+              "8":  "                                                                │ Thirst      ░░░░░░░░░░░░░░░░ 0   │",
+              "9":  "                                                                │ Energy      █████████████░░░ 200 │",
+              "10": "                                                                │ Nausea      █░░░░░░░░░░░░░░░ 16  │",
+              "11": "                                                                │ Toilet      █░░░░░░░░░░░░░░░ 1   │",
+              "12": "                                                                │ Rides       2                    │",
+              "14": "                                                                │ Thinking:                        │",
+              "15": "                                                                │ I want a snack.                  │",
+              "22": "                                                                │ esc close                        │",
+              "23": "                                                                └──────────────────────────────────┘" } },
+            "colors": { "lines": {
+              "3": "                                                                c YYYYYYYYYY                       c",
+              "6": "                                                                c KKKKKKKKK   GGGGGGGGGGGGGGGG WWW c",
+              "7": "                                                                c KKKKKK      YYYYYYYYKKKKKKKK WWW c" } } },
+          { "frame": 1, "screen": { "contains": ["Doing       Queuing", "Cash        -$5",
+                                                 "Happiness   ░░░░░░░░░░░░░░░░ 0", "Hunger      ████████████████ 255"],
+                                    "notContains": ["I want a snack."] } },
+          { "frame": 2, "screen": { "notContains": ["Guest", "│"] } },
+          { "frame": 3, "screen": { "notContains": ["Guest", "│"] } },
+          { "frame": 4, "screen": { "contains": ["├─┤ Tile ├───", "│ Path", "Position    1,2", "Ground      Litter, vomit"] } },
+          { "frame": 5, "screen": { "contains": ["├─┤ Ride ├───", "│ Test Wheel", "Status      Broken down", "Price       $20",
+                                                 "Excitement  999  Very high", "Income      $12,345", "Reliable    37%"] } },
+          { "frame": 6, "screen": { "notContains": ["Ride", "│"] } },
+          { "frame": 7, "screen": { "notContains": ["Guest", "│"] } }
+        ]
+      }
+    }
+  ]
+}

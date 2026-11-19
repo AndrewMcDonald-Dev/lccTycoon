@@ -1,0 +1,448 @@
+{
+  "scenarios": [
+    {
+      "name": "a guest boards after waiting in an oversubscribed Sky Ring queue",
+      "clock": 0,
+      "keys": "<enter> p s*3 1 <space> w <space> w <space> w <space> w <space> w <space> w <space> w <space> d*2 S 3 ] <space> o -- - A s*2 4 <space> o d w*3 4 ] <space> o w*3 4 ] ] <space> o A*2 S 3 <space> o A a 3 ] ] <space> o A a 3 ] ] ] <space> o d*2 W w*3 3 ] ] ] ] <space> o D d*3 4 <space> o a*2 s*3 4 ] <space> o D d s 4 ] ] <space> o D d*4 s*3 5 ] ] <space> w*2 5 ] <space> d*2 5 ] <space> f h m <esc> >> p _430 c _112 paSs i p _430",
+      "maxSteps": 200000000,
+      "expect": {
+        "status": "frames-complete",
+        "frames": [
+          {
+            "frame": 984,
+            "screen": {
+              "contains": [
+                "│ Aelkin",
+                "Doing       Queuing"
+              ]
+            }
+          },
+          {
+            "frame": 1014,
+            "screen": {
+              "contains": [
+                "│ Aelkin",
+                "Doing       Riding"
+              ]
+            }
+          }
+        ],
+        "screen": {
+          "notContains": [
+            "Doing       Queuing"
+          ]
+        },
+        "maxStepsPerFrame": 2000000
+      }
+    },
+    {
+      "name": "disconnected attractions cannot satisfy the Clover Meadow win",
+      "clock": 0,
+      "keys": "2 p A*2 a*2 s 3 <space> o A a*2 3 ] <space> o A a 3 ] ] <space> o a*3 W w 3 ] ] ] <space> o D d*3 3 ] ] ] ] <space> o D d 4 <space> o d*3 4 ] <space> o d*3 4 ] ] <space> o d*3 4 <space> o d*2 4 ] <space> o >> p _180",
+      "expect": {
+        "status": "frames-complete",
+        "memory": {
+          "st_ride_count": 10,
+          "st_game_state": 1
+        },
+        "screen": {
+          "notContains": [
+            "SCENARIO COMPLETE"
+          ]
+        }
+      }
+    },
+    {
+      "name": "disembarking riders can leave a carousel exit without a path",
+      "clock": 0,
+      "keys": "<enter> p 1 s*3 <space> d*2 w*2 3 <space> o >> p _80",
+      "expect": {
+        "status": "frames-complete",
+        "screen": {
+          "matches": [
+            "(?<![\\s\\S])(?:[^\\n]*\\n){16}.{34}[^☺\\n]"
+          ]
+        }
+      }
+    },
+    {
+      "name": "the first broken carousel cycle collects no fares",
+      "clock": 7,
+      "keys": "<enter> p 1 s*3 <space> w <space> w <space> d*2 3 <space> o >> p _1809",
+      "maxSteps": 200000000,
+      "expect": {
+        "status": "frames-complete",
+        "screen": {
+          "contains": [
+            "Merry Spinner has broken down"
+          ]
+        },
+        "memory": {
+          "st_cash_k": [
+            15,
+            910
+          ],
+          "st_mon_inc_k": [
+            0,
+            42
+          ],
+          "st_guests_total": 330
+        },
+        "frames": [
+          {
+            "frame": 1826,
+            "screen": {
+              "contains": [
+                "$15,910"
+              ],
+              "notContains": [
+                "Merry Spinner has broken down"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "the guest window does not switch people when a slot is reused",
+      "clock": 0,
+      "keys": "<enter> s*4 _41 i _500",
+      "expect": {
+        "status": "frames-complete",
+        "frames": [
+          {
+            "frame": 46,
+            "screen": {
+              "contains": [
+                "│ Aelora",
+                "Doing       Walking"
+              ]
+            }
+          }
+        ],
+        "screen": {
+          "notContains": [
+            "│ Lorfin"
+          ]
+        }
+      }
+    },
+    {
+      "name": "finance refuses staff hiring at a gate with no walkable exit",
+      "clock": 0,
+      "keys": "<enter> p S s x <space> f h m >> p _50",
+      "expect": {
+        "status": "frames-complete",
+        "screen": {
+          "contains": [
+            "Staff cannot reach the gate."
+          ]
+        },
+        "memory": {
+          "st_guest_count": 0,
+          "st_staff_count": 0
+        }
+      }
+    },
+    {
+      "name": "a handyman recovers after the whole path under them is demolished",
+      "clock": 0,
+      "keys": "<enter> p S s 1 a <space> a <space> a <space> f h <esc> p _6 p x <space> d <space> d <space> a >> p _80",
+      "expect": {
+        "status": "frames-complete",
+        "frames": [
+          {
+            "frame": 20,
+            "screen": {
+              "contains": [],
+              "matches": [
+                "(?<![\\s\\S])(?:[^\\n]*\\n){22}.{30}☻"
+              ]
+            }
+          }
+        ],
+        "screen": {
+          "contains": [
+            "Tile    Grass"
+          ],
+          "matches": [
+            "(?<![\\s\\S])(?:[^\\n]*\\n){22}.{30}[^☻\\n]"
+          ]
+        },
+        "memory": {
+          "st_staff_count": 1
+        }
+      }
+    },
+    {
+      "name": "speed four stops simulating on the exact Switchback Hollow deadline",
+      "clock": 0,
+      "keys": "3 p p >> _2000",
+      "maxSteps": 200000000,
+      "expect": {
+        "status": "frames-complete",
+        "screen": {
+          "contains": [
+            "SCENARIO FAILED",
+            "The deadline passed before both goals were met."
+          ]
+        },
+        "memory": {
+          "st_game_state": 3,
+          "st_year": 2,
+          "st_tick": 0,
+          "st_ticks_total": 8000
+        }
+      }
+    },
+    {
+      "name": "closing an occupied ride clears both the queue and on-board counts",
+      "clock": 0,
+      "keys": "<enter> p 1 s*3 <space> w <space> w <space> d*2 3 <space> o >> p _17 p i o",
+      "expect": {
+        "status": "frames-complete",
+        "frames": [
+          {
+            "frame": 36,
+            "screen": {
+              "contains": [
+                "Status      Open",
+                "In queue    1",
+                "On ride     1"
+              ]
+            }
+          }
+        ],
+        "screen": {
+          "contains": [
+            "Status      Closed",
+            "In queue    0",
+            "On ride     0"
+          ]
+        },
+        "memory": {
+          "st_guest_count": 3
+        }
+      }
+    },
+    {
+      "name": "demolishing an occupied carousel clears the ride window and refunds $450",
+      "clock": 0,
+      "keys": "<enter> p 1 s*3 <space> w <space> w <space> d*2 3 <space> o >> p _17 p i x <space> p _8",
+      "expect": {
+        "status": "frames-complete",
+        "frames": [
+          {
+            "frame": 36,
+            "screen": {
+              "contains": [
+                "In queue    1",
+                "On ride     1"
+              ]
+            }
+          },
+          {
+            "frame": 38,
+            "screen": {
+              "contains": [
+                "Tile    Grass",
+                "$9,552"
+              ],
+              "notContains": [
+                "├─┤ Ride"
+              ]
+            }
+          }
+        ],
+        "screen": {
+          "matches": [
+            "(?<![\\s\\S])(?:[^\\n]*\\n){18}.{33}[^☺\\n]"
+          ]
+        },
+        "memory": {
+          "st_ride_count": 0,
+          "st_window": 0,
+          "st_rides": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      }
+    },
+    {
+      "name": "boarding waits while the exit is cut off and resumes when the path is restored",
+      "clock": 0,
+      "keys": "<enter> p 1 s*3 <space> w <space> w <space> d*2 3 <space> o >> p _17 p i a*2 s*2 x <space> p _30 p 1 <space> p _30",
+      "expect": {
+        "status": "frames-complete",
+        "frames": [
+          {
+            "frame": 74,
+            "screen": {
+              "contains": [
+                "Total rides 1 ",
+                "In queue    1",
+                "On ride     0"
+              ]
+            }
+          }
+        ],
+        "screen": {
+          "matches": [
+            "Total rides (?:[3-9]|[1-9][0-9]+) "
+          ]
+        }
+      }
+    },
+    {
+      "name": "the capped $99 admission is charged once to the first guest",
+      "clock": 37,
+      "keys": "<enter> p f +*91 <esc> >> p _4",
+      "expect": {
+        "status": "frames-complete",
+        "screen": {
+          "contains": [
+            "$10,099   Guests 1"
+          ]
+        },
+        "memory": {
+          "st_entry_fee": 99,
+          "st_guests_total": 1,
+          "st_guest_count": 1,
+          "st_cash_k": [
+            10,
+            99
+          ],
+          "st_mon_inc_k": [
+            0,
+            99
+          ]
+        }
+      }
+    },
+    {
+      "name": "month close includes each staff member’s wages once",
+      "clock": 0,
+      "keys": "<enter> p f h m -*10 >> p _199",
+      "expect": {
+        "status": "frames-complete",
+        "frames": [
+          {
+            "frame": 4,
+            "screen": {
+              "contains": [
+                "Cash        $10,000",
+                "Handymen    1",
+                "Mechanics   1"
+              ]
+            }
+          }
+        ],
+        "screen": {
+          "contains": [
+            "Cash        $9,770",
+            "Expenses  $230",
+            "Profit    -$230"
+          ]
+        },
+        "memory": {
+          "st_staff_count": 2,
+          "st_last_exp_k": [
+            0,
+            230
+          ]
+        }
+      }
+    },
+    {
+      "name": "a newly hired mechanic walks to a breakdown and reopens the ride",
+      "clock": 7,
+      "keys": "<enter> p 1 s*3 <space> w <space> w <space> d*2 3 <space> o >> p _1810 p i <esc> f m <esc> p _15 i",
+      "maxSteps": 200000000,
+      "expect": {
+        "status": "frames-complete",
+        "frames": [
+          {
+            "frame": 1829,
+            "screen": {
+              "contains": [
+                "Status      Broken down"
+              ]
+            }
+          }
+        ],
+        "screen": {
+          "contains": [
+            "Merry Spinner repaired",
+            "Status      Open",
+            "Reliable    100%"
+          ]
+        },
+        "memory": {
+          "st_staff_count": 1,
+          "st_staff": [
+            2,
+            33,
+            41,
+            1,
+            0,
+            -1,
+            0,
+            1
+          ]
+        }
+      }
+    },
+    {
+      "name": "a connected park wins Lantern Valley and continues as a sandbox",
+      "clock": 0,
+      "keys": "<enter> p s*3 1 <space> w 2 <space> w 1 <space> w <space> w <space> w <space> w <space> w 2 <space> w 1 <space> w <space> w 2 <space> w 1 <space> w <space> w <space> w <space> d*2 S*2 s*2 3 <space> o W 3 ] ] <space> o W w 3 ] <space> o A a*2 s*2 3 ] ] ] ] <space> o d*2 S*2 s 4 <space> o d w*3 4 ] <space> o w*3 4 ] ] <space> o d s*4 5 ] ] <space> w*2 5 ] <space> d*2 5 ] <space> f h m <esc> >> p _210 c _12",
+      "expect": {
+        "status": "frames-complete",
+        "frames": [
+          {
+            "frame": 332,
+            "screen": {
+              "contains": [
+                "SCENARIO COMPLETE"
+              ]
+            }
+          }
+        ],
+        "screen": {
+          "contains": [
+            "Guests",
+            "Speed 4"
+          ],
+          "notContains": [
+            "SCENARIO COMPLETE"
+          ]
+        },
+        "memory": {
+          "st_scenario": 0,
+          "st_game_state": 1,
+          "st_goal_guests": [
+            0,
+            0,
+            0
+          ],
+          "st_ride_count": 7,
+          "st_staff_count": 2
+        },
+        "maxStepsPerFrame": 2000000
+      }
+    }
+  ]
+}

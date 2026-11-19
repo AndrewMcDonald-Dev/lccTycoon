@@ -6,6 +6,24 @@
 ; RS_BUILDING while designing. Designer mode: st_cst_ride >= 0.
 ; All routines: args r0..r4, result r0, all other registers preserved.
 ;
+; Ratings use integer arithmetic and cap each score at RATING_MAX.
+; Count each run of descents as one drop, sum the height lost, and count
+; left/right turns and turns immediately following another turn. Starting
+; at speed 8, each piece loses 1 to friction, turns lose 2 more, descents
+; gain 5 per height unit and climbs lose 3 per unit. Speed stays in 4..24.
+; Excitement = 6*length + 30*drops + 16*height lost + 8*max height
+;              + 8*turns + 8*min(left,right) + 2*(peak speed - 4).
+; Intensity = 32*height lost + 12*max height + 120*turns/length
+;             + 3*(peak speed - 4).
+; Nausea = capped intensity/3 + 12*consecutive turns.
+;
+; Each piece gets a travel weight of 48/speed. The train consumes the
+; total lap weight each tick and each piece costs its weight times
+; RTI_CYCLE, so the residual carries fractions and a lap takes RTI_CYCLE
+; ticks. Boarding starts the lap at the station. Empty trains also run.
+; R_TRAIN_SPD reports the resulting piece speed in tenths per tick,
+; with a minimum of 1 while the train is running.
+;
 ;; cst_begin      r0=x r1=y        -> r0=ride index, -1 refused   start a coaster: station piece at (x,y), st_cst_ride = index, status RS_BUILDING     (WP11)
 ;; cst_key        r0=key           -> r0=1 consumed, 0 not        designer keys while st_cst_ride >= 0 (piece select, place, undo, finish, esc cancel)     (WP11)
 ;; cst_add_piece  r0=shape         -> r0=1 placed, 0 refused      append a TP_* piece at the head (map tile T_TRACK, cost COST_TRACK)     (WP11)
@@ -13,44 +31,1324 @@
 ;; cst_closed     r0=ride          -> r0=1 track is a closed circuit back to the station, else 0     (WP11)
 ;; cst_finish     ()               -> r0=1 done, 0 not closed       validate, rate (cst_rate), status RS_CLOSED, st_cst_ride = -1     (WP11)
 ;; cst_cancel     ()               -> -                             abandon the design (refund, free pieces + ride), st_cst_ride = -1     (WP11)
+;; cst_remove_track r0=ride record -> r0=ride record                clear non-station track tiles and reclaim all its track slots
 ;; cst_rate       r0=ride          -> -                             compute R_EXCITE/R_INTENS/R_NAUSEA from drops, turns, length, speed     (WP12)
 ;; cst_tick       ()               -> -                             advance trains of open coasters (R_TRAIN_POS/SPD)     (WP12)
 ;; cst_draw       ()               -> -                             overlay designer head/ghost piece and trains on the viewport (after ren_draw)     (WP11/WP12)
 ; ---------------------------------------------------------------------
 
-; WP0 stub: no coasters.
+; TK_PIECE holds the outgoing heading. TK_H is the height at the
+; piece's exit, so the next tile starts at that height. The station
+; leaves to the east at height 0 and accepts a return from any side.
+        .define CST_MAX_HEIGHT  7
+
 cst_begin:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        mov r3, r0
+        ld r0, st_cst_ride
+        cmp r0, -1
+        brp cst_begin_refused
+        mov r0, r3
+        bl map_buildable
+        cmp r0, 0
+        brz cst_begin_blocked
+        ld r0, st_track_used
+        mov r2, MAX_TRACK-1
+        cmp r0, r2
+        brgt cst_begin_full
+
+        mov r0, RT_COASTER
+        bl ride_type_info
+        ldr r4, r0, RTI_COST
+        mov r0, r4
+        bl eco_can_afford
+        cmp r0, 0
+        brz cst_begin_cash
+        mov r2, r1
+        mov r1, r3
+        mov r0, RT_COASTER
+        bl ride_new
+        cmp r0, 0
+        brn cst_begin_no_ride
+        st r0, st_cst_ride
+        mov r0, r4              ; cash is unchanged since eco_can_afford
+        bl eco_spend
+
+        lea r0, cst_candidate
+        str r3, r0, TK_X
+        str r2, r0, TK_Y
+        mov r1, 0
+        str r1, r0, TK_H
+        mov r1, TP_STATION|(DIR_E<<TP_DIR_SHIFT)
+        str r1, r0, TK_PIECE
+
+        ld r0, st_cst_ride
+        bl ride_addr
+        mov r4, r0
+        ld r0, st_track_used
+        str r0, r4, R_TRACK
+        mov r0, RS_BUILDING
+        str r0, r4, R_STATUS
         mov r0, -1
+        str r0, r4, R_ENT_X
+        str r0, r4, R_ENT_Y
+        str r0, r4, R_EXIT_X
+        str r0, r4, R_EXIT_Y
+
+        ld r0, st_cst_ride
+        mov r1, T_RIDE
+        bl cst_append
+        mov r0, TP_STRAIGHT
+        st r0, cst_shape
+        bl cst_focus
+        lea r0, cst_msg_keys
+        bl ui_msg
+        ld r0, st_cst_ride
+        br cst_begin_done
+
+cst_begin_blocked:
+        lea r0, cst_msg_blocked
+        br cst_begin_error
+cst_begin_full:
+        lea r0, cst_msg_full
+        br cst_begin_error
+cst_begin_cash:
+        lea r0, cst_msg_cash
+        br cst_begin_error
+cst_begin_no_ride:
+        lea r0, cst_msg_no_ride
+cst_begin_error:
+        bl ui_msg
+cst_begin_refused:
+        mov r0, -1
+cst_begin_done:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
         ret
 
 cst_key:
+        push r1
+        push lr
+        ld r1, st_cst_ride
+        cmp r1, 0
+        brn cst_key_pass
+        mov r1, '1'
+        sub r1, r0, r1
+        brn cst_key_command
+        cmp r1, TP_DOWN-TP_STRAIGHT
+        brgt cst_key_command
+        add r1, r1, TP_STRAIGHT
+        st r1, cst_shape
+        br cst_key_used
+cst_key_command:
+        mov r1, KEY_ESC
+        cmp r0, r1
+        brz cst_key_cancel
+        mov r1, 'u'
+        cmp r0, r1
+        brz cst_key_undo
+        mov r1, 127             ; DEL and BS are both terminal backspace
+        cmp r0, r1
+        brz cst_key_undo
+        cmp r0, 8
+        brz cst_key_undo
+        mov r1, 'f'
+        cmp r0, r1
+        brz cst_key_finish
+        cmp r0, KEY_ENTER
+        brz cst_key_enter
+        cmp r0, 13              ; also accept carriage return
+        brz cst_key_enter
+        mov r1, KEY_APPLY
+        cmp r0, r1
+        brz cst_key_place
+        br cst_key_pass
+cst_key_enter:
+        ld r0, st_cst_ride
+        bl cst_closed
+        cmp r0, 0
+        brnz cst_key_finish
+cst_key_place:
+        ld r0, cst_shape
+        bl cst_add_piece
+        br cst_key_used
+cst_key_finish:
+        bl cst_finish
+        br cst_key_used
+cst_key_undo:
+        bl cst_undo
+        br cst_key_used
+cst_key_cancel:
+        bl cst_cancel
+cst_key_used:
+        mov r0, 1
+        br cst_key_done
+cst_key_pass:
         mov r0, 0
+cst_key_done:
+        pop lr
+        pop r1
         ret
 
 cst_add_piece:
+        push r1
+        push lr
+        bl cst_validate
+        cmp r0, 0
+        brnz cst_add_error
+        mov r0, COST_TRACK
+        bl eco_spend
+        cmp r0, 0
+        brz cst_add_cash
+        ld r0, st_cst_ride
+        mov r1, T_TRACK
+        bl cst_append
+        bl cst_focus
+        ld r0, st_cst_ride
+        bl cst_closed
+        cmp r0, 0
+        brz cst_add_done
+        lea r0, cst_msg_closed
+        bl ui_msg
+cst_add_done:
+        mov r0, 1
+        br cst_add_return
+cst_add_cash:
+        lea r0, cst_msg_cash
+cst_add_error:
+        bl ui_msg
         mov r0, 0
+cst_add_return:
+        pop lr
+        pop r1
         ret
 
 cst_undo:
+        push r1
+        push lr
+        ld r0, st_cst_ride
+        cmp r0, 0
+        brn cst_undo_none
+        bl ride_addr
+        ldr r1, r0, R_TRACK_LEN
+        cmp r1, 2
+        brlt cst_undo_none
+        sub r1, r1, 1
+        str r1, r0, R_TRACK_LEN
+        bl cst_pop
+        mov r0, COST_TRACK
+        bl eco_earn
+        bl cst_focus
+        lea r0, cst_msg_keys
+        bl ui_msg
+        mov r0, 1
+        br cst_undo_done
+cst_undo_none:
         mov r0, 0
+cst_undo_done:
+        pop lr
+        pop r1
         ret
 
 cst_closed:
+        push r1
+        push r2
+        push r3
+        push lr
+        cmp r0, 0
+        brn cst_closed_no
+        mov r1, MAX_RIDES-1
+        cmp r0, r1
+        brgt cst_closed_no
+        bl ride_addr
+        mov r3, r0
+        ldr r1, r3, R_TYPE
+        cmp r1, RT_COASTER
+        brnz cst_closed_no
+        ldr r1, r3, R_TRACK_LEN
+        cmp r1, 2
+        brlt cst_closed_no
+        bl cst_last
+        ldr r1, r0, TK_H
+        cmp r1, 0
+        brnz cst_closed_no
+        bl cst_next
+        ldr r2, r3, R_X
+        cmp r0, r2
+        brnz cst_closed_no
+        ldr r2, r3, R_Y
+        cmp r1, r2
+        brnz cst_closed_no
+        mov r0, 1
+        br cst_closed_done
+cst_closed_no:
         mov r0, 0
+cst_closed_done:
+        pop lr
+        pop r3
+        pop r2
+        pop r1
         ret
 
 cst_finish:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        ld r0, st_cst_ride
+        bl cst_closed
+        cmp r0, 0
+        brz cst_finish_open
+        ld r0, st_cst_ride
+        bl ride_addr
+        mov r4, r0
+        mov r3, -1
+        bl cst_find_door
+        cmp r0, 0
+        brn cst_finish_no_doors
+        mov r3, r0
+        bl cst_find_door
+        cmp r0, 0
+        brn cst_finish_no_doors
+        push r0                 ; both door sites are known before committing
+        mov r2, r3
+        mov r3, R_ENT_X
+        bl cst_place_door
+        pop r2
+        mov r3, R_EXIT_X
+        bl cst_place_door
+
+        ld r0, st_cst_ride
+        bl cst_rate
+        bl cst_focus
+        mov r0, RS_CLOSED
+        str r0, r4, R_STATUS
+        mov r0, -1
+        st r0, st_cst_ride
+        lea r0, cst_msg_finished
+        bl ui_msg
+        mov r0, 1
+        br cst_finish_done
+cst_finish_open:
+        lea r0, cst_msg_open
+        br cst_finish_error
+cst_finish_no_doors:
+        lea r0, cst_msg_no_doors
+cst_finish_error:
+        bl ui_msg
         mov r0, 0
+cst_finish_done:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
         ret
 
 cst_cancel:
+        push r0
+        push r1
+        push r2
+        push r3
+        push lr
+        ld r0, st_cst_ride
+        cmp r0, 0
+        brn cst_cancel_done
+        bl ride_addr
+        ldr r2, r0, R_TRACK_LEN
+        ldr r1, r0, R_X
+        st r1, st_cur_x
+        ldr r1, r0, R_Y
+        st r1, st_cur_y
+        bl eco_ride_value
+        mov r3, r0
+cst_cancel_pop:
+        bl cst_pop
+        sub r2, r2, 1
+        brp cst_cancel_pop
+
+        mov r0, r3
+        bl eco_earn
+        ld r0, st_cst_ride
+        bl ride_free
+        mov r0, -1
+        st r0, st_cst_ride
+        lea r0, cst_msg_canceled
+        bl ui_msg
+cst_cancel_done:
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        pop r0
         ret
 
+cst_remove_track:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        push r0
+        ldr r4, r0, R_TRACK_LEN
+        sll r4, TRACK_SHIFT
+        ldr r0, r0, R_TRACK
+        bl cst_track_addr
+        mov r3, r0               ; station (cleared by bld_clear_ride)
+        add r4, r3, r4
+cst_remove_tile:
+        sub r4, r4, TRACK_SIZE
+        cmp r4, r3
+        brz cst_remove_compact
+        ldr r0, r4, TK_X
+        ldr r1, r4, TK_Y
+        mov r2, T_GRASS
+        bl map_set
+        br cst_remove_tile
+
+cst_remove_compact:
+        ldr r0, sp, 0
+        ldr r3, r0, R_TRACK     ; start of the gap
+        ldr r4, r0, R_TRACK_LEN ; length of the gap
+        ld r2, st_track_used
+        sub r2, r2, r4
+        st r2, st_track_used
+        sub r2, r2, r3          ; number of pieces after the gap
+
+        ; Copy forward into the gap, including each piece's parallel data.
+        lea r0, cst_piece_weights
+        add r0, r0, r3
+        add r1, r0, r4
+        bl util_memcpy
+        lea r0, cst_original_tiles
+        add r0, r0, r3
+        add r1, r0, r4
+        bl util_memcpy
+        mov r0, r3
+        bl cst_track_addr
+        mov r1, r4
+        sll r1, TRACK_SHIFT
+        add r1, r0, r1
+        sll r2, TRACK_SHIFT
+        bl util_memcpy
+        add r0, r0, r2          ; new end of the used pool
+        mov r1, 0
+        mov r2, r4
+        sll r2, TRACK_SHIFT
+        bl util_memset
+
+        lea r1, st_rides
+        mov r2, MAX_RIDES
+cst_remove_ride:
+        ldr r0, r1, R_TYPE
+        cmp r0, RT_COASTER
+        brnz cst_remove_next
+        ldr r0, r1, R_TRACK
+        cmp r0, r3
+        brlt cst_remove_next
+        brz cst_remove_next
+        sub r0, r0, r4
+        str r0, r1, R_TRACK
+cst_remove_next:
+        mov r0, RIDE_SIZE
+        add r1, r1, r0
+        sub r2, r2, 1
+        brp cst_remove_ride
+        pop r0
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+        .define CST_MIN_SPEED   4
+        .define CST_MAX_SPEED   24
+        .define CST_START_SPEED 8
+        .define CST_WEIGHT      48
+; Private lap weight and residual travel budget for each ride slot.
+        .define CST_RUN_WEIGHT   0
+        .define CST_RUN_PROGRESS 1
+        .define CST_RUN_SIZE     2
+; Rating stack frame.
+        .define CST_RATE_RIDE    -1
+        .define CST_RATE_RUN     -2
+        .define CST_RATE_LEFT    -3
+        .define CST_RATE_RIGHT   -4
+        .define CST_RATE_REPEAT  -5
+        .define CST_RATE_TURN    -6
+        .define CST_RATE_DROPS   -7
+        .define CST_RATE_DROP    -8
+        .define CST_RATE_FALL    -9
+        .define CST_RATE_HIGH    -10
+        .define CST_RATE_SPEED   -11
+        .define CST_RATE_PEAK    -12
+        .define CST_RATE_WEIGHT  -13
+        .define CST_RATE_WEIGHTS -14
+        .define CST_RATE_REMAINING -15
+
 cst_rate:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        push fp
+        mov fp, sp
+        cmp r0, 0
+        brn cst_rate_done
+        mov r1, MAX_RIDES-1
+        cmp r0, r1
+        brgt cst_rate_done
+        mov r3, r0
+        bl ride_addr
+        mov r4, r0
+        ldr r1, r4, R_TYPE
+        cmp r1, RT_COASTER
+        brnz cst_rate_done
+        ldr r2, r4, R_TRACK_LEN
+        cmp r2, 0
+        brlt cst_rate_done
+        brz cst_rate_done
+        sub sp, sp, 15
+        mov r0, sp
+        mov r1, 0
+        mov r2, 15
+        bl util_memset
+        str r4, fp, CST_RATE_RIDE
+        lea r0, cst_train_runs
+        sll r3, 1
+        add r0, r0, r3
+        str r0, fp, CST_RATE_RUN
+        ldr r0, r4, R_TRACK_LEN
+        str r0, fp, CST_RATE_REMAINING
+        ldr r0, r4, R_TRACK
+        lea r1, cst_piece_weights
+        add r1, r1, r0
+        str r1, fp, CST_RATE_WEIGHTS
+        bl cst_track_addr
+        mov r4, r0
+        mov r3, 0               ; previous exit height
+        mov r0, CST_START_SPEED
+        str r0, fp, CST_RATE_SPEED
+cst_rate_piece:
+        ldr r0, r4, TK_H
+        ldr r1, fp, CST_RATE_HIGH
+        cmp r0, r1
+        brlt cst_rate_slope
+        str r0, fp, CST_RATE_HIGH
+cst_rate_slope:
+        sub r2, r3, r0          ; positive on descents
+        mov r3, r0
+        ldr r0, fp, CST_RATE_SPEED
+        sub r0, r0, 1
+        cmp r2, 0
+        brp cst_rate_down
+        mov r1, 3               ; negative on climbs
+        mul r2, r1
+        add r0, r0, r2
+        mov r1, 0
+        str r1, fp, CST_RATE_DROP
+        br cst_rate_turn
+cst_rate_down:
+        ldr r1, fp, CST_RATE_FALL
+        add r1, r1, r2
+        str r1, fp, CST_RATE_FALL
+        mov r1, 5
+        mul r2, r1
+        add r0, r0, r2
+        ldr r1, fp, CST_RATE_DROPS
+        ldr r2, fp, CST_RATE_DROP
+        sub r1, r1, r2
+        add r1, r1, 1
+        str r1, fp, CST_RATE_DROPS
+        mov r1, 1
+        str r1, fp, CST_RATE_DROP
+cst_rate_turn:
+        ldr r2, r4, TK_PIECE
+        and r2, r2, TP_SHAPE_MASK
+        cmp r2, TP_LEFT
+        brz cst_rate_left
+        cmp r2, TP_RIGHT
+        brz cst_rate_right
+        mov r1, 0
+        str r1, fp, CST_RATE_TURN
+        br cst_rate_speed
+cst_rate_left:
+        ldr r1, fp, CST_RATE_LEFT
+        add r1, r1, 1
+        str r1, fp, CST_RATE_LEFT
+        br cst_rate_repeat
+cst_rate_right:
+        ldr r1, fp, CST_RATE_RIGHT
+        add r1, r1, 1
+        str r1, fp, CST_RATE_RIGHT
+cst_rate_repeat:
+        sub r0, r0, 2
+        ldr r1, fp, CST_RATE_REPEAT
+        ldr r2, fp, CST_RATE_TURN
+        add r1, r1, r2
+        str r1, fp, CST_RATE_REPEAT
+        mov r1, 1
+        str r1, fp, CST_RATE_TURN
+cst_rate_speed:
+        mov r1, CST_MAX_SPEED
+        bl util_min
+        mov r1, CST_MIN_SPEED
+        bl util_max
+        str r0, fp, CST_RATE_SPEED
+        ldr r1, fp, CST_RATE_PEAK
+        bl util_max
+        str r0, fp, CST_RATE_PEAK
+        ldr r1, fp, CST_RATE_SPEED
+        mov r0, CST_WEIGHT
+        div r0, r1
+        ldr r1, fp, CST_RATE_WEIGHT
+        add r1, r1, r0
+        str r1, fp, CST_RATE_WEIGHT
+        ldr r1, fp, CST_RATE_WEIGHTS
+        str r0, r1, 0
+        add r1, r1, 1
+        str r1, fp, CST_RATE_WEIGHTS
+        add r4, r4, TRACK_SIZE
+        ldr r0, fp, CST_RATE_REMAINING
+        sub r0, r0, 1
+        str r0, fp, CST_RATE_REMAINING
+        brp cst_rate_piece
+
+        ldr r4, fp, CST_RATE_RIDE
+        ldr r3, fp, CST_RATE_RUN
+        ldr r0, fp, CST_RATE_WEIGHT
+        str r0, r3, CST_RUN_WEIGHT
+        mov r0, 0
+        str r0, r3, CST_RUN_PROGRESS
+        str r0, r4, R_TRAIN_POS
+        str r0, r4, R_TRAIN_SPD
+
+        ldr r0, fp, CST_RATE_LEFT
+        ldr r1, fp, CST_RATE_RIGHT
+        add r3, r0, r1           ; total turns
+        bl util_min
+        add r0, r0, r3
+        sll r0, 3
+        ldr r1, r4, R_TRACK_LEN
+        mov r2, 6
+        mul r1, r2
+        add r0, r0, r1
+        ldr r1, fp, CST_RATE_DROPS
+        mov r2, 30
+        mul r1, r2
+        add r0, r0, r1
+        ldr r1, fp, CST_RATE_FALL
+        sll r1, 4
+        add r0, r0, r1
+        ldr r1, fp, CST_RATE_HIGH
+        sll r1, 3
+        add r0, r0, r1
+        ldr r2, fp, CST_RATE_PEAK
+        sub r2, r2, CST_MIN_SPEED
+        mov r1, r2
+        sll r1, 1
+        add r0, r0, r1
+        ld r1, cst_k_rating_max
+        bl util_min
+        str r0, r4, R_EXCITE
+
+        mov r0, 120
+        mul r0, r3
+        ldr r1, r4, R_TRACK_LEN
+        div r0, r1
+        ldr r1, fp, CST_RATE_FALL
+        sll r1, 5
+        add r0, r0, r1
+        ldr r1, fp, CST_RATE_HIGH
+        mov r3, 12
+        mul r1, r3
+        add r0, r0, r1
+        mov r1, 3
+        mul r2, r1
+        add r0, r0, r2
+        ld r1, cst_k_rating_max
+        bl util_min
+        str r0, r4, R_INTENS
+
+        mov r1, 3
+        div r0, r1
+        ldr r1, fp, CST_RATE_REPEAT
+        mul r1, r3               ; 12 per turn following a turn
+        add r0, r0, r1
+        ld r1, cst_k_rating_max
+        bl util_min
+        str r0, r4, R_NAUSEA
+cst_rate_done:
+        mov sp, fp
+        pop fp
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
         ret
 
 cst_tick:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        mov r0, RT_COASTER
+        bl ride_type_info
+        ldr r2, r0, RTI_CYCLE
+        cmp r2, 0
+        brz cst_tick_done
+        lea r4, st_rides
+        lea r3, cst_train_runs
+cst_tick_ride:
+        ldr r0, r4, R_TYPE
+        cmp r0, RT_COASTER
+        brnz cst_tick_next
+        ldr r0, r4, R_STATUS
+        cmp r0, RS_OPEN
+        brnz cst_tick_next
+        ldr r1, r3, CST_RUN_WEIGHT
+        cmp r1, 0
+        brz cst_tick_next       ; no finished circuit
+        ldr r0, r4, R_TIMER
+        cmp r0, r2
+        brz cst_tick_board
+        ldr r0, r3, CST_RUN_PROGRESS
+        add r0, r0, r1
+        ldr r1, r4, R_TRAIN_POS
+        br cst_tick_move
+cst_tick_board:
+        mov r0, 0
+        mov r1, 0
+cst_tick_move:
+        push r2
+        push r3
+        push r4
+        ldr r3, r4, R_TRACK
+        lea r4, cst_piece_weights
+        add r3, r3, r4          ; station weight address
+        ldr r4, sp, 0
+        ldr r4, r4, R_TRACK_LEN
+        push r4
+cst_tick_piece:
+        add r4, r3, r1
+        ldr r4, r4, 0
+        mul r4, r2              ; time to traverse this piece
+        cmp r4, r0
+        brgt cst_tick_store
+        sub r0, r0, r4
+        add r1, r1, 1
+        ldr r4, sp, 0
+        cmp r4, r1
+        brgt cst_tick_piece
+        mov r1, 0               ; wrap to the station
+        br cst_tick_piece
+cst_tick_store:
+        mov r2, r4              ; scaled weight of the current piece
+        add sp, sp, 1
+        pop r4
+        pop r3
+        str r0, r3, CST_RUN_PROGRESS
+        str r1, r4, R_TRAIN_POS
+        ldr r0, r3, CST_RUN_WEIGHT
+        mov r1, 10
+        mul r0, r1              ; <= MAX_TRACK * (48/4) * 10 = 30720
+        div r0, r2
+        brp cst_tick_speed
+        mov r0, 1               ; keep sub-tenth speeds visible
+cst_tick_speed:
+        str r0, r4, R_TRAIN_SPD
+        pop r2
+cst_tick_next:
+        ld r0, cst_k_ride_size
+        add r4, r4, r0
+        add r3, r3, CST_RUN_SIZE
+        lea r0, cst_train_runs_end
+        cmp r3, r0
+        brnz cst_tick_ride
+cst_tick_done:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
         ret
 
+; Draw built rails and trains, then the designer's preview.
 cst_draw:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        lea r4, st_track
+        ld r3, st_track_used
+        cmp r3, 0
+        brz cst_draw_preview
+cst_draw_rails:
+        ldr r0, r4, TK_PIECE
+        and r0, r0, TP_SHAPE_MASK
+        cmp r0, TP_STRAIGHT
+        brlt cst_draw_next
+        ldr r0, r4, TK_X
+        ldr r1, r4, TK_Y
+        bl ren_map_to_screen
+        cmp r0, 0
+        brn cst_draw_next
+        bl video_addr
+        mov r2, r0
+        ld r1, cst_a_ground
+        ldr r0, r4, TK_H
+        cmp r0, 0
+        brz cst_draw_cursor
+        ld r1, cst_a_high
+cst_draw_cursor:
+        ldr r0, r2, 0
+        push r3
+        ld r3, cst_m_attr
+        and r0, r0, r3
+        ld r3, cst_a_cursor
+        cmp r0, r3
+        brnz cst_draw_store
+        mov r1, r3
+cst_draw_store:
+        pop r3
+        ldr r0, r4, TK_PIECE
+        bl cst_glyph
+        add r0, r0, r1
+        str r0, r2, 0
+cst_draw_next:
+        add r4, r4, TRACK_SIZE
+        sub r3, r3, 1
+        brp cst_draw_rails
+
+        lea r4, st_rides
+        lea r3, cst_train_runs
+cst_draw_train:
+        ldr r0, r4, R_TYPE
+        cmp r0, RT_COASTER
+        brnz cst_draw_next_train
+        ldr r0, r4, R_STATUS
+        cmp r0, RS_OPEN
+        brnz cst_draw_next_train
+        ldr r0, r3, CST_RUN_WEIGHT
+        cmp r0, 0
+        brz cst_draw_next_train
+        push r3
+        ldr r3, r4, R_TRAIN_POS
+        ld r2, cst_c_engine
+        bl cst_draw_car
+        sub r3, r3, 1
+        brp cst_draw_tail
+        brz cst_draw_tail
+        ldr r3, r4, R_TRACK_LEN
+        sub r3, r3, 1
+cst_draw_tail:
+        ld r2, cst_c_car
+        bl cst_draw_car
+        pop r3
+cst_draw_next_train:
+        ld r0, cst_k_ride_size
+        add r4, r4, r0
+        add r3, r3, CST_RUN_SIZE
+        lea r0, cst_train_runs_end
+        cmp r3, r0
+        brnz cst_draw_train
+
+cst_draw_preview:
+        ld r0, st_cst_ride
+        cmp r0, 0
+        brn cst_draw_done
+        ld r0, cst_shape
+        bl cst_validate
+        mov r3, r0              ; refusal message or zero
+        lea r4, cst_candidate
+        ldr r0, r4, TK_X
+        ldr r1, r4, TK_Y
+        bl ren_map_to_screen
+        cmp r0, 0
+        brn cst_draw_done
+        mov r2, r0              ; row
+        ldr r0, r4, TK_PIECE
+        bl cst_glyph
+        ld r4, cst_a_ghost_ok
+        cmp r3, 0
+        brz cst_draw_ghost
+        lea r4, cst_msg_closed
+        cmp r4, r3
+        brnz cst_draw_ghost_blocked
+        mov r0, G_DHORIZ        ; the existing station is the join
+        ld r4, cst_a_ghost_ok
+        br cst_draw_ghost
+cst_draw_ghost_blocked:
+        ld r4, cst_a_ghost_bad
+cst_draw_ghost:
+        add r4, r4, r0
+        mov r0, r2
+        mov r2, r4
+        bl video_put
+cst_draw_done:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
         ret
+
+; r4=ride, r3=piece index within the circuit, r2=car display cell.
+cst_draw_car:
+        push r3
+        push lr
+        ldr r0, r4, R_TRACK
+        add r0, r0, r3
+        bl cst_track_addr
+        ldr r1, r0, TK_Y
+        ldr r0, r0, TK_X
+        bl ren_map_to_screen
+        cmp r0, 0
+        brn cst_draw_car_done
+        bl video_addr
+        ldr r1, r0, 0
+        ld r3, cst_m_attr
+        and r1, r1, r3
+        ld r3, cst_a_cursor
+        cmp r1, r3
+        brnz cst_draw_car_store
+        ld r1, cst_m_glyph
+        and r2, r2, r1
+        add r2, r2, r3
+cst_draw_car_store:
+        str r2, r0, 0
+cst_draw_car_done:
+        pop lr
+        pop r3
+        ret
+
+; Evaluate the candidate for both placement and preview. Return zero
+; when valid, otherwise the address of the message explaining refusal.
+cst_validate:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        mov r4, r0              ; shape
+        ld r0, st_cst_ride
+        cmp r0, 0
+        brn cst_validate_inactive
+        cmp r4, TP_STRAIGHT
+        brlt cst_validate_shape
+        cmp r4, TP_DOWN
+        brgt cst_validate_shape
+        bl ride_addr
+        bl cst_last
+        ldr r3, r0, TK_H
+        bl cst_next             ; r0=x, r1=y, r2=heading into the new piece
+
+        push r0
+        sub r4, r4, TP_STRAIGHT
+        lea r0, cst_turns
+        add r0, r0, r4
+        ldr r0, r0, 0
+        add r2, r2, r0
+        and r2, r2, 3
+        sll r2, TP_DIR_SHIFT
+        add r2, r2, r4
+        add r2, r2, TP_STRAIGHT
+        lea r0, cst_rises
+        add r0, r0, r4
+        ldr r0, r0, 0
+        add r3, r3, r0
+        lea r4, cst_candidate
+        pop r0
+        str r0, r4, TK_X
+        str r1, r4, TK_Y
+        str r3, r4, TK_H
+        str r2, r4, TK_PIECE
+
+        ld r0, st_cst_ride
+        bl cst_closed
+        cmp r0, 0
+        brnz cst_validate_closed
+        cmp r3, 0
+        brn cst_validate_height
+        cmp r3, CST_MAX_HEIGHT
+        brgt cst_validate_height
+        ldr r0, r4, TK_X
+        bl map_buildable
+        cmp r0, 0
+        brz cst_validate_blocked
+        ld r0, st_track_used
+        mov r1, MAX_TRACK-1
+        cmp r0, r1
+        brgt cst_validate_full
+        mov r0, COST_TRACK
+        bl eco_can_afford
+        cmp r0, 0
+        brz cst_validate_cash
+        mov r0, 0
+        br cst_validate_done
+cst_validate_inactive:
+        lea r0, cst_msg_inactive
+        br cst_validate_done
+cst_validate_shape:
+        lea r0, cst_msg_keys
+        br cst_validate_done
+cst_validate_closed:
+        lea r0, cst_msg_closed
+        br cst_validate_done
+cst_validate_height:
+        lea r0, cst_msg_height
+        br cst_validate_done
+cst_validate_blocked:
+        lea r0, cst_msg_blocked
+        br cst_validate_done
+cst_validate_full:
+        lea r0, cst_msg_full
+        br cst_validate_done
+cst_validate_cash:
+        lea r0, cst_msg_cash
+cst_validate_done:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; r0=ride index, r1=T_TRACK or T_RIDE: append the staged candidate.
+cst_append:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        mov r3, r0
+        mov r4, r1
+        ld r2, st_track_used
+        mov r0, r2
+        bl cst_track_addr
+        lea r1, cst_candidate
+        mov r2, TRACK_SIZE
+        bl util_memcpy
+        mov r1, r0
+        ldr r0, r1, TK_X
+        ldr r1, r1, TK_Y
+        push r0
+        bl map_get
+        ld r2, st_track_used
+        push r3
+        lea r3, cst_original_tiles
+        add r3, r3, r2
+        str r0, r3, 0
+        pop r3
+        add r2, r2, 1
+        st r2, st_track_used
+
+        mov r2, r3
+        sll r2, T_RIDE_SHIFT
+        add r2, r2, r4
+        lea r0, cst_candidate
+        ldr r0, r0, TK_H
+        sll r0, T_HEIGHT_SHIFT
+        add r2, r2, r0
+        pop r0
+        bl map_set
+        mov r0, r3
+        bl ride_addr
+        ldr r1, r0, R_TRACK_LEN
+        add r1, r1, 1
+        str r1, r0, R_TRACK_LEN
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; Pop the global tail during undo or cancel. The active ride owns the tail.
+cst_pop:
+        push r1
+        push r2
+        push r3
+        push lr
+        ld r0, st_track_used
+        sub r0, r0, 1
+        st r0, st_track_used
+        lea r2, cst_original_tiles
+        add r2, r2, r0
+        ldr r2, r2, 0
+        bl cst_track_addr
+        mov r3, r0
+        ldr r0, r3, TK_X
+        ldr r1, r3, TK_Y
+        bl map_set
+        mov r0, r3
+        mov r1, 0
+        mov r2, TRACK_SIZE
+        bl util_memset
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; r0=ride record -> address of its last piece. Preserves r1.
+cst_last:
+        push r1
+        ldr r1, r0, R_TRACK_LEN
+        ldr r0, r0, R_TRACK
+        add r0, r0, r1
+        sub r0, r0, 1
+        pop r1
+cst_track_addr:
+        push r1
+        sll r0, TRACK_SHIFT
+        lea r1, st_track
+        add r0, r0, r1
+        pop r1
+        ret
+
+; r0=piece address -> r0=x, r1=y of next tile, r2=heading.
+cst_next:
+        ldr r2, r0, TK_PIECE
+        srl r2, TP_DIR_SHIFT
+        ldr r1, r0, TK_Y
+        ldr r0, r0, TK_X
+cst_step:
+        push r3
+        lea r3, cst_dx
+        add r3, r3, r2
+        ldr r3, r3, 0
+        add r0, r0, r3
+        lea r3, cst_dy
+        add r3, r3, r2
+        ldr r3, r3, 0
+        add r1, r1, r3
+        pop r3
+        ret
+
+; Scroll follows the construction head through the ordinary map cursor.
+cst_focus:
+        push r1
+        push r2
+        push r3
+        push lr
+        ld r0, st_cst_ride
+        bl ride_addr
+        bl cst_last
+        mov r3, r0
+        bl cst_next
+        push r0
+        bl map_in_bounds
+        cmp r0, 0
+        pop r0
+        brnz cst_focus_store
+        ldr r0, r3, TK_X
+        ldr r1, r3, TK_Y
+cst_focus_store:
+        st r0, st_cur_x
+        st r1, st_cur_y
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; r3=excluded direction (-1 for none), r4=ride record. Return the
+; direction of a buildable neighbor, preferring one near a path/queue.
+cst_find_door:
+        push lr
+        mov r0, -1
+        push r0
+        mov r2, DIR_N
+cst_find_loop:
+        cmp r2, r3
+        brz cst_find_next
+        ldr r0, r4, R_X
+        ldr r1, r4, R_Y
+        bl cst_step
+        push r0
+        bl map_buildable
+        cmp r0, 0
+        pop r0
+        brz cst_find_next
+        push r0
+        ldr r0, sp, 1
+        cmp r0, -1
+        brnz cst_find_path
+        str r2, sp, 1
+cst_find_path:
+        pop r0
+        bl cst_near_path
+        cmp r0, 0
+        brnz cst_find_linked
+cst_find_next:
+        add r2, r2, 1
+        cmp r2, DIR_W+1
+        brlt cst_find_loop
+        pop r0
+        br cst_find_done
+cst_find_linked:
+        add sp, sp, 1
+        mov r0, r2
+cst_find_done:
+        pop lr
+        ret
+
+; r0=x, r1=y. Return 1 when a cardinal neighbor is path or queue.
+cst_near_path:
+        push r2
+        push r3
+        push r4
+        push lr
+        mov r3, r0
+        mov r4, r1
+        mov r2, DIR_N
+cst_near_loop:
+        mov r0, r3
+        mov r1, r4
+        bl cst_step
+        bl map_kind
+        cmp r0, T_PATH
+        brz cst_near_hit
+        cmp r0, T_QUEUE
+        brz cst_near_hit
+        add r2, r2, 1
+        cmp r2, DIR_W+1
+        brlt cst_near_loop
+        mov r0, 0
+        br cst_near_done
+cst_near_hit:
+        mov r0, 1
+cst_near_done:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        ret
+
+; r2=door direction, r3=R_ENT_X or R_EXIT_X, r4=ride record.
+cst_place_door:
+        push lr
+        ldr r0, r4, R_X
+        ldr r1, r4, R_Y
+        bl cst_step
+        add r2, r4, r3
+        str r0, r2, 0
+        str r1, r2, 1
+        ld r2, st_cst_ride
+        sll r2, T_RIDE_SHIFT
+        cmp r3, R_ENT_X
+        brz cst_place_entrance
+        add r2, r2, T_EXIT
+        br cst_place_tile
+cst_place_entrance:
+        add r2, r2, T_ENTRANCE
+cst_place_tile:
+        bl map_set
+        pop lr
+        ret
+
+; r0=encoded piece -> its glyph. Each row is indexed by outgoing dir.
+cst_glyph:
+        push r1
+        push r2
+        mov r1, r0
+        and r1, r1, TP_SHAPE_MASK
+        sub r1, r1, TP_STRAIGHT
+        sll r1, 2
+        srl r0, TP_DIR_SHIFT
+        add r0, r0, r1
+        lea r2, cst_glyphs
+        add r0, r0, r2
+        ldr r0, r0, 0
+        pop r2
+        pop r1
+        ret
+
+cst_shape:          .word TP_STRAIGHT
+cst_candidate:      .zero TRACK_SIZE
+cst_original_tiles: .zero MAX_TRACK
+cst_k_rating_max:   .word RATING_MAX
+cst_k_ride_size:    .word RIDE_SIZE
+cst_piece_weights:  .zero MAX_TRACK
+cst_train_runs:     .zero MAX_RIDES*CST_RUN_SIZE
+cst_train_runs_end:
+cst_c_engine:       .word G_DIAMOND|FG_BMAGENTA
+cst_c_car:          .word G_SQUARE|FG_BMAGENTA
+cst_m_attr:         .word ATTR_MASK
+cst_m_glyph:        .word GLYPH_MASK
+cst_a_cursor:       .word A_CURSOR
+cst_a_ground:       .word FG_BWHITE
+cst_a_high:         .word FG_BCYAN
+cst_a_ghost_ok:     .word FG_BWHITE|BG_GREEN
+cst_a_ghost_bad:    .word FG_BWHITE|BG_RED
+cst_dx:             .word 0
+                    .word 1
+                    .word 0
+                    .word -1
+cst_dy:             .word -1
+                    .word 0
+                    .word 1
+                    .word 0
+cst_turns:          .word 0             ; straight, left, right, up, down
+                    .word -1
+                    .word 1
+                    .word 0
+                    .word 0
+cst_rises:          .word 0
+                    .word 0
+                    .word 0
+                    .word 1
+                    .word -1
+cst_glyphs:         .word G_VERT
+                    .word G_HORIZ
+                    .word G_VERT
+                    .word G_HORIZ
+                    .word G_BOT_R
+                    .word G_BOT_L
+                    .word G_TOP_L
+                    .word G_TOP_R
+                    .word G_BOT_L
+                    .word G_TOP_L
+                    .word G_TOP_R
+                    .word G_BOT_R
+                    .word G_ARROW_U
+                    .word G_ARROW_U
+                    .word G_ARROW_U
+                    .word G_ARROW_U
+                    .word G_ARROW_D
+                    .word G_ARROW_D
+                    .word G_ARROW_D
+                    .word G_ARROW_D
+
+cst_msg_keys:       .string "1 flat 2 left 3 right 4 up 5 down | Space u undo f finish Esc"
+cst_msg_blocked:    .string "Track tile is blocked."
+cst_msg_full:       .string "No room in the track pool."
+cst_msg_cash:       .string "Not enough cash for track."
+cst_msg_no_ride:    .string "No ride slots available."
+cst_msg_inactive:   .string "Start with a coaster station."
+cst_msg_height:     .string "Track height must stay between 0 and 7."
+cst_msg_open:       .string "Bring the track back to the station at height 0."
+cst_msg_closed:     .string "Circuit connected. Press f or Enter to finish."
+cst_msg_no_doors:   .string "Leave two clear tiles beside the station for access."
+cst_msg_finished:   .string "Coaster built. Open it with o at the station."
+cst_msg_canceled:   .string "Coaster canceled and refunded."

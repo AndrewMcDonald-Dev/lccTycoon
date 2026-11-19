@@ -1,0 +1,894 @@
+; Unit driver for src/rides.ap (WP7). The first key picks a case (a..j);
+; each case sets up state, calls ride_* routines, stores results in drv_*
+; cells and halts. Uses the real economy (eco_earn) and a ui_msg stub.
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        bl ride_init
+        bl eco_init
+        nbain r0
+        mov r1, 'a'
+        sub r0, r0, r1
+        brn drv_stop
+        cmp r0, 9
+        brgt drv_stop
+        lea r1, drv_cases
+        add r1, r1, r0
+        ldr r1, r1, 0
+        jmp r1
+drv_stop:
+        halt
+
+drv_cases:
+        .word drv_catalog
+        .word drv_records
+        .word drv_price
+        .word drv_enqueue
+        .word drv_cycle
+        .word drv_capacity
+        .word drv_stall
+        .word drv_breakdown
+        .word drv_month
+        .word drv_exit
+
+; ---- helpers -------------------------------------------------------------
+; drv_guest r0=index r1=cash -> r0=record: GS_WALK, target -1, happy 100,
+; hunger/thirst/energy/RIDE_G_TOILET 200, nausea 0, rides 0, thought 0.
+drv_guest:
+        push r2
+        push lr
+        bl gst_addr
+        mov r2, GS_WALK
+        str r2, r0, G_STATE
+        mov r2, -1
+        str r2, r0, G_TARGET
+        str r1, r0, G_CASH
+        mov r2, 100
+        str r2, r0, G_HAPPY
+        mov r2, 200
+        str r2, r0, G_HUNGER
+        str r2, r0, G_THIRST
+        str r2, r0, G_ENERGY
+        str r2, r0, G_TOILET
+        mov r2, 0
+        str r2, r0, G_NAUSEA
+        str r2, r0, G_RIDES
+        str r2, r0, G_THOUGHT
+        pop lr
+        pop r2
+        ret
+
+gst_addr:
+        push r1
+        sll r0, GUEST_SHIFT
+        lea r1, st_guests
+        add r0, r0, r1
+        pop r1
+        ret
+
+; drv_strcpy r0=src r1=dst (copies through NUL)
+drv_strcpy:
+        push r0
+        push r1
+        push r2
+drv_strcpy_lp:
+        ldr r2, r0, 0
+        str r2, r1, 0
+        add r0, r0, 1
+        add r1, r1, 1
+        cmp r2, 0
+        brnz drv_strcpy_lp
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; ---- a: catalog ------------------------------------------------------------
+; drv_cat_ok = types 1..RT_COUNT-1 with name 1..14 chars, w,h,cost,upkeep,
+; cell nonzero; drv_cat_bad = info(0), info(RT_COUNT), info(-1) summed;
+; drv_cat_dups = pairs of types with the same display cell.
+drv_catalog:
+        mov r4, 1
+drv_cat_loop:
+        mov r0, r4
+        bl ride_type_info
+        cmp r0, 0
+        brz drv_cat_next
+        mov r3, r0
+        ldr r0, r3, RTI_NAME
+        bl util_strlen
+        cmp r0, 0
+        brz drv_cat_next
+        cmp r0, 14
+        brgt drv_cat_next
+        ldr r0, r3, RTI_W
+        cmp r0, 0
+        brz drv_cat_next
+        ldr r0, r3, RTI_H
+        cmp r0, 0
+        brz drv_cat_next
+        ldr r0, r3, RTI_COST
+        cmp r0, 0
+        brz drv_cat_next
+        ldr r0, r3, RTI_UPKEEP
+        cmp r0, 0
+        brz drv_cat_next
+        ldr r0, r3, RTI_CELL
+        cmp r0, 0
+        brz drv_cat_next
+        ld r0, drv_cat_ok
+        add r0, r0, 1
+        st r0, drv_cat_ok
+drv_cat_next:
+        add r4, r4, 1
+        cmp r4, RT_COUNT
+        brlt drv_cat_loop
+        mov r0, 0
+        bl ride_type_info
+        mov r1, r0
+        mov r0, RT_COUNT
+        bl ride_type_info
+        add r1, r1, r0
+        mov r0, -1
+        bl ride_type_info
+        add r1, r1, r0
+        st r1, drv_cat_bad
+        ; duplicate cells
+        mov r4, 1
+drv_dup_outer:
+        mov r0, r4
+        bl ride_type_info
+        ldr r2, r0, RTI_CELL
+        add r3, r4, 1
+drv_dup_inner:
+        cmp r3, RT_COUNT
+        brz drv_dup_next
+        mov r0, r3
+        bl ride_type_info
+        ldr r0, r0, RTI_CELL
+        cmp r0, r2
+        brnz drv_dup_skip
+        ld r0, drv_cat_dups
+        add r0, r0, 1
+        st r0, drv_cat_dups
+drv_dup_skip:
+        add r3, r3, 1
+        br drv_dup_inner
+drv_dup_next:
+        add r4, r4, 1
+        cmp r4, RT_COUNT
+        brlt drv_dup_outer
+        ; stall flags / goods
+        mov r0, RT_FOOD
+        bl ride_type_info
+        ldr r1, r0, RTI_GOODS
+        st r1, drv_cat_food_goods
+        ldr r1, r0, RTI_FLAGS
+        st r1, drv_cat_food_flags
+        mov r0, RT_CAROUSEL
+        bl ride_type_info
+        ldr r1, r0, RTI_FLAGS
+        st r1, drv_cat_car_flags
+        ldr r1, r0, RTI_CAP
+        st r1, drv_cat_car_cap
+        halt
+
+drv_cat_ok:         .word 0
+drv_cat_bad:        .word -1
+drv_cat_dups:       .word 0
+drv_cat_food_goods: .word -1
+drv_cat_food_flags: .word -1
+drv_cat_car_flags:  .word -1
+drv_cat_car_cap:    .word -1
+
+; ---- b: new / at / name / free ----------------------------------------------
+drv_records:
+        mov r0, RT_CAROUSEL     ; 3x3 at (10,5): entrance (10,8), exit (12,8)
+        mov r1, 10
+        mov r2, 5
+        bl ride_new
+        st r0, drv_new0
+        mov r0, RT_FOOD         ; 2x1 at (20,5)
+        mov r1, 20
+        mov r2, 5
+        bl ride_new
+        st r0, drv_new1
+        mov r0, RT_NONE
+        mov r1, 1
+        mov r2, 1
+        bl ride_new
+        st r0, drv_new_bad
+        ld r0, st_ride_count
+        st r0, drv_count2
+        ; record fields of ride 0
+        mov r0, 0
+        bl ride_addr
+        mov r3, r0
+        ldr r0, r3, R_TYPE
+        st r0, drv_r0_fields
+        ldr r0, r3, R_W
+        st r0, drv_r0_fields+1
+        ldr r0, r3, R_H
+        st r0, drv_r0_fields+2
+        ldr r0, r3, R_STATUS
+        st r0, drv_r0_fields+3
+        ldr r0, r3, R_PRICE
+        st r0, drv_r0_fields+4
+        ldr r0, r3, R_RELIAB
+        st r0, drv_r0_fields+5
+        ldr r0, r3, R_EXCITE
+        st r0, drv_r0_fields+6
+        ; ride_at: footprint corner, middle, entrance, exit, miss x, miss below, food 2nd tile
+        mov r0, 10
+        mov r1, 5
+        bl ride_at
+        st r0, drv_at
+        mov r0, 12
+        mov r1, 7
+        bl ride_at
+        st r0, drv_at+1
+        mov r0, 10
+        mov r1, 8
+        bl ride_at
+        st r0, drv_at+2
+        mov r0, 12
+        mov r1, 8
+        bl ride_at
+        st r0, drv_at+3
+        mov r0, 13
+        mov r1, 5
+        bl ride_at
+        st r0, drv_at+4
+        mov r0, 11
+        mov r1, 8
+        bl ride_at
+        st r0, drv_at+5
+        mov r0, 21
+        mov r1, 5
+        bl ride_at
+        st r0, drv_at+6
+        mov r0, 9
+        mov r1, 5
+        bl ride_at
+        st r0, drv_at+7
+        ; names
+        mov r0, 0
+        bl ride_name
+        lea r1, drv_name0
+        bl drv_strcpy
+        mov r0, 1
+        bl ride_name
+        lea r1, drv_name1
+        bl drv_strcpy
+        mov r0, 5
+        bl ride_name
+        ldr r0, r0, 0
+        st r0, drv_name_free
+        mov r0, -1
+        bl ride_name
+        ldr r0, r0, 0
+        st r0, drv_name_bad
+        ; guests targeting ride 0: queued (1), riding (2), walking to it (3);
+        ; guest 4 targets ride 1
+        mov r0, 1
+        mov r1, 20
+        bl drv_guest
+        mov r1, GS_QUEUE
+        str r1, r0, G_STATE
+        mov r1, 0
+        str r1, r0, G_TARGET
+        mov r0, 2
+        mov r1, 20
+        bl drv_guest
+        mov r1, GS_RIDE
+        str r1, r0, G_STATE
+        mov r1, 0
+        str r1, r0, G_TARGET
+        mov r0, 3
+        mov r1, 20
+        bl drv_guest
+        mov r1, 0
+        str r1, r0, G_TARGET
+        mov r0, 4
+        mov r1, 20
+        bl drv_guest
+        mov r1, GS_BUY
+        str r1, r0, G_STATE
+        mov r1, 1
+        str r1, r0, G_TARGET
+        mov r0, 0
+        bl ride_free
+        ld r0, st_ride_count
+        st r0, drv_count_after
+        mov r0, 11
+        mov r1, 6
+        bl ride_at
+        st r0, drv_at_freed
+        mov r0, 0
+        bl ride_name
+        ldr r0, r0, 0
+        st r0, drv_name_freed
+        mov r0, 0
+        bl ride_addr
+        ldr r1, r0, R_TYPE
+        ldr r2, r0, R_PRICE
+        add r1, r1, r2
+        ldr r2, r0, R_EXIT_X
+        add r1, r1, r2
+        st r1, drv_freed_rec
+        ; guests 1..4: state, target, x, y
+        mov r4, 1
+        lea r3, drv_gs
+drv_rec_gloop:
+        mov r0, r4
+        bl gst_addr
+        ldr r1, r0, G_STATE
+        str r1, r3, 0
+        ldr r1, r0, G_TARGET
+        str r1, r3, 1
+        ldr r1, r0, G_X
+        str r1, r3, 2
+        ldr r1, r0, G_Y
+        str r1, r3, 3
+        add r3, r3, 4
+        add r4, r4, 1
+        cmp r4, 5
+        brlt drv_rec_gloop
+        ; slot 0 is reused
+        mov r0, RT_WHEEL
+        mov r1, 30
+        mov r2, 10
+        bl ride_new
+        st r0, drv_reuse
+        halt
+
+drv_new0:       .word -9
+drv_new1:       .word -9
+drv_new_bad:    .word -9
+drv_count2:     .word -9
+drv_r0_fields:  .zero 7
+drv_at:         .zero 8
+drv_name0:      .zero 16
+drv_name1:      .zero 16
+drv_name_free:  .word -9
+drv_name_bad:   .word -9
+drv_count_after: .word -9
+drv_at_freed:   .word -9
+drv_name_freed: .word -9
+drv_freed_rec:  .word -9
+drv_gs:         .zero 16
+drv_reuse:      .word -9
+
+; ---- c: price clamp + toggle ------------------------------------------------
+drv_price:
+        mov r0, RT_SWINGS
+        mov r1, 5
+        mov r2, 5
+        bl ride_new
+        mov r4, r0
+        bl ride_addr
+        mov r3, r0
+        mov r0, r4
+        mov r1, 50
+        bl ride_set_price
+        ldr r1, r3, R_PRICE
+        st r1, drv_prices
+        mov r1, -5
+        bl ride_set_price
+        ldr r1, r3, R_PRICE
+        st r1, drv_prices+1
+        mov r1, 7
+        bl ride_set_price
+        ldr r1, r3, R_PRICE
+        st r1, drv_prices+2
+        mov r1, PRICE_MAX
+        bl ride_set_price
+        ldr r1, r3, R_PRICE
+        st r1, drv_prices+3
+        bl ride_toggle
+        st r0, drv_toggles
+        ldr r1, r3, R_STATUS
+        st r1, drv_toggles+1
+        mov r0, r4
+        bl ride_toggle
+        st r0, drv_toggles+2
+        mov r1, RS_BROKEN
+        str r1, r3, R_STATUS
+        mov r0, r4
+        bl ride_toggle
+        st r0, drv_toggles+3
+        mov r1, RS_BUILDING
+        str r1, r3, R_STATUS
+        mov r0, r4
+        bl ride_toggle
+        st r0, drv_toggles+4
+        mov r0, 9               ; free slot stays RS_CLOSED
+        bl ride_toggle
+        st r0, drv_toggles+5
+        halt
+
+drv_prices:     .zero 4
+drv_toggles:    .zero 6
+
+; ---- d: enqueue --------------------------------------------------------------
+drv_enqueue:
+        mov r0, RT_CAROUSEL
+        mov r1, 5
+        mov r2, 5
+        bl ride_new             ; ride 0, closed
+        mov r0, RT_DRINK
+        mov r1, 20
+        mov r2, 5
+        bl ride_new             ; ride 1
+        bl ride_toggle          ; open the stall
+        mov r0, 7
+        mov r1, 30
+        bl drv_guest
+        mov r0, 0
+        mov r1, 7
+        bl ride_enqueue
+        st r0, drv_eq
+        mov r0, 1
+        mov r1, 7
+        bl ride_enqueue
+        st r0, drv_eq+1
+        mov r0, 0
+        bl ride_toggle
+        mov r0, 0
+        mov r1, 7
+        bl ride_enqueue
+        st r0, drv_eq+2
+        mov r0, 0
+        mov r1, 7
+        bl ride_enqueue         ; again: not counted twice
+        st r0, drv_eq+3
+        mov r0, 0
+        bl ride_addr
+        ldr r1, r0, R_QUEUE
+        st r1, drv_eq+4
+        mov r0, 7
+        bl gst_addr
+        ldr r1, r0, G_STATE
+        st r1, drv_eq+5
+        ldr r1, r0, G_TARGET
+        st r1, drv_eq+6
+        ; closing sends the queue away
+        mov r0, 0
+        bl ride_toggle
+        mov r0, 7
+        bl gst_addr
+        ldr r1, r0, G_STATE
+        st r1, drv_eq+7
+        mov r0, 0
+        bl ride_addr
+        ldr r1, r0, R_QUEUE
+        st r1, drv_eq+8
+        mov r1, RS_BROKEN
+        str r1, r0, R_STATUS
+        mov r0, 0
+        mov r1, 7
+        bl ride_enqueue
+        st r0, drv_eq+9
+        halt
+
+drv_eq:         .zero 10
+
+; ---- e: board -> run -> unload ------------------------------------------------
+; Carousel (price 2, cap 12, cycle 30, E300 I120 N80) at (10,5); exit (12,8).
+; Guests 0, 1 have $50; guest 2 has $1 (can't pay).
+drv_cycle:
+        mov r0, RT_CAROUSEL
+        mov r1, 10
+        mov r2, 5
+        bl ride_new
+        bl ride_toggle
+        mov r0, 0
+        mov r1, 50
+        bl drv_guest
+        mov r0, 1
+        mov r1, 50
+        bl drv_guest
+        mov r0, 2
+        mov r1, 1
+        bl drv_guest
+        mov r4, 0
+drv_cy_enq:
+        mov r0, 0
+        mov r1, r4
+        bl ride_enqueue
+        add r4, r4, 1
+        cmp r4, 3
+        brlt drv_cy_enq
+        bl ride_tick            ; boards
+        mov r0, 0
+        bl ride_addr
+        mov r3, r0
+        ldr r0, r3, R_RIDERS
+        st r0, drv_cy_board
+        ldr r0, r3, R_QUEUE
+        st r0, drv_cy_board+1
+        ldr r0, r3, R_TIMER
+        st r0, drv_cy_board+2
+        ldr r0, r3, R_INC_U
+        st r0, drv_cy_board+3
+        ldr r0, r3, R_MON_INC
+        st r0, drv_cy_board+4
+        ldr r0, r3, R_TOTAL
+        st r0, drv_cy_board+5
+        ; guests: state, cash, x, y, happy, thought
+        lea r1, drv_cy_g
+        bl drv_cy_snap
+        mov r4, 29
+drv_cy_run:
+        bl ride_tick
+        sub r4, r4, 1
+        brp drv_cy_run
+        ldr r0, r3, R_RIDERS    ; one tick before the end: still riding
+        st r0, drv_cy_mid
+        mov r0, 0
+        bl gst_addr
+        ldr r0, r0, G_STATE
+        st r0, drv_cy_mid+1
+        bl ride_tick            ; tick 30: unload
+        ldr r0, r3, R_RIDERS
+        st r0, drv_cy_end
+        ldr r0, r3, R_TIMER
+        st r0, drv_cy_end+1
+        lea r1, drv_cy_g2
+        bl drv_cy_snap
+        mov r0, 0
+        bl gst_addr
+        ldr r1, r0, G_RIDES
+        st r1, drv_cy_extra
+        ldr r1, r0, G_NAUSEA
+        st r1, drv_cy_extra+1
+        ldr r1, r0, G_ENERGY
+        st r1, drv_cy_extra+2
+        ldr r1, r0, G_TARGET
+        st r1, drv_cy_extra+3
+        halt
+
+; drv_cy_snap r1=buffer: 6 words (state cash x y happy thought) for guests 0..2
+drv_cy_snap:
+        push lr
+        mov r4, 0
+drv_cy_snap_lp:
+        mov r0, r4
+        bl gst_addr
+        ldr r2, r0, G_STATE
+        str r2, r1, 0
+        ldr r2, r0, G_CASH
+        str r2, r1, 1
+        ldr r2, r0, G_X
+        str r2, r1, 2
+        ldr r2, r0, G_Y
+        str r2, r1, 3
+        ldr r2, r0, G_HAPPY
+        str r2, r1, 4
+        ldr r2, r0, G_THOUGHT
+        str r2, r1, 5
+        add r1, r1, 6
+        add r4, r4, 1
+        cmp r4, 3
+        brlt drv_cy_snap_lp
+        pop lr
+        ret
+
+drv_cy_board:   .zero 6
+drv_cy_g:       .zero 18
+drv_cy_mid:     .zero 2
+drv_cy_end:     .zero 2
+drv_cy_g2:      .zero 18
+drv_cy_extra:   .zero 4
+
+; ---- f: capacity and arrival order on a cap-12 ride -------------------------------
+drv_capacity:
+        mov r0, RT_CAROUSEL
+        mov r1, 10
+        mov r2, 5
+        bl ride_new
+        bl ride_toggle
+        mov r0, -5              ; arrival sequence wraps during these joins
+        st r0, ride_queue_seq
+        mov r4, 13              ; lowest slots join last, all on the same tick
+drv_cap_enq:
+        mov r0, r4
+        mov r1, 40
+        bl drv_guest
+        mov r0, 0
+        mov r1, r4
+        bl ride_enqueue
+        sub r4, r4, 1
+        brn drv_cap_board
+        br drv_cap_enq
+drv_cap_board:
+        bl ride_tick
+        mov r0, 0
+        bl ride_addr
+        mov r3, r0
+        ldr r0, r3, R_RIDERS
+        st r0, drv_cap
+        ldr r0, r3, R_QUEUE
+        st r0, drv_cap+1
+        mov r0, 0
+        bl gst_addr
+        ldr r0, r0, G_STATE
+        st r0, drv_cap+2
+        mov r0, 13
+        bl gst_addr
+        ldr r0, r0, G_STATE
+        st r0, drv_cap+8
+        mov r4, 31              ; 30 ticks to unload, 1 to board the rest
+drv_cap_run:
+        bl ride_tick
+        sub r4, r4, 1
+        brp drv_cap_run
+        ldr r0, r3, R_RIDERS
+        st r0, drv_cap+3
+        ldr r0, r3, R_QUEUE
+        st r0, drv_cap+4
+        ldr r0, r3, R_TOTAL
+        st r0, drv_cap+5
+        ldr r0, r3, R_INC_U
+        st r0, drv_cap+6
+        mov r0, 0
+        bl gst_addr
+        ldr r0, r0, G_STATE
+        st r0, drv_cap+7
+        halt
+
+drv_cap:        .zero 9
+
+; ---- g: stall sales ---------------------------------------------------------------
+drv_stall:
+        mov r0, RT_FOOD         ; 0: food $3
+        mov r1, 10
+        mov r2, 5
+        bl ride_new
+        bl ride_toggle
+        mov r0, RT_DRINK        ; 1: drink $2
+        mov r1, 14
+        mov r2, 5
+        bl ride_new
+        bl ride_toggle
+        mov r0, RT_TOILET       ; 2: toilet $1
+        mov r1, 16
+        mov r2, 5
+        bl ride_new
+        bl ride_toggle
+        mov r0, RT_CAROUSEL     ; 3: ride (open) — not a stall
+        mov r1, 20
+        mov r2, 5
+        bl ride_new
+        bl ride_toggle
+        mov r0, RT_FOOD         ; 4: closed food stall
+        mov r1, 30
+        mov r2, 5
+        bl ride_new
+        mov r0, 0
+        mov r1, 10
+        bl drv_guest
+        mov r0, 1
+        mov r1, 2
+        bl drv_guest
+        mov r0, 0
+        mov r1, 0
+        bl ride_buy
+        st r0, drv_buy
+        mov r0, 1
+        mov r1, 0
+        bl ride_buy
+        st r0, drv_buy+1
+        mov r0, 2
+        mov r1, 0
+        bl ride_buy
+        st r0, drv_buy+2
+        mov r0, 3
+        mov r1, 0
+        bl ride_buy
+        st r0, drv_buy+3
+        mov r0, 4
+        mov r1, 0
+        bl ride_buy
+        st r0, drv_buy+4
+        mov r0, 0               ; guest 1 has $2 < $3
+        mov r1, 1
+        bl ride_buy
+        st r0, drv_buy+5
+        mov r0, 0
+        bl gst_addr
+        ldr r1, r0, G_CASH
+        st r1, drv_buy_g0
+        ldr r1, r0, G_HUNGER
+        st r1, drv_buy_g0+1
+        ldr r1, r0, G_THIRST
+        st r1, drv_buy_g0+2
+        ldr r1, r0, G_TOILET
+        st r1, drv_buy_g0+3
+        ldr r1, r0, G_HAPPY
+        st r1, drv_buy_g0+4
+        mov r0, 1
+        bl gst_addr
+        ldr r1, r0, G_CASH
+        st r1, drv_buy_g1
+        ldr r1, r0, G_HUNGER
+        st r1, drv_buy_g1+1
+        mov r0, 0
+        bl ride_addr
+        ldr r1, r0, R_TOTAL
+        st r1, drv_buy_rec
+        ldr r1, r0, R_INC_U
+        st r1, drv_buy_rec+1
+        ldr r1, r0, R_MON_INC
+        st r1, drv_buy_rec+2
+        halt
+
+drv_buy:        .zero 6
+drv_buy_g0:     .zero 5
+drv_buy_g1:     .zero 2
+drv_buy_rec:    .zero 3
+
+; ---- h: forced breakdown (reliability 0) -------------------------------------------
+; Drop tower at (10,5). Guests 0, 1 queued with $20.
+drv_breakdown:
+        mov r0, RT_DROP
+        mov r1, 10
+        mov r2, 5
+        bl ride_new
+        bl ride_toggle
+        mov r0, 0
+        bl ride_addr
+        mov r3, r0
+        mov r0, 0
+        str r0, r3, R_RELIAB
+        mov r0, 0
+        mov r1, 20
+        bl drv_guest
+        mov r0, 1
+        mov r1, 20
+        bl drv_guest
+        mov r0, 0
+        mov r1, 0
+        bl ride_enqueue
+        mov r0, 0
+        mov r1, 1
+        bl ride_enqueue
+        bl ride_tick            ; breaks before boarding or taking any fare
+        ldr r0, r3, R_STATUS
+        st r0, drv_brk
+        ldr r0, r3, R_RIDERS
+        st r0, drv_brk+1
+        ldr r0, r3, R_QUEUE
+        st r0, drv_brk+2
+        ldr r0, r3, R_TIMER
+        st r0, drv_brk+3
+        mov r0, 0
+        bl gst_addr
+        ldr r1, r0, G_STATE
+        st r1, drv_brk_g
+        ldr r1, r0, G_TARGET
+        st r1, drv_brk_g+1
+        ldr r1, r0, G_X
+        st r1, drv_brk_g+2
+        ldr r1, r0, G_Y
+        st r1, drv_brk_g+3
+        ldr r1, r0, G_HAPPY
+        st r1, drv_brk_g+4
+        ldr r1, r0, G_RIDES
+        st r1, drv_brk_g+5
+        ldr r1, r0, G_CASH
+        st r1, drv_brk_g+6
+        mov r0, 1
+        bl gst_addr
+        ldr r1, r0, G_CASH
+        st r1, drv_brk_g+7
+        ldr r0, r3, R_INC_K
+        st r0, drv_brk_fares
+        ldr r0, r3, R_INC_U
+        st r0, drv_brk_fares+1
+        ldr r0, r3, R_MON_INC
+        st r0, drv_brk_fares+2
+        ldr r0, r3, R_TOTAL
+        st r0, drv_brk_fares+3
+        bl ride_tick
+        bl ride_tick
+        bl ride_tick
+        ldr r0, r3, R_DOWN
+        st r0, drv_brk+4
+        mov r0, 0
+        mov r1, 0
+        bl ride_enqueue
+        st r0, drv_brk+5
+        mov r0, 0
+        bl ride_toggle
+        st r0, drv_brk+6
+        halt
+
+drv_brk:        .zero 7
+drv_brk_g:      .zero 8
+drv_brk_fares:  .zero 4
+
+; ---- i: new month ---------------------------------------------------------------------
+drv_month:
+        mov r0, RT_WHEEL
+        mov r1, 10
+        mov r2, 5
+        bl ride_new             ; closed: monthly bookkeeping still runs
+        bl ride_addr
+        mov r3, r0
+        mov r0, 16
+        str r0, r3, R_AGE
+        mov r0, 50
+        str r0, r3, R_MON_INC
+        mov r0, 1
+        st r0, st_new_month
+        bl ride_tick
+        ldr r0, r3, R_RELIAB
+        st r0, drv_mon
+        ldr r0, r3, R_MON_INC
+        st r0, drv_mon+1
+        mov r0, 0
+        st r0, st_new_month
+        bl ride_tick
+        ldr r0, r3, R_RELIAB
+        st r0, drv_mon+2
+        halt
+
+drv_mon:        .zero 3
+
+; ---- j: an exit on a path island blocks boarding until connected -------------
+drv_exit:
+        mov r0, 10
+        st r0, st_gate_x
+        mov r1, 8
+        st r1, st_gate_y
+        mov r2, T_GATE
+        bl map_set
+        mov r0, 12
+        mov r2, T_EXIT
+        bl map_set
+        mov r0, 13
+        mov r2, T_PATH
+        bl map_set
+
+        mov r0, RT_CAROUSEL
+        mov r1, 10
+        mov r2, 5
+        bl ride_new
+        bl ride_toggle
+        mov r0, 0
+        mov r1, 20
+        bl drv_guest
+        mov r0, 0
+        mov r1, 0
+        bl ride_enqueue
+        bl ride_tick
+        mov r0, 0
+        bl ride_addr
+        mov r3, r0
+        ldr r0, r3, R_QUEUE
+        st r0, drv_exit_counts
+        ldr r0, r3, R_TOTAL
+        st r0, drv_exit_counts+1
+
+        mov r0, 11
+        mov r1, 8
+        mov r2, T_PATH
+        bl map_set
+        bl ride_tick
+        ldr r0, r3, R_QUEUE
+        st r0, drv_exit_counts+2
+        ldr r0, r3, R_TOTAL
+        st r0, drv_exit_counts+3
+        halt
+
+drv_exit_counts: .zero 4
+
+        .include "../../src/state.ap"
+        .include "../../src/rides.ap"
+        .include "../../src/economy.ap"
+        .include "rides_stubs.ap"
+        .include "util.ap"

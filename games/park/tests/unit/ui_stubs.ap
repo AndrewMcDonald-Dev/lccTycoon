@@ -1,0 +1,73 @@
+; Stubs for the modules ui.ap calls (economy, rides), so the ui unit driver
+; does not depend on WP4/WP7 progress. drv_eco_mode 0 = eco text "" (the
+; WP0 stubs' behavior, exercises ui's fallback), 1 = fixed formatted text.
+eco_cash_text:
+        push r1
+        push r2
+        mov r2, r0
+        lea r1, stub_s_cash
+        ld r0, drv_eco_mode
+        cmp r0, 0
+        brnz stub_copy
+        lea r1, stub_s_empty
+        br stub_copy
+eco_date_text:
+        push r1
+        push r2
+        mov r2, r0
+        lea r1, stub_s_date
+        ld r0, drv_eco_mode
+        cmp r0, 0
+        brnz stub_copy
+        lea r1, stub_s_empty
+stub_copy:                              ; r1 = src, r2 = buf (saved r1, r2 on stack)
+        mov r0, r2
+stub_copy_lp:
+        push r0
+        ldr r0, r1, 0
+        str r0, r2, 0
+        cmp r0, 0
+        pop r0
+        brz stub_copy_done
+        add r1, r1, 1
+        add r2, r2, 1
+        br stub_copy_lp
+stub_copy_done:
+        pop r2
+        pop r1
+        ret
+
+; ride_type_info: type 1 -> stub record named "Test Ride", else 0
+ride_type_info:
+        cmp r0, 1
+        brne stub_rti_none
+        lea r0, stub_rti
+        ret
+stub_rti_none:
+        mov r0, 0
+        ret
+
+; ride_at: whatever the driver put in drv_ride_at
+ride_at:
+        ld r0, drv_ride_at
+        ret
+
+; ride_name: index 5 -> "Spinner", else ""
+ride_name:
+        cmp r0, 5
+        brne stub_rn_none
+        lea r0, stub_s_spinner
+        ret
+stub_rn_none:
+        lea r0, stub_s_empty
+        ret
+
+drv_eco_mode:   .word 0
+drv_ride_at:    .word -1
+stub_rti:       .word stub_s_ride       ; RTI_NAME
+                .zero RTI_SIZE-1
+stub_s_empty:   .word 0
+stub_s_cash:    .string "$12,345"
+stub_s_date:    .string "Mar 12, Y1"
+stub_s_ride:    .string "Test Ride"
+stub_s_spinner: .string "Spinner"

@@ -139,6 +139,11 @@ function lintLine(line) {
       : '';
     return `${mn} takes at most ${MAX_OPERANDS[mn]} operand(s); the assembler would silently ignore "${extra}"${hint}`;
   }
+  // Upstream encodes cmp's register operand as `sr2 & 3`, so `cmp rX, r4..r7`
+  // silently compares against r0..r3. Swap the operands (and the branch sense) instead.
+  if (mn === 'cmp' && ops.length === 2 && /^(r[4-7]|fp|sp|lr)$/i.test(ops[1])) {
+    return `cmp's second register must be r0..r3 (the assembler encodes only 2 bits, so "${ops[1]}" would silently become r${(({ fp: 5, sp: 6, lr: 7 })[ops[1].toLowerCase()] ?? +ops[1].slice(1)) & 3}); swap the operands and the branch condition, or copy it into r0..r3`;
+  }
   const spaced = ops.find(o => /^[^'"]*\s+[A-Za-z_]/.test(o) && !/^'/.test(o));
   if (spaced) return `unexpected token after operand "${spaced}" — one instruction per line (the assembler would silently drop the rest)`;
   return null;
@@ -310,7 +315,7 @@ function build(entryFile, options = {}) {
     if (relaxOn) {
       const fixable = res.errors
         .filter(e => !e.thrown && /pcoffset/i.test(e.message))
-        .map(e => ({ e, idx: e.lineNum - 1, rewrite: far.relaxLine(lines[e.lineNum - 1], relaxed.length + e.lineNum) }))
+        .map(e => ({ e, idx: e.lineNum - 1, rewrite: far.relaxLine(lines[e.lineNum - 1], `${iter}_${e.lineNum}`) }))
         .filter(x => x.rewrite);
       if (fixable.length) {
         // rewrite bottom-up so earlier indexes stay valid

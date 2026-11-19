@@ -1,0 +1,141 @@
+; Stubs for the input unit driver: just enough of windows, coaster, build,
+; rides, ui and map for input.ap to link, recording what input asked for.
+; One fake ride (index 0) covers x 10..12, y 10..11; the gate is (32,47).
+; All stubs follow the calling convention (result r0, others preserved).
+win_key:                        ; consumes 's' only (r0 = 1)
+        st r0, drv_win_last
+        push r1
+        mov r1, 's'
+        cmp r0, r1
+        pop r1
+        brz drv_win_eat
+        mov r0, 0
+        ret
+drv_win_eat:
+        mov r0, 1
+        ret
+win_close:
+        push r0
+        mov r0, WIN_NONE
+        st r0, st_window
+        pop r0
+        ret
+win_open:
+        st r0, st_window
+        st r1, st_win_arg
+        ret
+win_info_at:
+        st r0, drv_info_x
+        st r1, drv_info_y
+        mov r0, WIN_TILE
+        st r0, st_window
+        mov r0, 1
+        ret
+cst_key:                        ; records the key; consumes 'a' only
+        st r0, drv_cst_last
+        push r1
+        mov r1, 'a'
+        cmp r0, r1
+        pop r1
+        brz drv_cst_eat
+        mov r0, 0
+        ret
+drv_cst_eat:
+        mov r0, 1
+        ret
+cst_begin:
+        st r0, drv_cst_x
+        st r1, drv_cst_y
+        mov r0, 0
+        st r0, st_cst_ride
+        ret
+bld_apply:
+        st r0, drv_bld_x
+        st r1, drv_bld_y
+        ld r0, drv_bld_n
+        add r0, r0, 1
+        st r0, drv_bld_n
+        mov r0, 1
+        ret
+ride_at:                        ; ride 0 at x 10..12, y 10..11
+        cmp r0, 10
+        brlt drv_ra_none
+        cmp r0, 12
+        brgt drv_ra_none
+        cmp r1, 10
+        brlt drv_ra_none
+        cmp r1, 11
+        brgt drv_ra_none
+        mov r0, 0
+        ret
+drv_ra_none:
+        mov r0, -1
+        ret
+ride_addr:
+        lea r0, drv_ride
+        ret
+ride_set_price:                 ; clamp 0..PRICE_MAX
+        push r1
+        push r2
+        cmp r1, 0
+        brp drv_rsp_hi
+        mov r1, 0
+drv_rsp_hi:
+        mov r2, PRICE_MAX
+        cmp r2, r1
+        brp drv_rsp_st
+        mvr r1, r2
+drv_rsp_st:
+        lea r2, drv_ride
+        str r1, r2, R_PRICE
+        pop r2
+        pop r1
+        ret
+ride_toggle:
+        push r1
+        lea r1, drv_ride
+        ldr r0, r1, R_STATUS
+        cmp r0, RS_OPEN
+        brz drv_rt_close
+        mov r0, RS_OPEN
+        br drv_rt_st
+drv_rt_close:
+        mov r0, RS_CLOSED
+drv_rt_st:
+        str r0, r1, R_STATUS
+        pop r1
+        ret
+ui_msg:
+        st r0, drv_msg
+        ret
+ui_msg_num:
+        st r0, drv_msg
+        st r1, drv_msg_n
+        ret
+map_kind:                       ; T_GATE at (32,47), grass elsewhere
+        add r0, r0, -16
+        add r0, r0, -16         ; x - 32
+        brnz drv_mk_grass
+        push r1
+        mov r0, 47
+        cmp r1, r0
+        pop r1
+        brnz drv_mk_grass
+        mov r0, T_GATE
+        ret
+drv_mk_grass:
+        mov r0, T_GRASS
+        ret
+
+drv_win_last: .word 0
+drv_info_x:   .word -1
+drv_info_y:   .word -1
+drv_cst_last: .word 0
+drv_cst_x:    .word -1
+drv_cst_y:    .word -1
+drv_bld_x:    .word -1
+drv_bld_y:    .word -1
+drv_bld_n:    .word 0
+drv_msg:      .word 0
+drv_msg_n:    .word -999
+drv_ride:     .zero RIDE_SIZE

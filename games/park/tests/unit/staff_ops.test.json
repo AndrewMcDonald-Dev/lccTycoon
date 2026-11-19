@@ -1,0 +1,77 @@
+{
+  "game": "staff_driver.ap",
+  "scenarios": [
+    {
+      "name": "hire only at a gate with a walkable exit, count by type, look up the lowest slot and fire",
+      "keys": "a",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_slots": [-1, -1, 0, 1, 0, 1, 1, -1, 0, 1, -1],
+          "st_staff_count": 1,
+          "st_staff": [0, 0, 0, 0, 0, 0, 0, 0, 2, 10, 10, -1, 0, -1, 0, 0]
+        }
+      }
+    },
+    {
+      "name": "the full roster refuses hiring, a fired slot can be reused, and init clears the roster",
+      "keys": "b",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_capacity": [15, -1, 7, 15, 1, 16, 0],
+          "st_staff_count": 0
+        }
+      }
+    },
+    {
+      "name": "a handyman sweeps adjacent dirt and seeks a dirty tile two steps around a corner",
+      "keys": "c",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_swept": [1027, 0, 0, 4],
+          "st_staff": [1, 11, 8, 1],
+          "st_map_dirty": 0
+        }
+      }
+    },
+    {
+      "name": "one mechanic claims a broken ride, detours to the entrance, works, and reopens it",
+      "keys": "d",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_walk": [11, 10, 0, -1, 10, 8],
+          "drv_work": [2, 1, 1, 100, 0, -1],
+          "st_msg_head": 1
+        },
+        "screen": { "contains": ["Merry Spinner repaired"] }
+      }
+    },
+    {
+      "name": "the first month pays one handyman and one mechanic after firing a second mechanic",
+      "keys": "e",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "st_staff_count": 2,
+          "st_cash_k": [9, 870],
+          "st_last_exp_k": [0, 130],
+          "st_new_month": 1
+        }
+      }
+    },
+    {
+      "name": "demolition redeploys both staff and clears the mechanic's repair assignment",
+      "keys": "f",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "st_staff_count": 2,
+          "st_staff": [1, 10, 10, -1, 0, -1, 0, 0, 2, 10, 10, -1, 0, -1, 0, 3]
+        }
+      }
+    }
+  ]
+}
