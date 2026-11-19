@@ -1,0 +1,44 @@
+{
+  "scenarios": [
+    {
+      "name": "build and finish a rectangular coaster from the keyboard while paused",
+      "keys": "<enter> p a a 6 <space> 5 <space> 3<space> 1<enter> 3<space> 3<space> 1<space> <enter>",
+      "expect": {
+        "status": "frames-complete",
+        "memory": {
+          "st_paused": 1, "st_ride_count": 1, "st_cst_ride": -1, "st_track_used": 6,
+          "st_cash_k": [9, 350], "st_mon_exp_u": 650,
+          "st_rides": [9, 30, 40, 1, 1, 30, 39, 29, 40, 0],
+          "st_track": [30, 40, 0, 17, 31, 40, 0, 36, 31, 41, 0, 34, 31, 42, 0, 52, 30, 42, 0, 4, 30, 41, 0, 2]
+        },
+        "screen": { "contains": ["Coaster built. Open it with o at the station.", "▲═┐", "││", "└┘", "$9,350", "PAUSED"] }
+      }
+    },
+    {
+      "name": "a valid straight preview is green and shows the designer controls",
+      "keys": "<enter> p a a 6 <space>",
+      "expect": {
+        "memory": { "st_cst_ride": 0, "st_track_used": 1, "st_cash_u": 500 },
+        "screen": { "contains": ["═─", "1 flat 2 left 3 right 4 up 5 down"] },
+        "bg": { "matches": ["^k{30}rgk{32}"] }
+      }
+    },
+    {
+      "name": "a descent at ground level previews in red and costs nothing when refused",
+      "keys": "<enter> p a a 6 <space> 5 <space>",
+      "expect": {
+        "memory": { "st_cst_ride": 0, "st_track_used": 1, "st_cash_u": 500 },
+        "screen": { "contains": ["═↓", "Track height must stay between 0 and 7."] },
+        "bg": { "matches": ["^k{30}rrk{32}"] }
+      }
+    },
+    {
+      "name": "backspace undoes a turn and escape refunds and removes the station",
+      "keys": "<enter> p a a 6 <space> 2<space> <bs> <esc>",
+      "expect": {
+        "memory": { "st_cst_ride": -1, "st_ride_count": 0, "st_track_used": 0, "st_cash_k": [10, 0], "st_mon_inc_u": 530 },
+        "screen": { "contains": ["Coaster canceled and refunded.", "Cursor  30,40"] }
+      }
+    }
+  ]
+}

@@ -1,0 +1,88 @@
+{
+  "game": "coaster_driver.ap",
+  "scenarios": [
+    {
+      "name": "a closed rectangle finishes with a path-facing entrance and separate exit",
+      "keys": "a",
+      "expect": { "status": "halted", "memory": {
+        "drv_result": 1, "drv_closed": 1, "drv_finished": 1, "drv_after": 1,
+        "drv_ride_status": 0, "drv_track_len": 6, "drv_excite": 300, "drv_doors_xy": [9, 10, 10, 9],
+        "drv_tile": 22, "drv_tile_2": 26, "drv_tile_3": 23, "drv_tile_4": 24,
+        "st_cst_ride": -1, "st_track_used": 6, "st_cash_k": [9, 350],
+        "st_track": [10, 10, 0, 17, 11, 10, 0, 36]
+      } }
+    },
+    {
+      "name": "finish refuses open track and leaves the designer active",
+      "keys": "b",
+      "expect": { "status": "halted", "memory": {
+        "drv_result": 1, "drv_closed": 0, "drv_finished": 0, "drv_ride_status": 3, "drv_track_len": 2,
+        "drv_doors_xy": [-1, -1, -1, -1], "st_cst_ride": 0, "st_cash_k": [9, 470]
+      } }
+    },
+    {
+      "name": "undo refunds the last piece and restores terrain and head",
+      "keys": "c",
+      "expect": { "status": "halted", "memory": {
+        "drv_result": 0, "drv_after": 1, "drv_removed": 1, "drv_tile": 11,
+        "st_cash_k": [9, 500], "st_mon_inc_u": 30, "st_track_used": 1, "st_cur_x": 11, "st_cur_y": 10
+      } }
+    },
+    {
+      "name": "cancel restores the site, repays the station and track and frees every slot",
+      "keys": "d",
+      "expect": { "status": "halted", "memory": {
+        "drv_tile": 1, "drv_tile_2": 0, "drv_tile_3": 0,
+        "st_cash_k": [10, 0], "st_mon_inc_u": 560, "st_cst_ride": -1,
+        "st_track_used": 0, "st_track": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+        "st_ride_count": 0, "st_rides": 0
+      } }
+    },
+    {
+      "name": "water refuses a station and path refuses track without any charge",
+      "keys": "e",
+      "expect": { "status": "halted", "memory": {
+        "drv_result": -1, "drv_after": 0, "drv_tile": 3,
+        "st_ride_count": 1, "st_cst_ride": 0, "st_track_used": 1, "st_cash_k": [9, 500]
+      } }
+    },
+    {
+      "name": "slopes change height by one and cannot go below zero or above seven",
+      "keys": "f",
+      "expect": { "status": "halted", "memory": {
+        "drv_result": 0, "drv_after": 0, "drv_descended": 1, "drv_tile": 3594, "drv_tile_2": 3082,
+        "st_track_used": 9, "st_cash_k": [9, 260], "st_cur_x": 19, "st_cur_y": 10
+      } }
+    },
+    {
+      "name": "finish with a single door site leaves both door records and the map unchanged",
+      "keys": "g",
+      "expect": { "status": "halted", "memory": {
+        "drv_finished": 0, "drv_doors_xy": [-1, -1, -1, -1], "drv_tile": 0,
+        "drv_ride_status": 3, "st_cst_ride": 0, "st_track_used": 6
+      } }
+    },
+    {
+      "name": "station and piece purchases fail cleanly when cash is short",
+      "keys": "h",
+      "expect": { "status": "halted", "memory": {
+        "drv_result": -1, "drv_after": 0, "st_cash_k": [0, 29], "st_mon_exp_u": 500,
+        "st_track_used": 1, "st_ride_count": 1
+      } }
+    },
+    {
+      "name": "the designer refuses a piece beyond the map edge",
+      "keys": "i",
+      "expect": { "status": "halted", "memory": {
+        "drv_result": 0, "st_track_used": 1, "st_cash_k": [9, 500], "st_cur_x": 63, "st_cur_y": 10
+      } }
+    },
+    {
+      "name": "an elevated approach into the station does not close the circuit",
+      "keys": "j",
+      "expect": { "status": "halted", "memory": {
+        "drv_closed": 0, "drv_finished": 0, "st_cst_ride": 0, "st_track_used": 8, "st_cur_x": 10, "st_cur_y": 10
+      } }
+    }
+  ]
+}

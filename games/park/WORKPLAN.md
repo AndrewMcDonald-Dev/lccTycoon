@@ -19,8 +19,8 @@ domain skill shown.
 | WP8 | Pathfinding | src/path.ap, tests/unit/path_* | WP1 | lcc-simulation | 2 | done |
 | WP9 | Guests | src/guests.ap, tests/unit/guests_*, tests/guests.test.json | WP7, WP8, WP4 | lcc-simulation | 3 | done |
 | WP10 | Info & finance windows | src/windows.ap, tests/windows.test.json | WP7, WP9, WP3 | lcc-text-graphics | 3 | done |
-| WP11 | Coaster designer (track editing, circuit check) | src/coaster.ap, tests/unit/coaster_* | WP6, WP2 | lcc-text-graphics + lcc-simulation | 4 | active |
-| WP12 | Coaster ratings & train animation | src/coaster.ap (after WP11) | WP11, WP7 | lcc-simulation | 5 | todo |
+| WP11 | Coaster designer (track editing, circuit check) | src/coaster.ap, tests/unit/coaster_* | WP6, WP2 | lcc-text-graphics + lcc-simulation | 4 | done |
+| WP12 | Coaster ratings & train animation | src/coaster.ap (after WP11) | WP11, WP7 | lcc-simulation | 5 | active |
 | WP13 | Staff (handymen, mechanics), litter, breakdowns | src/staff.ap, tests/unit/staff_* | WP9 | lcc-simulation | 5 | active |
 | WP14 | Rating, scenario goal, title screen, win/lose | src/scenario.ap, tests/scenario.test.json | WP9, WP4 | lcc-text-graphics + lcc-simulation | 5 | active |
 | WP15 | Sound, polish, balance | (assigned per change) | WP14 | lcc-qa + domain | 6 | active |
@@ -156,6 +156,7 @@ circuit check back to the station, entrance/exit for the station.
 **Acceptance:** unit tests for a closed loop, open track refused, undo refund, cancel,
 blocked tile; scenario builds a small loop from the keyboard.
 **Log:**
+- 2026-11-18 Codex gpt-6.2-sol: done. Station = T_RIDE facing east; track T_TRACK with outgoing dir + height per piece; keyboard loop costs $650 and opens with o; placeholder ratings. check 181/181. Designer writes st_cur_x/y (state note updated).
 
 ## WP12 — Coaster ratings & train
 **Goal:** `cst_rate` from length, drops (height changes), turns and a speed estimate;

@@ -67,8 +67,8 @@ st_ride_count:  .word 0             ; ride records in use — W: rides
 st_staff_count: .word 0             ; staff records in use — W: staff
 
 ; ---- UI state ---------------------------------------------------------------
-st_cur_x:       .word 32            ; cursor tile 0..MAP_W-1 — W: input
-st_cur_y:       .word 40            ; cursor tile 0..MAP_H-1 — W: input
+st_cur_x:       .word 32            ; cursor tile 0..MAP_W-1 — W: input, coaster (follows build head)
+st_cur_y:       .word 40            ; cursor tile 0..MAP_H-1 — W: input, coaster (follows build head)
 st_view_y:      .word MAP_H-VIEW_ROWS ; first map row shown 0..MAP_H-VIEW_ROWS — W: render
 st_tool:        .word TOOL_NONE     ; TOOL_* — W: input
 st_tool_item:   .word 0             ; ride type (TOOL_RIDE/STALL) or SC_* (scenery) — W: input

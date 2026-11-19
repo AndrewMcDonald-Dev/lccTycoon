@@ -1,0 +1,324 @@
+; Unit driver with the actual map, ride catalog, economy and renderer.
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        bl eco_init
+        nbain r0
+        mov r1, 'a'
+        sub r0, r0, r1
+        lea r1, drv_cases
+        add r0, r0, r1
+        ldr r0, r0, 0
+        blr r0
+        halt
+
+drv_cases: .word drv_loop
+           .word drv_open
+           .word drv_undo
+           .word drv_cancel
+           .word drv_blocked
+           .word drv_height
+           .word drv_doors
+           .word drv_cash
+           .word drv_edge
+           .word drv_unlevel
+
+drv_loop:
+        push lr
+        mov r0, RT_CAROUSEL
+        mov r1, 20
+        mov r2, 20
+        bl ride_new             ; make the coaster use a nonzero ride tag
+        mov r0, 8
+        mov r1, 10
+        mov r2, T_PATH
+        bl map_set              ; west door has the only connection
+        bl drv_begin
+        st r0, drv_result
+        bl drv_rectangle
+        ld r0, st_cst_ride
+        bl cst_closed
+        st r0, drv_closed
+        bl cst_finish
+        st r0, drv_finished
+        mov r0, 1
+        bl cst_closed
+        st r0, drv_after
+        mov r0, 1
+        bl drv_read_ride
+        mov r0, 10
+        mov r1, 10
+        bl map_get
+        st r0, drv_tile
+        mov r0, 11
+        bl map_get
+        st r0, drv_tile_2
+        mov r0, 9
+        bl map_get
+        st r0, drv_tile_3
+        mov r0, 10
+        mov r1, 9
+        bl map_get
+        st r0, drv_tile_4
+        pop lr
+        ret
+
+drv_open:
+        push lr
+        bl drv_begin
+        mov r0, TP_STRAIGHT
+        bl cst_add_piece
+        st r0, drv_result
+        ld r0, st_cst_ride
+        bl cst_closed
+        st r0, drv_closed
+        bl cst_finish
+        st r0, drv_finished
+        mov r0, 0
+        bl drv_read_ride
+        pop lr
+        ret
+
+drv_undo:
+        push lr
+        bl drv_begin
+        bl cst_undo
+        st r0, drv_result       ; the station cannot be undone
+        mov r0, 11
+        mov r1, 10
+        mov r2, T_FLOWERS
+        bl map_set
+        mov r0, TP_RIGHT
+        bl cst_add_piece
+        st r0, drv_after
+        bl cst_undo
+        st r0, drv_removed
+        mov r0, 11
+        mov r1, 10
+        bl map_get
+        st r0, drv_tile
+        pop lr
+        ret
+
+drv_cancel:
+        push lr
+        mov r0, 10
+        mov r1, 10
+        mov r2, T_TREE
+        bl map_set
+        bl drv_begin
+        mov r0, TP_RIGHT
+        bl cst_add_piece
+        mov r0, TP_UP
+        bl cst_add_piece
+        bl cst_cancel
+        mov r0, 10
+        mov r1, 10
+        bl map_get
+        st r0, drv_tile
+        mov r0, 11
+        bl map_get
+        st r0, drv_tile_2
+        mov r1, 11
+        mov r0, 11
+        bl map_get
+        st r0, drv_tile_3
+        pop lr
+        ret
+
+drv_blocked:
+        push lr
+        mov r0, 10
+        mov r1, 10
+        mov r2, T_WATER
+        bl map_set
+        bl drv_begin
+        st r0, drv_result
+        mov r0, 10
+        mov r1, 10
+        mov r2, T_GRASS
+        bl map_set
+        bl drv_begin
+        mov r0, 11
+        mov r1, 10
+        mov r2, T_PATH
+        bl map_set
+        mov r0, TP_STRAIGHT
+        bl cst_add_piece
+        st r0, drv_after
+        mov r0, 11
+        mov r1, 10
+        bl map_get
+        st r0, drv_tile
+        pop lr
+        ret
+
+drv_height:
+        push lr
+        bl drv_begin
+        mov r0, TP_DOWN
+        bl cst_add_piece
+        st r0, drv_result
+        mov r3, 7
+drv_climb:
+        mov r0, TP_UP
+        bl cst_add_piece
+        sub r3, r3, 1
+        brp drv_climb
+        mov r0, TP_UP
+        bl cst_add_piece
+        st r0, drv_after
+        mov r0, TP_DOWN
+        bl cst_add_piece
+        st r0, drv_descended
+        mov r0, 17
+        mov r1, 10
+        bl map_get
+        st r0, drv_tile
+        mov r0, 18
+        bl map_get
+        st r0, drv_tile_2
+        pop lr
+        ret
+
+drv_doors:
+        push lr
+        mov r0, 9
+        mov r1, 10
+        mov r2, T_WATER
+        bl map_set
+        bl drv_begin
+        bl drv_rectangle
+        bl cst_finish           ; north is the only door site
+        st r0, drv_finished
+        mov r0, 0
+        bl drv_read_ride
+        mov r0, 10
+        mov r1, 9
+        bl map_get
+        st r0, drv_tile
+        pop lr
+        ret
+
+drv_cash:
+        push lr
+        mov r0, 0
+        st r0, st_cash_k
+        ld r0, drv_short_cash
+        st r0, st_cash_u
+        bl drv_begin
+        st r0, drv_result
+        ld r0, drv_piece_cash
+        st r0, st_cash_u
+        bl drv_begin
+        mov r0, TP_STRAIGHT
+        bl cst_add_piece
+        st r0, drv_after
+        pop lr
+        ret
+
+drv_edge:
+        push lr
+        mov r0, MAP_W-1
+        mov r1, 10
+        bl cst_begin
+        mov r0, TP_STRAIGHT
+        bl cst_add_piece
+        st r0, drv_result
+        pop lr
+        ret
+
+drv_unlevel:
+        push lr
+        bl drv_begin
+        lea r3, drv_high_loop
+        bl drv_add_pieces
+        ld r0, st_cst_ride
+        bl cst_closed
+        st r0, drv_closed
+        bl cst_finish
+        st r0, drv_finished
+        pop lr
+        ret
+
+drv_begin:
+        mov r0, 10
+        mov r1, 10
+        br cst_begin
+
+; From the station's east edge, build the rest of a 2x3 rectangle.
+drv_rectangle:
+        lea r3, drv_flat_loop
+drv_add_pieces:
+        push lr
+drv_add_next:
+        ldr r0, r3, 0
+        cmp r0, TP_NONE
+        brz drv_add_done
+        bl cst_add_piece
+        add r3, r3, 1
+        br drv_add_next
+drv_add_done:
+        pop lr
+        ret
+
+drv_flat_loop: .word TP_RIGHT
+               .word TP_STRAIGHT
+               .word TP_RIGHT
+               .word TP_RIGHT
+               .word TP_STRAIGHT
+               .word TP_NONE
+drv_high_loop: .word TP_UP
+               .word TP_RIGHT
+               .word TP_STRAIGHT
+               .word TP_RIGHT
+               .word TP_STRAIGHT
+               .word TP_RIGHT
+               .word TP_STRAIGHT
+               .word TP_NONE
+
+drv_read_ride:
+        push lr
+        bl ride_addr
+        ldr r1, r0, R_STATUS
+        st r1, drv_ride_status
+        ldr r1, r0, R_TRACK_LEN
+        st r1, drv_track_len
+        ldr r1, r0, R_EXCITE
+        st r1, drv_excite
+        add r1, r0, R_ENT_X
+        lea r0, drv_doors_xy
+        mov r2, 4
+        bl util_memcpy
+        pop lr
+        ret
+
+drv_result:     .word -1
+drv_after:      .word -1
+drv_closed:     .word -1
+drv_finished:   .word -1
+drv_removed:    .word -1
+drv_descended:  .word -1
+drv_ride_status:.word -1
+drv_track_len:  .word -1
+drv_excite:     .word -1
+drv_doors_xy:   .zero 4
+drv_tile:       .word -1
+drv_tile_2:     .word -1
+drv_tile_3:     .word -1
+drv_tile_4:     .word -1
+drv_short_cash: .word 499
+drv_piece_cash: .word 500+COST_TRACK-1
+
+        .include "../../src/state.ap"
+        .include "../../src/map.ap"
+        .include "../../src/render.ap"
+        .include "../../src/economy.ap"
+        .include "../../src/rides.ap"
+        .include "../../src/ui.ap"
+        .include "../../src/coaster.ap"
+        .include "video.ap"
+        .include "util.ap"
