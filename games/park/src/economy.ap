@@ -2,9 +2,10 @@
 ; Module: economy (prefix eco_) — owner WP4. Money on thousands + units
 ; (st_cash_k/u etc., see defs.ap "Units"), calendar, monthly upkeep,
 ; wages, loan interest, monthly report accumulators. Amounts passed in
-; registers are $ 0..32767 (one word); totals are K/U pairs.
+; registers are $ 0..32767 (one word). Totals are K*1000 + U with
+; signed K and U always 0..999, including debt (-$250 is K=-1, U=750).
 ; Only this module writes st_cash_*, st_loan_*, st_mon_*, st_last_*,
-; st_value_*, st_tick/day/month/year, st_new_day/st_new_month.
+; st_value_*, st_tick/day/month/year, st_new_day/st_new_month, st_ticks_total.
 ; All routines: args r0..r4, result r0, all other registers preserved.
 ;
 ;; eco_init       ()             -> -        cash START_CASH_K, loan START_LOAN_K, fee ENTRY_FEE_DEF, calendar day 1 START_MONTH year 1, accumulators 0
@@ -20,52 +21,555 @@
 ;; eco_date_text  r0=buf        -> r0=buf   "Mar 12, Y1" (NUL-terminated, ≤ 12 words)
 ; ---------------------------------------------------------------------
 
-; WP0 stub: money never moves, the calendar stands still.
 eco_init:
+        push r1
+        push r2
+        push lr
+        bl eco_init_calendar
+        mov r0, START_CASH_K
+        ld r1, eco_cash_p
+        str r0, r1, 0
+        mov r0, START_LOAN_K
+        ld r2, eco_loan_p
+        str r0, r2, 0
+        mov r0, 0
+        str r0, r1, 1
+        str r0, r2, 1
+        ld r1, eco_value_p
+        str r0, r1, 0
+        str r0, r1, 1
+        mov r0, ENTRY_FEE_DEF
+        ld r1, eco_fee_p
+        str r0, r1, 0
+        ld r0, eco_last_p
+        mov r1, 0
+        mov r2, 4
+        bl util_memset
+        ld r0, eco_month_ledger_p
+        bl util_memset
+        pop lr
+        pop r2
+        pop r1
         ret
 
 eco_can_afford:
+        push r1
+        push r2
+        push r3
+        ld r1, eco_thousand
+        mov r2, r0
+        div r2, r1
+        ld r3, eco_cash_p
+        ldr r3, r3, 0
+        cmp r3, r2
+        brgt eco_afford_yes
+        brlt eco_afford_no
+        rem r0, r1
+        ld r3, eco_cash_p
+        ldr r3, r3, 1
+        cmp r3, r0
+        brlt eco_afford_no
+eco_afford_yes:
+        mov r0, 1
+        br eco_afford_done
+eco_afford_no:
         mov r0, 0
+eco_afford_done:
+        pop r3
+        pop r2
+        pop r1
         ret
 
 eco_spend:
-        mov r0, 0
+        push r1
+        push lr
+        mov r1, r0
+        bl eco_can_afford
+        cmp r0, 0
+        brz eco_spend_done
+        mov r0, r1
+        bl eco_pay
+        mov r0, 1
+eco_spend_done:
+        pop lr
+        pop r1
         ret
 
 eco_pay:
-        ret
+        push r1
+        push r2
+        ld r1, eco_exp_p
+        mov r2, -1
+        br eco_post
 
 eco_earn:
+        push r1
+        push r2
+        ld r1, eco_month_ledger_p
+        mov r2, 1
+eco_post:
+        ; Add the positive amount to the ledger, then apply its sign to cash.
+        push r3
+        push r4
+        push lr
+        mov r3, r0
+        ld r4, eco_thousand
+        div r3, r4
+        rem r0, r4
+        mov r4, r2
+        mov r2, r0
+        mov r0, r1
+        mov r1, r3
+        bl eco_add_pair
+        mul r1, r4
+        mul r2, r4
+        ld r0, eco_cash_p
+        bl eco_add_pair
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; r0=pair address, r1=delta K, r2=delta U (-999..999).
+eco_add_pair:
+        push r1
+        push r3
+        push r4
+        ldr r3, r0, 0
+        add r3, r3, r1
+        ldr r4, r0, 1
+        add r4, r4, r2
+        brn eco_pair_borrow
+        ld r1, eco_thousand
+        cmp r4, r1
+        brlt eco_pair_store
+        sub r4, r4, r1
+        add r3, r3, 1
+        br eco_pair_store
+eco_pair_borrow:
+        ld r1, eco_thousand
+        add r4, r4, r1
+        sub r3, r3, 1
+eco_pair_store:
+        str r3, r0, 0
+        str r4, r0, 1
+        pop r4
+        pop r3
+        pop r1
         ret
 
 eco_borrow:
-        mov r0, 0
-        ret
+        push r1
+        push r2
+        ld r1, eco_loan_p
+        ldr r0, r1, 0
+        mov r2, MAX_LOAN_K-LOAN_STEP_K
+        cmp r0, r2
+        brgt eco_loan_refused
+        brlt eco_borrow_post
+        ldr r2, r1, 1
+        cmp r2, 0
+        brnz eco_loan_refused
+eco_borrow_post:
+        mov r2, LOAN_STEP_K
+        br eco_loan_post
 
 eco_repay:
-        mov r0, 0
-        ret
-
-eco_tick:
-        ret
-
-eco_money_text:
         push r1
-        mov r1, 0
-        str r1, r0, 0
+        push r2
+        ld r1, eco_loan_p
+        ldr r0, r1, 0
+        cmp r0, LOAN_STEP_K
+        brlt eco_loan_refused
+        ld r2, eco_cash_p
+        ldr r2, r2, 0
+        cmp r2, LOAN_STEP_K
+        brlt eco_loan_refused
+        mov r2, -LOAN_STEP_K
+eco_loan_post:
+        add r0, r0, r2
+        str r0, r1, 0
+        ld r1, eco_cash_p
+        ldr r0, r1, 0
+        add r0, r0, r2
+        str r0, r1, 0
+        mov r0, 1
+        br eco_loan_done
+eco_loan_refused:
+        mov r0, 0
+eco_loan_done:
+        pop r2
         pop r1
         ret
 
 eco_cash_text:
         push r1
-        mov r1, 0
-        str r1, r0, 0
+        push r2
+        push lr
+        ld r1, eco_cash_p
+        ldr r2, r1, 1
+        ldr r1, r1, 0
+        bl eco_money_text
+        pop lr
+        pop r2
         pop r1
         ret
 
-eco_date_text:
+eco_cash_p:          .word st_cash_k
+eco_loan_p:          .word st_loan_k
+eco_value_p:         .word st_value_k
+eco_fee_p:           .word st_entry_fee
+eco_month_ledger_p:  .word st_mon_inc_k
+eco_exp_p:           .word st_mon_exp_k
+eco_last_p:          .word st_last_inc_k
+eco_thousand:        .word 1000
+
+eco_init_calendar:
+        ld r1, eco_tick_p
+        mov r0, 0
+        str r0, r1, 0
+        ld r1, eco_total_ticks_p
+        str r0, r1, 0
+        ld r1, eco_day_pulse_p
+        str r0, r1, 0
+        str r0, r1, 1
+        mov r0, 1
+        ld r1, eco_day_p
+        str r0, r1, 0
+        ld r1, eco_year_p
+        str r0, r1, 0
+        mov r0, START_MONTH
+        ld r1, eco_month_p
+        str r0, r1, 0
+        ret
+
+eco_tick:
         push r1
-        mov r1, 0
-        str r1, r0, 0
+        mov r0, 0
+        ld r1, eco_day_pulse_p
+        str r0, r1, 0
+        str r0, r1, 1
+
+        ld r1, eco_total_ticks_p
+        ldr r0, r1, 0
+        add r0, r0, 1
+        str r0, r1, 0
+
+        ld r1, eco_tick_p
+        ldr r0, r1, 0
+        add r0, r0, 1
+        str r0, r1, 0
+        ld r1, eco_day_ticks
+        cmp r0, r1
+        brlt eco_tick_done
+        mov r0, 0
+        ld r1, eco_tick_p
+        str r0, r1, 0
+        mov r0, 1
+        ld r1, eco_day_pulse_p
+        str r0, r1, 0
+
+        ld r1, eco_day_p
+        ldr r0, r1, 0
+        add r0, r0, 1
+        str r0, r1, 0
+        ld r1, eco_days_per_month
+        cmp r0, r1
+        brlt eco_tick_done
+        brz eco_tick_done
+        mov r0, 1
+        ld r1, eco_day_p
+        str r0, r1, 0
+        ld r1, eco_day_pulse_p
+        str r0, r1, 1
+
+        ld r1, eco_month_p
+        ldr r0, r1, 0
+        add r0, r0, 1
+        str r0, r1, 0
+        cmp r0, MONTHS_PER_YEAR
+        brlt eco_tick_monthly
+        mov r0, 0
+        str r0, r1, 0
+        ld r1, eco_year_p
+        ldr r0, r1, 0
+        add r0, r0, 1
+        brn eco_tick_monthly     ; keep the largest representable year
+        str r0, r1, 0
+eco_tick_monthly:
+        push lr
+        bl eco_close_month
+        pop lr
+eco_tick_done:
         pop r1
         ret
+
+eco_tick_p:          .word st_tick
+eco_day_p:           .word st_day
+eco_month_p:         .word st_month
+eco_year_p:          .word st_year
+eco_day_pulse_p:     .word st_new_day
+eco_total_ticks_p:   .word st_ticks_total
+eco_day_ticks:       .word DAY_TICKS
+eco_days_per_month:  .word DAYS_PER_MONTH
+
+; Bills belong to the month that just ended. Every occupied ride ages
+; and incurs upkeep, even if closed. The catalog may have no record yet.
+eco_close_month:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        ld r3, eco_rides_p
+        mov r4, MAX_RIDES
+        ld r2, eco_ride_stride
+eco_upkeep_loop:
+        ldr r0, r3, R_TYPE
+        cmp r0, RT_NONE
+        brz eco_upkeep_next
+        ldr r1, r3, R_AGE
+        add r1, r1, 1
+        str r1, r3, R_AGE
+        bl ride_type_info
+        cmp r0, 0
+        brz eco_upkeep_next
+        ldr r0, r0, RTI_UPKEEP
+        bl eco_pay
+eco_upkeep_next:
+        add r3, r3, r2
+        sub r4, r4, 1
+        brp eco_upkeep_loop
+
+        ld r3, eco_staff_p
+        mov r4, MAX_STAFF
+eco_wage_loop:
+        ldr r0, r3, SF_TYPE
+        cmp r0, SFT_HANDYMAN
+        brz eco_wage_handyman
+        cmp r0, SFT_MECHANIC
+        brnz eco_wage_next
+        mov r0, WAGE_MECHANIC
+        br eco_wage_pay
+eco_wage_handyman:
+        mov r0, WAGE_HANDYMAN
+eco_wage_pay:
+        bl eco_pay
+eco_wage_next:
+        add r3, r3, STAFF_SIZE
+        sub r4, r4, 1
+        brp eco_wage_loop
+
+        ; Annual interest = K*10*rate + U*rate/100. Divide the result
+        ; by the months per year, truncating the final charge to dollars.
+        ld r3, eco_loan_p
+        mov r1, LOAN_RATE_PCT
+        ldr r0, r3, 1
+        mul r0, r1
+        mov r2, 100
+        div r0, r2
+        ldr r2, r3, 0
+        mov r3, 10
+        mul r2, r3
+        mul r2, r1
+        add r0, r0, r2
+        mov r1, MONTHS_PER_YEAR
+        div r0, r1
+        bl eco_pay
+
+        ld r0, eco_last_p
+        ld r1, eco_month_ledger_p
+        mov r2, 4               ; income K/U and expense K/U
+        bl util_memcpy
+        mov r0, r1
+        mov r1, 0
+        bl util_memset
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+eco_rides_p:      .word st_rides
+eco_staff_p:      .word st_staff
+eco_ride_stride:  .word RIDE_SIZE
+
+; Keep the magnitude of K nonpositive so -32768 is representable.
+; Amounts in the millions use whole thousands with a K suffix to fit.
+eco_money_text:
+        push r1
+        push r2
+        push r3
+        push r4
+        push r0
+        push lr
+        mov r3, 0
+        cmp r1, 0
+        brlt eco_money_negative
+        sub r1, r3, r1
+        br eco_money_symbol
+eco_money_negative:
+        mov r3, '-'
+        str r3, r0, 0
+        add r0, r0, 1
+        cmp r2, 0
+        brz eco_money_symbol
+        add r1, r1, 1
+        ld r3, eco_thousand
+        sub r2, r3, r2
+eco_money_symbol:
+        mov r3, '$'
+        str r3, r0, 0
+        add r0, r0, 1
+        mov r3, 0
+        sub r2, r3, r2          ; magnitude of U for the decimal helper
+        cmp r1, 0
+        brz eco_money_units
+
+        ld r3, eco_thousand
+        mov r4, r1
+        div r4, r3              ; nonzero only for abbreviated amounts
+        cmp r4, 0
+        brz eco_money_leading
+        rem r1, r3
+        mov r2, r1              ; the low three digits of the thousands
+        mov r1, r4
+eco_money_leading:
+        push r2
+        mov r2, 1
+        bl eco_append_decimal
+        pop r1
+        mov r3, ','
+        str r3, r0, 0
+        add r0, r0, 1
+        mov r2, 3
+        bl eco_append_decimal
+        cmp r4, 0
+        brz eco_money_done
+        mov r3, 'K'
+        str r3, r0, 0
+        add r0, r0, 1
+        br eco_money_done
+eco_money_units:
+        mov r1, r2
+        mov r2, 1
+        bl eco_append_decimal
+eco_money_done:
+        mov r3, 0
+        str r3, r0, 0
+        pop lr
+        pop r0
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; Years with three or more digits omit separators to fit the 12-word buffer.
+eco_date_text:
+        push r1
+        push r2
+        push r3
+        push r0
+        push lr
+        ld r1, eco_month_p
+        ldr r1, r1, 0
+        sll r1, 2
+        lea r2, eco_month_names
+        add r1, r1, r2
+        mov r2, 3
+        bl util_memcpy
+        add r0, r0, 3
+
+        ld r3, eco_year_p
+        ldr r3, r3, 0
+        mov r1, 99
+        cmp r3, r1
+        brgt eco_date_day
+        mov r1, ' '
+        str r1, r0, 0
+        add r0, r0, 1
+eco_date_day:
+        ld r1, eco_day_p
+        ldr r1, r1, 0
+        mov r2, 0
+        sub r1, r2, r1
+        mov r2, 1
+        bl eco_append_decimal
+
+        mov r1, 99
+        cmp r3, r1
+        brgt eco_date_year
+        mov r1, ','
+        str r1, r0, 0
+        mov r1, ' '
+        str r1, r0, 1
+        add r0, r0, 2
+eco_date_year:
+        mov r1, 'Y'
+        str r1, r0, 0
+        add r0, r0, 1
+        mov r2, 0
+        sub r1, r2, r3
+        mov r2, 1
+        bl eco_append_decimal
+        mov r1, 0
+        str r1, r0, 0
+        pop lr
+        pop r0
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; r0=output pointer, r1=nonpositive number, r2=minimum digit count.
+; Append the magnitude in decimal and return the advanced pointer.
+eco_append_decimal:
+        push r1
+        push r2
+        push r3
+        push r4
+        mov r3, 10
+        mov r4, 0
+eco_digits_push:
+        push r1
+        rem r1, r3
+        mov r3, '0'
+        sub r3, r3, r1
+        pop r1
+        push r3
+        mov r3, 10
+        div r1, r3
+        add r4, r4, 1
+        cmp r1, 0
+        brnz eco_digits_push
+        cmp r4, r2
+        brlt eco_digits_push
+eco_digits_write:
+        pop r3
+        str r3, r0, 0
+        add r0, r0, 1
+        sub r4, r4, 1
+        brp eco_digits_write
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+eco_month_names:
+        .string "Jan"
+        .string "Feb"
+        .string "Mar"
+        .string "Apr"
+        .string "May"
+        .string "Jun"
+        .string "Jul"
+        .string "Aug"
+        .string "Sep"
+        .string "Oct"
+        .string "Nov"
+        .string "Dec"

@@ -9,9 +9,23 @@
 ;; ren_scroll     ()          -> -              adjust st_view_y (0..MAP_H-VIEW_ROWS) so st_cur_y stays VIEW_MARGIN rows from the viewport edges
 ;; ren_tile_cell  r0=tile     -> r0=cell        display cell (glyph|fg|bg) for a tile word (palette C_* in defs.ap; ride bodies use the catalog RTI_CELL)
 ;; ren_map_to_screen r0=x r1=y -> r0=row r1=col screen position of a map tile; r0=-1 if not visible (r1 then undefined)
+;
+; Draw order: terrain (vomit > litter > tile kind), staff, guests (keep the
+; tile's background), cursor (glyph kept, colors A_CURSOR).
+; Ride/stall bodies: catalog RTI_CELL of the ride's type; while the record
+; or catalog is missing, a fallback colored by ride index (ren_body_pal).
+; The viewport shows full map rows: assumes VIEW_COLS = MAP_W (no view_x).
 ; ---------------------------------------------------------------------
 
-; WP0 stub: grass-dot placeholder with a label, cursor cell highlighted.
+        .define REN_ROW_SKIP    SCR_COLS-VIEW_COLS      ; screen words from one viewport row end to the next start
+        .define REN_SCR_START   VIEW_ROW*SCR_COLS+VIEW_COL
+        .define REN_LO_MARGIN   VIEW_ROWS-1-VIEW_MARGIN ; lowest screen row (in the viewport) the cursor may sit on
+        .define REN_VIEW_MAX    MAP_H-VIEW_ROWS
+        .define C_REN_UNKNOWN   '?'|FG_BMAGENTA         ; tile kind with no palette entry
+        .define G_REN_RIDE      G_DARK                  ; fallback ride body glyph ▓
+        .define G_REN_STALL     G_HOUSE                 ; fallback stall glyph ⌂
+
+; ---- ren_draw ----------------------------------------------------------------
 ren_draw:
         push r0
         push r1
@@ -19,17 +33,53 @@ ren_draw:
         push r3
         push r4
         push lr
-        mov r0, VIEW_ROW
-        mov r1, VIEW_COL
-        mov r2, VIEW_ROWS
-        mov r3, VIEW_COLS
-        ld r4, ren_grass
-        bl video_fill
-        mov r0, VIEW_ROW+11
-        mov r1, VIEW_COL+21
-        lea r2, ren_label
-        ld r3, ren_dim
-        bl video_text
+        bl ren_scroll
+        ; ---- terrain: r3 = map pointer, r4 = screen pointer --------------------
+        ld r3, st_view_y
+        sll r3, MAP_SHIFT
+        lea r0, st_map
+        add r3, r3, r0
+        lea r4, st_cells
+        ld r0, ren_k_scr_start
+        add r4, r4, r0
+        mov r0, VIEW_ROWS
+        st r0, ren_rows
+ren_draw_row:
+        ld r0, ren_k_view_cols
+        add r0, r4, r0
+        st r0, ren_row_end
+ren_draw_lp:
+        ldr r2, r3, 0           ; tile word
+        bl ren_cell             ; r0 = cell (clobbers r1)
+        str r0, r4, 0
+        add r3, r3, 1
+        add r4, r4, 1
+        ld r0, ren_row_end
+        cmp r4, r0
+        brnz ren_draw_lp
+        ld r0, ren_k_row_skip
+        add r4, r4, r0
+        ld r0, ren_rows
+        sub r0, r0, 1
+        st r0, ren_rows
+        brnz ren_draw_row
+        ; ---- staff, then guests (guests on top) ------------------------------------
+        bl ren_draw_staff
+        bl ren_draw_guests
+        ; ---- cursor: keep the glyph, replace the colors ------------------------------
+        ld r0, st_cur_x
+        ld r1, st_cur_y
+        bl ren_map_to_screen
+        cmp r0, 0
+        brn ren_draw_done
+        bl ren_cell_addr        ; r0 = address of (row r0, col r1)
+        ldr r1, r0, 0
+        ld r2, ren_m_glyph
+        and r1, r1, r2
+        ld r2, ren_a_cursor
+        add r1, r1, r2
+        str r1, r0, 0
+ren_draw_done:
         pop lr
         pop r4
         pop r3
@@ -37,17 +87,304 @@ ren_draw:
         pop r1
         pop r0
         ret
-ren_grass:  .word C_GRASS
-ren_dim:    .word A_DIM
-ren_label:  .string "[ viewport 64x24 - WP2 ]"
+ren_rows:        .word 0
+ren_row_end:     .word 0
+ren_k_scr_start: .word REN_SCR_START
+ren_k_view_cols: .word VIEW_COLS
+ren_k_row_skip:  .word REN_ROW_SKIP
+ren_m_glyph:     .word GLYPH_MASK
+ren_m_bg:        .word 0xF000
+ren_a_cursor:    .word A_CURSOR
 
+; ---- ren_cell (private): r2=tile -> r0=cell; clobbers r1 only ----------------
+ren_cell:
+        add r2, r2, 0
+        brn ren_cell_vomit      ; bit 15 = T_VOMIT
+        ld r1, ren_m_litter
+        and r1, r1, r2
+        brnz ren_cell_litter
+        and r1, r2, T_KIND_MASK
+        lea r0, ren_kind_cells
+        add r0, r0, r1
+        ldr r0, r0, 0
+        add r0, r0, 0
+        brz ren_cell_body       ; 0 = ride/stall body: per-ride cell
+        ret
+ren_cell_vomit:
+        ld r0, ren_c_vomit
+        ret
+ren_cell_litter:
+        ld r0, ren_c_litter
+        ret
+ren_cell_body:
+        push lr
+        bl ren_body
+        pop lr
+        ret
+ren_m_litter:   .word T_LITTER
+ren_c_litter:   .word C_LITTER
+ren_c_vomit:    .word C_VOMIT
+
+; cell per tile kind (T_*); 0 = ride/stall body, resolved by ren_body
+ren_kind_cells:
+        .word C_GRASS           ; T_GRASS
+        .word C_TREE            ; T_TREE
+        .word C_WATER           ; T_WATER
+        .word C_PATH            ; T_PATH
+        .word C_QUEUE           ; T_QUEUE
+        .word C_GATE            ; T_GATE
+        .word 0                 ; T_RIDE
+        .word C_ENTRANCE        ; T_ENTRANCE
+        .word C_EXIT            ; T_EXIT
+        .word 0                 ; T_STALL
+        .word C_TRACK           ; T_TRACK
+        .word C_FLOWERS         ; T_FLOWERS
+        .word C_BENCH           ; T_BENCH
+        .word C_BIN             ; T_BIN
+        .word C_FENCE           ; T_FENCE
+        .word C_REN_UNKNOWN     ; 15: unused kind
+
+; ---- ren_body (private): r1=kind (T_RIDE/T_STALL) r2=tile -> r0=cell ---------
+; preserves r1..r4
+ren_body:
+        push r1
+        push r2
+        push r3
+        push lr
+        ld r0, ren_m_ride
+        and r0, r0, r2
+        srl r0, T_RIDE_SHIFT    ; ride index 0..31
+        mov r3, r0
+        sll r0, RIDE_SHIFT
+        lea r2, st_rides
+        add r0, r0, r2
+        ldr r0, r0, R_TYPE
+        cmp r0, 0
+        brz ren_body_fb         ; free record: fallback
+        bl ride_type_info       ; r0 = catalog record, 0 if none
+        cmp r0, 0
+        brz ren_body_fb
+        ldr r0, r0, RTI_CELL
+        cmp r0, 0
+        brnz ren_body_done
+ren_body_fb:
+        and r0, r3, 7
+        lea r2, ren_body_pal
+        add r0, r0, r2
+        ldr r0, r0, 0           ; colors by ride index
+        ld r2, ren_g_ride
+        cmp r1, T_STALL
+        brnz ren_body_glyph
+        ld r2, ren_g_stall
+ren_body_glyph:
+        add r0, r0, r2          ; attr | glyph (disjoint bits)
+ren_body_done:
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        ret
+ren_m_ride:     .word T_RIDE_MASK
+ren_g_ride:     .word G_REN_RIDE
+ren_g_stall:    .word G_REN_STALL
+ren_body_pal:
+        .word FG_BRED|BG_RED
+        .word FG_BMAGENTA|BG_MAGENTA
+        .word FG_BCYAN|BG_CYAN
+        .word FG_BYELLOW|BG_RED
+        .word FG_BBLUE|BG_BLUE
+        .word FG_BWHITE|BG_MAGENTA
+        .word FG_BGREEN|BG_CYAN
+        .word FG_BYELLOW|BG_BLUE
+
+; ---- ren_cell_addr (private): r0=row r1=col -> r0=address in st_cells ---------
+; preserves r1..r4
+ren_cell_addr:
+        push r1
+        push r2
+        ld r2, ren_k_scr_cols
+        mul r0, r2
+        add r0, r0, r1
+        lea r1, st_cells
+        add r0, r0, r1
+        pop r2
+        pop r1
+        ret
+ren_k_scr_cols: .word SCR_COLS
+
+; ---- ren_draw_guests (private): face on every guest with G_STATE != 0 ---------
+; preserves all; the face keeps the background of the tile under it
+ren_draw_guests:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        lea r3, st_guests
+        mov r4, MAX_GUESTS
+ren_dg_lp:
+        ldr r0, r3, G_STATE
+        cmp r0, GS_FREE
+        brz ren_dg_next
+        ldr r0, r3, G_X
+        ldr r1, r3, G_Y
+        bl ren_map_to_screen
+        cmp r0, 0
+        brn ren_dg_next
+        bl ren_cell_addr
+        ldr r1, r0, 0
+        ld r2, ren_m_bg
+        and r1, r1, r2
+        ld r2, ren_c_guest
+        add r1, r1, r2
+        str r1, r0, 0
+ren_dg_next:
+        ld r0, ren_k_guest_size
+        add r3, r3, r0
+        sub r4, r4, 1
+        brnz ren_dg_lp
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+ren_c_guest:    .word C_GUEST
+ren_k_guest_size: .word GUEST_SIZE
+
+; ---- ren_draw_staff (private): handymen / mechanics ----------------------------
+ren_draw_staff:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        lea r3, st_staff
+        mov r4, MAX_STAFF
+ren_ds_lp:
+        ldr r2, r3, SF_TYPE
+        cmp r2, SFT_HANDYMAN
+        brz ren_ds_draw
+        cmp r2, SFT_MECHANIC
+        brnz ren_ds_next
+ren_ds_draw:
+        ldr r0, r3, SF_X
+        ldr r1, r3, SF_Y
+        bl ren_map_to_screen
+        cmp r0, 0
+        brn ren_ds_next
+        bl ren_cell_addr
+        ldr r1, r0, 0
+        push r2
+        ld r2, ren_m_bg
+        and r1, r1, r2
+        pop r2
+        cmp r2, SFT_HANDYMAN
+        brnz ren_ds_mech
+        ld r2, ren_c_handy
+        br ren_ds_put
+ren_ds_mech:
+        ld r2, ren_c_mech
+ren_ds_put:
+        add r1, r1, r2
+        str r1, r0, 0
+ren_ds_next:
+        add r3, r3, STAFF_SIZE
+        sub r4, r4, 1
+        brnz ren_ds_lp
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+ren_c_handy:    .word C_HANDYMAN
+ren_c_mech:     .word C_MECHANIC
+
+; ---- ren_scroll -------------------------------------------------------------------
 ren_scroll:
+        push r0
+        push r1
+        ld r0, st_view_y
+        ld r1, st_cur_y
+        sub r1, r1, VIEW_MARGIN         ; highest allowed view_y keeping the top margin
+        cmp r0, r1
+        brlt ren_sc_low
+        mov r0, r1                      ; cursor too close to the top: scroll up
+ren_sc_low:
+        st r0, st_view_y
+        ld r1, st_cur_y
+        ld r0, ren_k_lo_margin
+        sub r1, r1, r0                  ; lowest allowed view_y keeping the bottom margin
+        ld r0, st_view_y
+        cmp r0, r1
+        brgt ren_sc_clamp
+        mov r0, r1                      ; cursor too close to the bottom: scroll down
+ren_sc_clamp:
+        cmp r0, 0
+        brp ren_sc_max
+        mov r0, 0
+ren_sc_max:
+        ld r1, ren_k_view_max
+        cmp r0, r1
+        brlt ren_sc_store
+        mov r0, r1
+ren_sc_store:
+        st r0, st_view_y
+        pop r1
+        pop r0
         ret
+ren_k_view_max: .word REN_VIEW_MAX
+ren_k_lo_margin: .word REN_LO_MARGIN
+ren_k_view_rows: .word VIEW_ROWS
 
+; ---- ren_tile_cell ----------------------------------------------------------------
 ren_tile_cell:
-        ld r0, ren_grass
+        push r1
+        push r2
+        cmp r0, T_OUT
+        brnz ren_tc_tile
+        mov r0, G_SPACE                 ; outside the map: blank
+        br ren_tc_done
+ren_tc_tile:
+        push lr
+        mov r2, r0
+        bl ren_cell
+        pop lr
+ren_tc_done:
+        pop r2
+        pop r1
         ret
 
+; ---- ren_map_to_screen --------------------------------------------------------------
 ren_map_to_screen:
+        push r2
+        cmp r0, 0
+        brn ren_ms_out
+        ld r2, ren_k_view_cols
+        cmp r0, r2
+        brlt ren_ms_x_ok
+        br ren_ms_out
+ren_ms_x_ok:
+        ld r2, st_view_y
+        sub r1, r1, r2                  ; row within the viewport
+        brn ren_ms_out
+        ld r2, ren_k_view_rows
+        cmp r1, r2
+        brlt ren_ms_in
+ren_ms_out:
         mov r0, -1
+        pop r2
+        ret
+ren_ms_in:
+        mov r2, r0                      ; x
+        mov r0, r1
+        add r0, r0, VIEW_ROW
+        mov r1, r2
+        add r1, r1, VIEW_COL
+        pop r2
         ret

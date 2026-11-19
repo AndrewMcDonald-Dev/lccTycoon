@@ -310,7 +310,7 @@ function build(entryFile, options = {}) {
     if (relaxOn) {
       const fixable = res.errors
         .filter(e => !e.thrown && /pcoffset/i.test(e.message))
-        .map(e => ({ e, idx: e.lineNum - 1, rewrite: far.relaxLine(lines[e.lineNum - 1], relaxed.length + e.lineNum) }))
+        .map(e => ({ e, idx: e.lineNum - 1, rewrite: far.relaxLine(lines[e.lineNum - 1], `${iter}_${e.lineNum}`) }))
         .filter(x => x.rewrite);
       if (fixable.length) {
         // rewrite bottom-up so earlier indexes stay valid

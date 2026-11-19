@@ -1,0 +1,389 @@
+; Exercise the economy against shared state and a small ride catalog fixture.
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        nbain r0
+        mov r1, 'a'
+        sub r0, r0, r1
+        brn drv_stop
+        cmp r0, 7
+        brgt drv_stop
+        lea r1, drv_cases
+        add r1, r1, r0
+        ldr r1, r1, 0
+        jmp r1
+drv_stop:
+        halt
+
+drv_cases:
+        .word drv_arithmetic
+        .word drv_debt
+        .word drv_format
+        .word drv_loans
+        .word drv_days
+        .word drv_months
+        .word drv_years
+        .word drv_reset
+
+drv_arithmetic:
+        bl eco_init
+        mov r0, 0
+        ld r4, drv_st_cash_k_ptr
+        str r0, r4, 0
+        ld r0, drv_999
+        bl eco_earn
+        mov r0, 1
+        bl eco_earn
+        ld r4, drv_st_cash_k_ptr
+        ldr r0, r4, 0
+        st r0, drv_earned
+        ld r4, drv_st_cash_u_ptr
+        ldr r0, r4, 0
+        st r0, drv_earned+1
+        mov r0, 1
+        bl eco_spend
+        st r0, drv_spent
+        ld r0, drv_max_word
+        bl eco_earn
+        ld r0, drv_max_word
+        bl eco_spend
+        st r0, drv_max_spent
+        halt
+
+drv_earned:         .zero 2
+drv_spent:          .word -1
+drv_max_spent:      .word -1
+drv_refused:        .zero 4
+
+drv_debt:
+        bl eco_init
+        mov r0, 0
+        ld r4, drv_st_cash_k_ptr
+        str r0, r4, 0
+        mov r0, 1
+        bl eco_spend
+        st r0, drv_spent
+        ld r4, drv_st_cash_k_ptr
+        ldr r0, r4, 0
+        st r0, drv_refused
+        ld r4, drv_st_cash_u_ptr
+        ldr r0, r4, 0
+        st r0, drv_refused+1
+        ld r4, drv_st_mon_exp_k_ptr
+        ldr r0, r4, 0
+        st r0, drv_refused+2
+        ld r4, drv_st_mon_exp_u_ptr
+        ldr r0, r4, 0
+        st r0, drv_refused+3
+
+        mov r0, 250
+        bl eco_pay
+        lea r0, drv_negative_cash
+        bl eco_cash_text
+        mov r0, 0
+        bl eco_can_afford
+        st r0, drv_affords_zero
+        mov r0, 1
+        bl eco_spend
+        st r0, drv_spent_in_debt
+        halt
+
+drv_affords_zero:   .word -1
+drv_spent_in_debt:  .word -1
+
+drv_format:
+        lea r0, drv_money_0
+        mov r1, 0
+        mov r2, 0
+        bl eco_money_text
+        lea r0, drv_money_999
+        ld r2, drv_999
+        bl eco_money_text
+        lea r0, drv_money_1000
+        mov r1, 1
+        mov r2, 0
+        bl eco_money_text
+        lea r0, drv_money_12345
+        mov r1, 12
+        ld r2, drv_345
+        bl eco_money_text
+        lea r0, drv_money_32767
+        mov r1, 32
+        ld r2, drv_767
+        bl eco_money_text
+        lea r0, drv_money_120000
+        mov r1, 120
+        mov r2, 0
+        bl eco_money_text
+        lea r0, drv_money_limit
+        ld r1, drv_min_word
+        bl eco_money_text
+
+        mov r0, START_MONTH
+        ld r4, drv_st_month_ptr
+        str r0, r4, 0
+        mov r0, 12
+        ld r4, drv_st_day_ptr
+        str r0, r4, 0
+        lea r0, drv_date
+        bl eco_date_text
+        lea r1, drv_date
+        sub r0, r0, r1
+        st r0, drv_date_ptr
+        ld r0, drv_max_word
+        ld r4, drv_st_year_ptr
+        str r0, r4, 0
+        lea r0, drv_long_date
+        bl eco_date_text
+        halt
+
+drv_money_0:        .zero 10
+drv_money_999:      .zero 10
+drv_money_1000:     .zero 10
+drv_money_12345:    .zero 10
+drv_money_32767:    .zero 10
+drv_money_120000:   .zero 10
+drv_money_limit:    .zero 10
+drv_money_guard:    .word 99
+drv_negative_cash:  .zero 10
+
+drv_345:            .word 345
+drv_767:            .word 767
+drv_900:            .word 900
+drv_950:            .word 950
+drv_999:            .word 999
+drv_min_word:       .word -32768
+drv_max_word:       .word 32767
+drv_ride_stride:    .word RIDE_SIZE
+drv_ride_last:      .word (MAX_RIDES-1)*RIDE_SIZE
+drv_staff_last:     .word (MAX_STAFF-1)*STAFF_SIZE
+
+drv_loans:
+        bl eco_init
+        mov r0, MAX_LOAN_K-LOAN_STEP_K
+        ld r4, drv_st_loan_k_ptr
+        str r0, r4, 0
+        mov r0, 1
+        ld r4, drv_st_loan_u_ptr
+        str r0, r4, 0
+        bl eco_borrow
+        st r0, drv_borrow_fraction
+        mov r0, 0
+        ld r4, drv_st_loan_u_ptr
+        str r0, r4, 0
+        bl eco_borrow
+        st r0, drv_borrow_ok
+        bl eco_borrow
+        st r0, drv_borrow_max
+        ld r4, drv_st_cash_k_ptr
+        ldr r0, r4, 0
+        st r0, drv_borrow_cash
+        ld r4, drv_st_loan_k_ptr
+        ldr r0, r4, 0
+        st r0, drv_borrow_loan
+
+        bl eco_repay
+        st r0, drv_repay_ok
+        ld r4, drv_st_cash_k_ptr
+        ldr r0, r4, 0
+        st r0, drv_repay_cash
+        ld r4, drv_st_loan_k_ptr
+        ldr r0, r4, 0
+        st r0, drv_repay_loan
+        mov r0, 0
+        ld r4, drv_st_cash_k_ptr
+        str r0, r4, 0
+        bl eco_repay
+        st r0, drv_repay_broke
+        mov r0, START_CASH_K
+        ld r4, drv_st_cash_k_ptr
+        str r0, r4, 0
+        mov r0, 0
+        ld r4, drv_st_loan_k_ptr
+        str r0, r4, 0
+        bl eco_repay
+        st r0, drv_repay_no_loan
+        halt
+
+drv_borrow_fraction: .word -1
+drv_borrow_ok:      .word -1
+drv_borrow_max:     .word -1
+drv_borrow_cash:    .word -1
+drv_borrow_loan:    .word -1
+drv_repay_ok:       .word -1
+drv_repay_cash:     .word -1
+drv_repay_loan:     .word -1
+drv_repay_broke:    .word -1
+drv_repay_no_loan:  .word -1
+
+drv_date:           .zero 12
+drv_date_ptr:       .word -1
+drv_long_date:      .zero 12
+drv_date_guard:     .word 99
+
+drv_st_cash_k_ptr:      .word st_cash_k
+drv_st_cash_u_ptr:      .word st_cash_u
+drv_st_mon_exp_k_ptr:   .word st_mon_exp_k
+drv_st_mon_exp_u_ptr:   .word st_mon_exp_u
+drv_st_month_ptr:       .word st_month
+drv_st_day_ptr:         .word st_day
+drv_st_year_ptr:        .word st_year
+drv_st_loan_k_ptr:      .word st_loan_k
+drv_st_loan_u_ptr:      .word st_loan_u
+drv_st_tick_ptr:        .word st_tick
+drv_st_new_day_ptr:     .word st_new_day
+drv_st_rides_ptr:       .word st_rides
+drv_st_staff_ptr:       .word st_staff
+
+drv_days:
+        bl eco_init
+        mov r0, DAY_TICKS-2
+        ld r4, drv_st_tick_ptr
+        str r0, r4, 0
+        bl eco_tick
+        ld r4, drv_st_tick_ptr
+        ldr r0, r4, 0
+        st r0, drv_before_day
+        ld r4, drv_st_new_day_ptr
+        ldr r0, r4, 0
+        st r0, drv_before_day+1
+        bl eco_tick
+        lea r0, drv_day_start
+        bl drv_copy_time
+        bl eco_tick
+        halt
+
+drv_before_day:     .zero 2
+drv_day_start:      .zero 6
+
+drv_months:
+        bl eco_init
+        mov r0, MAX_LOAN_K-1
+        ld r4, drv_st_loan_k_ptr
+        str r0, r4, 0
+        ld r0, drv_999
+        ld r4, drv_st_loan_u_ptr
+        str r0, r4, 0
+        ld r0, drv_950
+        bl eco_earn
+        ld r0, drv_900
+        bl eco_spend
+        mov r0, DAYS_PER_MONTH
+        ld r4, drv_st_day_ptr
+        str r0, r4, 0
+        mov r0, DAY_TICKS-1
+        ld r4, drv_st_tick_ptr
+        str r0, r4, 0
+
+        ld r1, drv_st_rides_ptr
+        mov r0, RT_CAROUSEL
+        str r0, r1, R_TYPE
+        mov r0, RS_OPEN
+        str r0, r1, R_STATUS
+        mov r0, 4
+        str r0, r1, R_AGE
+        ld r2, drv_ride_stride
+        add r1, r1, r2
+        mov r0, 7
+        str r0, r1, R_AGE       ; unoccupied slot is skipped
+        add r1, r1, r2
+        mov r0, RT_SWINGS
+        str r0, r1, R_TYPE      ; fixture returns no catalog record
+        ld r2, drv_ride_last
+        ld r1, drv_st_rides_ptr
+        add r1, r1, r2
+        mov r0, RT_WHEEL
+        str r0, r1, R_TYPE      ; closed, occupied slot at the end of the pool
+
+        ld r1, drv_st_staff_ptr
+        mov r0, SFT_HANDYMAN
+        str r0, r1, SF_TYPE
+        ld r2, drv_staff_last
+        add r1, r1, r2
+        mov r0, SFT_MECHANIC
+        str r0, r1, SF_TYPE
+
+        bl eco_tick
+        lea r0, drv_month_start
+        bl drv_copy_time
+        ld r1, drv_st_rides_ptr
+        ldr r0, r1, R_AGE
+        st r0, drv_ages
+        ld r2, drv_ride_stride
+        add r1, r1, r2
+        ldr r0, r1, R_AGE
+        st r0, drv_ages+1
+        add r1, r1, r2
+        ldr r0, r1, R_AGE
+        st r0, drv_ages+2
+        ld r2, drv_ride_last
+        ld r1, drv_st_rides_ptr
+        add r1, r1, r2
+        ldr r0, r1, R_AGE
+        st r0, drv_ages+3
+        bl eco_tick
+        halt
+
+drv_month_start:    .zero 6
+
+drv_ages:           .zero 4
+
+drv_years:
+        bl eco_init
+        mov r0, MONTHS_PER_YEAR-1
+        ld r4, drv_st_month_ptr
+        str r0, r4, 0
+        mov r0, DAYS_PER_MONTH
+        ld r4, drv_st_day_ptr
+        str r0, r4, 0
+        mov r0, DAY_TICKS-1
+        ld r4, drv_st_tick_ptr
+        str r0, r4, 0
+        bl eco_tick
+        lea r0, drv_date
+        bl eco_date_text
+        halt
+
+drv_reset:
+        ; Seed all economy cells, then verify a fresh game restores defaults.
+        ld r0, drv_st_tick_ptr
+        mov r1, 99
+        mov r2, 7
+        bl util_memset
+        ld r0, drv_st_cash_k_ptr
+        mov r2, 15
+        bl util_memset
+        bl eco_init
+        halt
+
+drv_copy_time:
+        ld r1, drv_st_tick_ptr
+        mov r2, 6
+        br util_memcpy
+
+ride_type_info:
+        cmp r0, RT_CAROUSEL
+        brz drv_catalog_carousel
+        cmp r0, RT_WHEEL
+        brz drv_catalog_wheel
+        mov r0, 0
+        ret
+drv_catalog_carousel:
+        lea r0, drv_carousel
+        ret
+drv_catalog_wheel:
+        lea r0, drv_wheel
+        ret
+drv_carousel:
+        .zero RTI_UPKEEP
+        .word 125
+drv_wheel:
+        .zero RTI_UPKEEP
+        .word 350
+
+        .include "../../src/state.ap"
+        .include "../../src/economy.ap"
+        .include "util.ap"

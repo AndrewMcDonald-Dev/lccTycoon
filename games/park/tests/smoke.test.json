@@ -3,16 +3,14 @@
     { "name": "first frame shows viewport, panel, status, messages, help", "frames": 1,
       "expect": { "status": "frames-complete",
         "screen": {
-          "contains": ["[ viewport 64x24 - WP2 ]"],
+          "matches": ["^.{64}┌──────────────────────────────────┐$", "^.{64}│ PARK BUILDER                     │$", "^.{64}└──────────────────────────────────┘$",
+                      "^ \\$10(k|,000) +Guests 0 +Rating 500 +(Day 1 M3 Y1|Mar 1, Y1) +Speed 1$"],
           "lines": {
-            "0":  "································································┌──────────────────────────────────┐",
-            "1":  "································································│ PARK BUILDER                     │",
-            "23": "································································└──────────────────────────────────┘",
-            "24": " Cash k$ 10    Guests 0    Rating 500  Day 1    Month 3    Year 1",
             "25": " Welcome to Park Builder!",
-            "29": " q quit   p pause"
+            "29": " wasd move (WASD x5)  1-6 tools  x demolish  i info  f finance  p pause  > speed  q quit"
           } },
-        "colors": { "lines": { "0": "ggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggcccccccccccccccccccccccccccccccccccc" } },
+        "colors": { "matches": ["^.{64}cccccccccccccccccccccccccccccccccccc$"] },
+        "bg": { "matches": ["(?<![\\s\\S])(?:.*\\n){16}.{32}Y"] },
         "memory": { "st_game_state": 1, "st_cash_k": 10, "st_quit_ask": 0 } } },
     { "name": "q asks to confirm", "keys": "q",
       "expect": { "status": "frames-complete", "memory": { "st_quit_ask": 1 },
@@ -21,7 +19,7 @@
     { "name": "q y in the same frame quits", "keys": "qy", "expect": { "status": "halted" } },
     { "name": "q then another key cancels", "keys": "q n _2",
       "expect": { "status": "frames-complete", "memory": { "st_quit_ask": 0 },
-        "screen": { "lines": { "29": " q quit   p pause" } } } },
+        "screen": { "lines": { "29": " wasd move (WASD x5)  1-6 tools  x demolish  i info  f finance  p pause  > speed  q quit" } } } },
     { "name": "cancelled quit can be asked again", "keys": "q n q y", "expect": { "status": "halted" } },
     { "name": "p pauses and shows PAUSED", "keys": "p",
       "expect": { "memory": { "st_paused": 1 }, "screen": { "contains": ["PAUSED"] } } },

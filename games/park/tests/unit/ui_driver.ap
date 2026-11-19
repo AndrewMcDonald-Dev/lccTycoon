@@ -1,0 +1,171 @@
+; Unit driver for src/ui.ap (WP3). Each step sets st_* cells directly, calls
+; ui routines, draws (ui_draw + present) and ends the frame with sleep, so
+; ui_frame.test.json can check frame N's screen. Economy/rides calls go to
+; ui_stubs.ap.
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+        .include "../../src/state.ap"
+        .include "../../src/ui.ap"         ; before use: drivers use its UI_* defines
+        .include "ui_stubs.ap"
+drv_main:
+        lea r0, st_screen
+        bl video_bind
+        ; ---- frame 0: new-game defaults, economy stub returns "" ----------
+        bl drv_frame
+        ; ---- frame 1: path tool, cursor on water, status numbers, PAUSED --
+        mov r0, TOOL_PATH
+        st r0, st_tool
+        mov r0, 5
+        st r0, st_cur_x
+        mov r0, 7
+        st r0, st_cur_y
+        mov r0, 5
+        mov r1, 7
+        mov r2, T_WATER
+        bl drv_set_tile
+        mov r0, 42
+        st r0, st_guest_count
+        ld r0, drv_k777
+        st r0, st_rating
+        mov r0, 3
+        st r0, st_speed
+        mov r0, 1
+        st r0, st_paused
+        st r0, drv_eco_mode
+        bl drv_frame
+        ; ---- frame 2: ride tool + item, cursor on ride 5, quit prompt -----
+        mov r0, TOOL_RIDE
+        st r0, st_tool
+        mov r0, 1
+        st r0, st_tool_item
+        mov r0, 10
+        st r0, st_cur_x
+        mov r0, 11
+        st r0, st_cur_y
+        mov r0, 10
+        mov r1, 11
+        ld r2, drv_ride_tile
+        bl drv_set_tile
+        mov r0, 5
+        st r0, drv_ride_at
+        mov r0, 0
+        st r0, st_paused
+        mov r0, 1
+        st r0, st_quit_ask
+        bl drv_frame
+        ; ---- frame 3: scenery item, entrance with no ride, 5 messages ------
+        mov r0, 0
+        st r0, st_quit_ask
+        mov r0, TOOL_SCENERY
+        st r0, st_tool
+        mov r0, SC_BIN
+        st r0, st_tool_item
+        mov r0, 10
+        mov r1, 11
+        mov r2, T_ENTRANCE
+        bl drv_set_tile
+        mov r0, -1
+        st r0, drv_ride_at
+        lea r0, drv_s_m1
+        bl ui_msg
+        lea r0, drv_s_m2
+        bl ui_msg
+        lea r0, drv_s_m3
+        bl ui_msg
+        lea r0, drv_s_m4
+        bl ui_msg
+        lea r0, drv_s_m5
+        bl ui_msg
+        bl drv_frame
+        ; ---- frame 4: ui_msg_num -32768 (scrolled out), 32767, -5, 7, 0 ----
+        mov r0, TOOL_DEMOLISH
+        st r0, st_tool
+        lea r0, drv_s_n
+        ld r1, drv_kmin
+        bl ui_msg_num
+        lea r0, drv_s_n
+        ld r1, drv_kmax
+        bl ui_msg_num
+        lea r0, drv_s_n
+        mov r1, -5
+        bl ui_msg_num
+        lea r0, drv_s_n
+        mov r1, 7
+        bl ui_msg_num
+        lea r0, drv_s_n
+        mov r1, 0
+        bl ui_msg_num
+        lea r2, drv_s_n                 ; registers preserved: r0 - &str = 0
+        sub r0, r0, r2
+        st r0, drv_reg_r0
+        st r1, drv_reg_r1
+        bl drv_frame
+        ; ---- frame 5: long message truncated, older ones aged to dim -------
+        lea r0, drv_s_long
+        bl ui_msg
+        mov r4, UI_MSG_FRESH
+drv_age_lp:
+        bl ui_tick
+        sub r4, r4, 1
+        brnz drv_age_lp
+        lea r0, drv_s_n                 ; one fresh message on top of aged ones
+        ld r1, drv_kmin
+        bl ui_msg_num
+        bl drv_frame
+        ; ---- checks without a screen ---------------------------------------
+        mov r0, 99
+        bl ui_tool_name
+        ldr r0, r0, 0
+        st r0, drv_tn_bad               ; "" -> 0
+        mov r0, TOOL_COASTER
+        bl ui_tool_name
+        ldr r0, r0, 0
+        st r0, drv_tn_coaster           ; 'C'
+        ld r0, drv_kmax                 ; ui_tick saturates
+        st r0, st_msg_age
+        bl ui_tick
+        halt
+
+; drv_frame: draw the ui, present, end the frame
+drv_frame:
+        push r0
+        push lr
+        bl ui_draw
+        bl video_present
+        mov r0, 1
+        sleep r0
+        pop lr
+        pop r0
+        ret
+
+; drv_set_tile r0=x r1=y r2=tile
+drv_set_tile:
+        push r0
+        push r1
+        sll r1, MAP_SHIFT
+        add r0, r0, r1
+        lea r1, st_map
+        add r1, r1, r0
+        str r2, r1, 0
+        pop r1
+        pop r0
+        ret
+
+drv_k777:       .word 777
+drv_kmax:       .word 32767
+drv_kmin:       .word -32768
+drv_ride_tile:  .word T_RIDE|(5<<T_RIDE_SHIFT)
+drv_reg_r0:     .word 99
+drv_reg_r1:     .word 99
+drv_tn_bad:     .word 99
+drv_tn_coaster: .word 99
+drv_s_m1:       .string "msg one"
+drv_s_m2:       .string "msg two"
+drv_s_m3:       .string "msg three"
+drv_s_m4:       .string "msg four"
+drv_s_m5:       .string "msg five"
+drv_s_n:        .string "n ="
+drv_s_long:     .string "0123456789abcdefghij0123456789ABCDEFGHIJ0123456789abcdefghijKLMNOPQRSTUVWXYZ"
+        .include "video.ap"

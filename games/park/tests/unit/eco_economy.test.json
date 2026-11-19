@@ -1,0 +1,77 @@
+{
+  "game": "eco_driver.ap",
+  "scenarios": [
+    {
+      "name": "earning carries across 999 and spending borrows across zero units",
+      "keys": "a",
+      "expect": { "status": "halted", "memory": {
+        "drv_earned": [1, 0], "drv_spent": 1, "drv_max_spent": 1, "st_cash_k": [0, 999],
+        "st_mon_inc_k": [33, 767], "st_mon_exp_k": [32, 768]
+      } }
+    },
+    {
+      "name": "refused expenses do not post and forced expenses can go negative",
+      "keys": "b",
+      "expect": { "status": "halted", "memory": {
+        "drv_spent": 0, "drv_refused": [0, 0, 0, 0], "drv_affords_zero": 0,
+        "drv_spent_in_debt": 0, "st_cash_k": [-1, 750], "st_mon_exp_k": [0, 250],
+        "drv_negative_cash": "-$250"
+      } }
+    },
+    {
+      "name": "money uses commas and zero padding and date uses the month name",
+      "keys": "c",
+      "expect": { "status": "halted", "memory": {
+        "drv_money_0": "$0", "drv_money_999": "$999", "drv_money_1000": "$1,000",
+        "drv_money_12345": "$12,345", "drv_money_32767": "$32,767",
+        "drv_money_120000": "$120,000", "drv_money_limit": "-$32,768K",
+        "drv_money_guard": 99, "drv_date": "Mar 12, Y1", "drv_long_date": "Mar12Y32767",
+        "drv_date_ptr": 0, "drv_date_guard": 99
+      } }
+    },
+    {
+      "name": "loan principal moves in steps and respects both loan and cash limits",
+      "keys": "d",
+      "expect": { "status": "halted", "memory": {
+        "drv_borrow_fraction": 0, "drv_borrow_ok": 1, "drv_borrow_max": 0,
+        "drv_borrow_cash": 11, "drv_borrow_loan": 30, "drv_repay_ok": 1,
+        "drv_repay_cash": 10, "drv_repay_loan": 29, "drv_repay_broke": 0,
+        "drv_repay_no_loan": 0, "st_cash_k": [10, 0], "st_loan_k": [0, 0],
+        "st_mon_inc_k": [0, 0], "st_mon_exp_k": [0, 0]
+      } }
+    },
+    {
+      "name": "day rollover pulses for one tick and increments the total clock",
+      "keys": "e",
+      "expect": { "status": "halted", "memory": {
+        "drv_before_day": [39, 0], "drv_day_start": [0, 2, 2, 1, 1, 0],
+        "st_tick": [1, 2, 2, 1, 0, 0, 3]
+      } }
+    },
+    {
+      "name": "month rollover charges upkeep, wages and interest, ages rides and closes the ledger",
+      "keys": "f",
+      "expect": { "status": "halted", "memory": {
+        "drv_month_start": [0, 1, 3, 1, 1, 1], "st_tick": [1, 1, 3, 1, 0, 0, 2],
+        "drv_ages": [5, 7, 1, 1], "st_cash_k": [9, 146], "st_loan_k": [29, 999],
+        "st_mon_inc_k": [0, 0, 0, 0], "st_last_inc_k": [0, 950, 1, 804]
+      } }
+    },
+    {
+      "name": "December wraps to January of the next year",
+      "keys": "g",
+      "expect": { "status": "halted", "memory": {
+        "st_tick": [0, 1, 0, 2, 1, 1, 1], "st_cash_k": [9, 900],
+        "st_last_exp_k": [0, 100], "drv_date": "Jan 1, Y2"
+      } }
+    },
+    {
+      "name": "initialization restores the calendar, cash, loan, entry fee and ledgers",
+      "keys": "h",
+      "expect": { "status": "halted", "memory": {
+        "st_tick": [0, 1, 2, 1, 0, 0, 0], "st_cash_k": [10, 0, 10, 0, 0, 0, 10],
+        "st_mon_inc_k": [0, 0, 0, 0, 0, 0, 0, 0]
+      } }
+    }
+  ]
+}

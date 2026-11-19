@@ -1,0 +1,144 @@
+{
+ "game": "ui_driver.ap",
+ "scenarios": [
+  {
+   "name": "ui regions: panel tool/item/cursor/tile/ride, status numbers + PAUSED, messages scroll, msg_num, help per tool, quit prompt",
+   "frames": 20,
+   "expect": {
+    "status": "halted",
+    "frames": [
+     {
+      "frame": 0,
+      "screen": {
+       "lines": {
+        "0": "                                                                ┌──────────────────────────────────┐",
+        "1": "                                                                │ PARK BUILDER                     │",
+        "2": "                                                                ├──────────────────────────────────┤",
+        "3": "                                                                │ Tool    Look                     │",
+        "4": "                                                                │                                  │",
+        "6": "                                                                │ Cursor  32,40                    │",
+        "7": "                                                                │ Tile    Grass                    │",
+        "8": "                                                                │                                  │",
+        "23": "                                                                └──────────────────────────────────┘",
+        "24": " $10k   Guests 0   Rating 500   Day 1 M3 Y1   Speed 1",
+        "25": " Welcome to Park Builder!",
+        "26": "",
+        "29": " wasd move (WASD x5)  1-6 tools  x demolish  i info  f finance  p pause  > speed  q quit"
+       }
+      },
+      "colors": {
+       "lines": {
+        "3": "                                                                c KKKK    WWWW                     c",
+        "24": "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWW"
+       }
+      },
+      "bg": {
+       "lines": {
+        "24": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+       }
+      }
+     },
+     {
+      "frame": 1,
+      "screen": {
+       "lines": {
+        "3": "                                                                │ Tool    Path                     │",
+        "6": "                                                                │ Cursor  5,7                      │",
+        "7": "                                                                │ Tile    Water                    │",
+        "24": " $12,345   Guests 42   Rating 777   Mar 12, Y1   Speed 3                                    PAUSED",
+        "29": " space lay path  wasd move (WASD x5)  1-6 tools  x demolish  i info  p pause  q quit"
+       }
+      },
+      "colors": {
+       "lines": {
+        "24": "WWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWWYYYYYYWW"
+       }
+      }
+     },
+     {
+      "frame": 2,
+      "screen": {
+       "lines": {
+        "3": "                                                                │ Tool    Ride                     │",
+        "4": "                                                                │ Item    Test Ride                │",
+        "6": "                                                                │ Cursor  10,11                    │",
+        "7": "                                                                │ Tile    Ride                     │",
+        "8": "                                                                │ Ride    Spinner                  │",
+        "29": " Quit? y = yes, any other key = no"
+       },
+       "notContains": [
+        "PAUSED"
+       ]
+      }
+     },
+     {
+      "frame": 3,
+      "screen": {
+       "lines": {
+        "3": "                                                                │ Tool    Scenery                  │",
+        "4": "                                                                │ Item    Litter bin               │",
+        "7": "                                                                │ Tile    Ride entrance            │",
+        "8": "                                                                │                                  │",
+        "25": " msg five",
+        "26": " msg four",
+        "27": " msg three",
+        "28": " msg two",
+        "29": " [ ] choose item  space place  wasd move  1-6 tools  x demolish  p pause  q quit"
+       },
+       "notContains": [
+        "msg one",
+        "Welcome"
+       ]
+      }
+     },
+     {
+      "frame": 4,
+      "screen": {
+       "lines": {
+        "3": "                                                                │ Tool    Demolish                 │",
+        "4": "                                                                │                                  │",
+        "25": " n = 0",
+        "26": " n = 7",
+        "27": " n = -5",
+        "28": " n = 32767",
+        "29": " space demolish  wasd move (WASD x5)  1-6 tools  i info  p pause  q quit"
+       }
+      }
+     },
+     {
+      "frame": 5,
+      "screen": {
+       "lines": {
+        "25": " n = -32768",
+        "26": " 0123456789abcdefghij0123456789ABCDEFGHIJ0123456789abcdefghijKLM",
+        "27": " n = 0",
+        "28": " n = 7"
+       }
+      },
+      "colors": {
+       "lines": {
+        "25": " CCCCCCCCCC",
+        "26": " KKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKKK",
+        "27": " KKKKK"
+       }
+      }
+     }
+    ],
+    "memory": {
+     "drv_reg_r0": 0,
+     "drv_reg_r1": 0,
+     "drv_tn_bad": 0,
+     "drv_tn_coaster": 67,
+     "st_msg_age": [
+      32767,
+      201,
+      201,
+      201
+     ],
+     "st_msg_head": 0
+    },
+    "maxStepsPerFrame": 30000
+   }
+  }
+ ]
+}
