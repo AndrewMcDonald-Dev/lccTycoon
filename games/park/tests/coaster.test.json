@@ -39,6 +39,19 @@
         "memory": { "st_cst_ride": -1, "st_ride_count": 0, "st_track_used": 0, "st_cash_k": [10, 0], "st_mon_inc_u": 530 },
         "screen": { "contains": ["Coaster canceled and refunded.", "Cursor  30,40"] }
       }
+    },
+    {
+      "name": "an open coaster with a hill animates two cars and shows three ratings at the station",
+      "keys": "<enter> p a a 6 <space> 4<space> 5<space> 3<space> 3<space> 1<space> 1<space> 3<space> f i o p _23",
+      "expect": {
+        "status": "frames-complete",
+        "memory": { "st_track_used": 8, "st_view_y": 24 },
+        "screen": { "matches": ["Excitement +134", "Intensity +101", "Nausea +45"] },
+        "frames": [
+          { "frame": 20, "screen": { "matches": ["^.{30}■♦↓┐"] }, "colors": { "matches": ["^.{31}MW{2}"] } },
+          { "frame": 29, "screen": { "matches": ["^.{30}═■♦┐"] }, "colors": { "matches": ["^.{31}MMW"] } }
+        ]
+      }
     }
   ]
 }

@@ -25,6 +25,9 @@ drv_cases: .word drv_loop
            .word drv_cash
            .word drv_edge
            .word drv_unlevel
+           .word drv_ratings
+           .word drv_train
+           .word drv_full_pool
 
 drv_loop:
         push lr
@@ -244,6 +247,186 @@ drv_unlevel:
         pop lr
         ret
 
+drv_ratings:
+        push lr
+        mov r0, 10
+        mov r1, 10
+        lea r3, drv_flat_loop
+        bl drv_build_loop
+        lea r2, drv_short_ratings
+        bl drv_save_ratings
+
+        mov r0, 20
+        mov r1, 10
+        lea r3, drv_long_loop
+        bl drv_build_loop
+        lea r2, drv_long_ratings
+        bl drv_save_ratings
+
+        mov r0, 30
+        mov r1, 10
+        lea r3, drv_hill_loop
+        bl drv_build_loop
+        lea r2, drv_hill_ratings
+        bl drv_save_ratings
+        pop lr
+        ret
+
+drv_train:
+        push lr
+        mov r0, 10
+        mov r1, 10
+        lea r3, drv_hill_loop
+        bl drv_build_loop
+        mov r4, r0
+        mov r0, 0
+        bl ride_toggle
+        mov r2, 14
+        bl drv_train_ticks
+        lea r3, drv_train_moving
+        bl drv_save_train
+
+        mov r0, 0
+        bl ride_toggle
+        mov r2, 10
+        bl drv_train_ticks
+        lea r3, drv_train_closed
+        bl drv_save_train
+
+        mov r0, RS_BROKEN
+        str r0, r4, R_STATUS
+        mov r2, 10
+        bl drv_train_ticks
+        lea r3, drv_train_broken
+        bl drv_save_train
+
+        ; Board a guest while the reopened train is away from the station.
+        mov r0, RS_OPEN
+        str r0, r4, R_STATUS
+        lea r0, st_guests
+        mov r1, 20
+        str r1, r0, G_CASH
+        mov r0, 0
+        mov r1, 0
+        bl ride_enqueue
+        mov r2, 1
+        bl drv_train_ticks
+        lea r3, drv_train_boarded
+        bl drv_save_train
+        ldr r0, r4, R_RIDERS
+        st r0, drv_train_riders
+
+        mov r2, 5
+        bl drv_train_ticks
+        lea r3, drv_train_climbing
+        bl drv_save_train
+        mov r2, 54
+        bl drv_train_ticks
+        lea r3, drv_train_returning
+        bl drv_save_train
+        mov r2, 1
+        bl drv_train_ticks
+        lea r3, drv_train_wrapped
+        bl drv_save_train
+        ldr r0, r4, R_RIDERS
+        st r0, drv_train_unloaded
+        pop lr
+        ret
+
+drv_train_ticks:
+        push lr
+drv_train_tick:
+        bl ride_tick
+        bl cst_tick
+        sub r2, r2, 1
+        brp drv_train_tick
+        pop lr
+        ret
+
+drv_save_train:
+        ldr r0, r4, R_TRAIN_POS
+        str r0, r3, 0
+        ldr r0, r4, R_TRAIN_SPD
+        str r0, r3, 1
+        ret
+
+; Fill the pool with two visible 60x6 rectangles with alternating
+; climbs and descents along each long side.
+drv_full_pool:
+        push lr
+        mov r1, 4
+        bl drv_build_large_loop
+        mov r1, 12
+        bl drv_build_large_loop
+        mov r0, 1
+        bl ride_addr
+        lea r2, drv_large_ratings
+        bl drv_save_ratings
+        lea r0, st_screen
+        bl video_bind
+        mov r0, FRAME_MS
+        sleep r0                 ; measure animation separately from setup
+        mov r4, 60
+drv_full_frame:
+        mov r2, SPEED_MAX
+drv_full_tick:
+        bl cst_tick
+        sub r2, r2, 1
+        brp drv_full_tick
+        bl cst_draw
+        mov r0, FRAME_MS
+        sleep r0
+        sub r4, r4, 1
+        brp drv_full_frame
+        pop lr
+        ret
+
+drv_build_large_loop:
+        push lr
+        mov r0, 2
+        bl cst_begin
+        push r0
+        bl drv_add_hills
+        mov r0, TP_RIGHT
+        bl cst_add_piece
+        mov r2, 4
+        bl drv_add_flats
+        mov r0, TP_RIGHT
+        bl cst_add_piece
+        bl drv_add_hills
+        mov r0, TP_RIGHT
+        bl cst_add_piece
+        mov r2, 4
+        bl drv_add_flats
+        bl cst_finish
+        pop r0
+        bl ride_toggle
+        pop lr
+        ret
+
+drv_add_hills:
+        push lr
+        mov r2, 29
+drv_add_hill:
+        mov r0, TP_UP
+        bl cst_add_piece
+        mov r0, TP_DOWN
+        bl cst_add_piece
+        sub r2, r2, 1
+        brp drv_add_hill
+        pop lr
+        ret
+
+drv_add_flats:
+        push lr
+drv_add_flat:
+        mov r0, TP_STRAIGHT
+        bl cst_add_piece
+        sub r2, r2, 1
+        brp drv_add_flat
+        pop lr
+        ret
+
 drv_begin:
         mov r0, 10
         mov r1, 10
@@ -265,11 +448,48 @@ drv_add_done:
         pop lr
         ret
 
+; Build the circuit described by r3 at station (r0,r1). Return its record.
+drv_build_loop:
+        push lr
+        bl cst_begin
+        push r0
+        bl drv_add_pieces
+        bl cst_finish
+        pop r0
+        bl ride_addr
+        pop lr
+        ret
+
+drv_save_ratings:
+        ldr r1, r0, R_EXCITE
+        str r1, r2, 0
+        ldr r1, r0, R_INTENS
+        str r1, r2, 1
+        ldr r1, r0, R_NAUSEA
+        str r1, r2, 2
+        ret
+
 drv_flat_loop: .word TP_RIGHT
                .word TP_STRAIGHT
                .word TP_RIGHT
                .word TP_RIGHT
                .word TP_STRAIGHT
+               .word TP_NONE
+drv_long_loop: .word TP_STRAIGHT
+               .word TP_STRAIGHT
+               .word TP_RIGHT
+               .word TP_RIGHT
+               .word TP_STRAIGHT
+               .word TP_STRAIGHT
+               .word TP_RIGHT
+               .word TP_NONE
+drv_hill_loop: .word TP_UP
+               .word TP_DOWN
+               .word TP_RIGHT
+               .word TP_RIGHT
+               .word TP_STRAIGHT
+               .word TP_STRAIGHT
+               .word TP_RIGHT
                .word TP_NONE
 drv_high_loop: .word TP_UP
                .word TP_RIGHT
@@ -312,6 +532,19 @@ drv_tile_3:     .word -1
 drv_tile_4:     .word -1
 drv_short_cash: .word 499
 drv_piece_cash: .word 500+COST_TRACK-1
+drv_short_ratings:  .zero 3
+drv_long_ratings:   .zero 3
+drv_hill_ratings:   .zero 3
+drv_large_ratings:  .zero 3
+drv_train_moving:   .zero 2
+drv_train_closed:   .zero 2
+drv_train_broken:   .zero 2
+drv_train_boarded:  .zero 2
+drv_train_climbing: .zero 2
+drv_train_returning: .zero 2
+drv_train_wrapped:  .zero 2
+drv_train_riders:   .word 0
+drv_train_unloaded: .word 0
 
         .include "../../src/state.ap"
         .include "../../src/map.ap"

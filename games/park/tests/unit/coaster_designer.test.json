@@ -6,7 +6,7 @@
       "keys": "a",
       "expect": { "status": "halted", "memory": {
         "drv_result": 1, "drv_closed": 1, "drv_finished": 1, "drv_after": 1,
-        "drv_ride_status": 0, "drv_track_len": 6, "drv_excite": 300, "drv_doors_xy": [9, 10, 10, 9],
+        "drv_ride_status": 0, "drv_track_len": 6, "drv_excite": 66, "drv_doors_xy": [9, 10, 10, 9],
         "drv_tile": 22, "drv_tile_2": 26, "drv_tile_3": 23, "drv_tile_4": 24,
         "st_cst_ride": -1, "st_track_used": 6, "st_cash_k": [9, 350],
         "st_track": [10, 10, 0, 17, 11, 10, 0, 36]
@@ -82,6 +82,30 @@
       "keys": "j",
       "expect": { "status": "halted", "memory": {
         "drv_closed": 0, "drv_finished": 0, "st_cst_ride": 0, "st_track_used": 8, "st_cur_x": 10, "st_cur_y": 10
+      } }
+    },
+    {
+      "name": "a longer flat loop increases excitement and adding a drop increases intensity",
+      "keys": "k",
+      "expect": { "status": "halted", "memory": {
+        "drv_short_ratings": [66, 69, 35], "drv_long_ratings": [78, 54, 30],
+        "drv_hill_ratings": [134, 101, 45], "st_track_used": 22
+      } }
+    },
+    {
+      "name": "train slows uphill, freezes when closed or broken, and wraps as riders unload",
+      "keys": "l",
+      "expect": { "status": "halted", "memory": {
+        "drv_train_moving": [2, 2], "drv_train_closed": [2, 2], "drv_train_broken": [2, 2],
+        "drv_train_boarded": [0, 2], "drv_train_riders": 1, "drv_train_climbing": [1, 1],
+        "drv_train_returning": [7, 1], "drv_train_wrapped": [0, 2], "drv_train_unloaded": 0
+      } }
+    },
+    {
+      "name": "two open coasters fill the track pool and the hill-heavy ratings stay in bounds",
+      "keys": "m _60",
+      "expect": { "status": "halted", "memory": {
+        "drv_large_ratings": [999, 999, 333], "st_track_used": 256, "st_ride_count": 2
       } }
     }
   ]

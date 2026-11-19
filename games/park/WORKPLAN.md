@@ -20,7 +20,7 @@ domain skill shown.
 | WP9 | Guests | src/guests.ap, tests/unit/guests_*, tests/guests.test.json | WP7, WP8, WP4 | lcc-simulation | 3 | done |
 | WP10 | Info & finance windows | src/windows.ap, tests/windows.test.json | WP7, WP9, WP3 | lcc-text-graphics | 3 | done |
 | WP11 | Coaster designer (track editing, circuit check) | src/coaster.ap, tests/unit/coaster_* | WP6, WP2 | lcc-text-graphics + lcc-simulation | 4 | done |
-| WP12 | Coaster ratings & train animation | src/coaster.ap (after WP11) | WP11, WP7 | lcc-simulation | 5 | active |
+| WP12 | Coaster ratings & train animation | src/coaster.ap (after WP11) | WP11, WP7 | lcc-simulation | 5 | done |
 | WP13 | Staff (handymen, mechanics), litter, breakdowns | src/staff.ap, tests/unit/staff_* | WP9 | lcc-simulation | 5 | done |
 | WP14 | Rating, scenario goal, title screen, win/lose | src/scenario.ap, tests/scenario.test.json | WP9, WP4 | lcc-text-graphics + lcc-simulation | 5 | done |
 | WP15 | Sound, polish, balance | (assigned per change) | WP14 | lcc-qa + domain | 6 | done |
@@ -164,6 +164,7 @@ blocked tile; scenario builds a small loop from the keyboard.
 **Acceptance:** unit tests: longer/steeper track rates higher; train position advances
 and wraps; scenario shows a train glyph moving.
 **Log:**
+- 2026-11-18 Codex gpt-6.2-sol: done. Deterministic ratings (small loop: E134 I101 N45), 2-car magenta train, 60-tick laps synced to ride cycle, stops when closed/broken; ≤11K instr/frame with 2 full coasters.
 
 ## WP13 — Staff, litter, breakdowns
 **Goal:** `stf_*`: handymen sweep litter/vomit near them (wander paths, seek dirty
