@@ -9,22 +9,22 @@ domain skill shown.
 | WP | Title | Owns (files) | Depends | Domain skill | Wave | Status |
 |----|-------|--------------|---------|--------------|------|--------|
 | WP0 | Walking skeleton + data model | game.json, main.ap, src/defs.ap, src/state.ap, stubs of all modules, tests/smoke.test.json | — | lcc-architect | 0 | done |
-| WP1 | World & map | src/map.ap, tests/unit/map_* | WP0 | lcc-simulation | 1 | review |
-| WP2 | Viewport renderer | src/render.ap, tests/unit/render_* | WP0 | lcc-text-graphics | 1 | review |
-| WP3 | UI frame: panel, status, messages | src/ui.ap, tests/unit/ui_* | WP0 | lcc-text-graphics | 1 | review |
-| WP4 | Economy & calendar | src/economy.ap, tests/unit/eco_* | WP0 | lcc-simulation | 1 | review |
-| WP5 | Input & tools | src/input.ap, tests/input.test.json | WP2, WP3 | lcc-game-dev | 2 | review |
-| WP6 | Construction rules & costs | src/build.ap, tests/unit/build_*, tests/build.test.json | WP1, WP4 | lcc-simulation | 2 | review |
-| WP7 | Ride & stall catalog + operations | src/rides.ap, tests/unit/rides_* | WP1, WP4 | lcc-simulation | 2 | review |
-| WP8 | Pathfinding | src/path.ap, tests/unit/path_* | WP1 | lcc-simulation | 2 | review |
+| WP1 | World & map | src/map.ap, tests/unit/map_* | WP0 | lcc-simulation | 1 | done |
+| WP2 | Viewport renderer | src/render.ap, tests/unit/render_* | WP0 | lcc-text-graphics | 1 | done |
+| WP3 | UI frame: panel, status, messages | src/ui.ap, tests/unit/ui_* | WP0 | lcc-text-graphics | 1 | done |
+| WP4 | Economy & calendar | src/economy.ap, tests/unit/eco_* | WP0 | lcc-simulation | 1 | done |
+| WP5 | Input & tools | src/input.ap, tests/input.test.json | WP2, WP3 | lcc-game-dev | 2 | done |
+| WP6 | Construction rules & costs | src/build.ap, tests/unit/build_*, tests/build.test.json | WP1, WP4 | lcc-simulation | 2 | done |
+| WP7 | Ride & stall catalog + operations | src/rides.ap, tests/unit/rides_* | WP1, WP4 | lcc-simulation | 2 | done |
+| WP8 | Pathfinding | src/path.ap, tests/unit/path_* | WP1 | lcc-simulation | 2 | done |
 | WP9 | Guests | src/guests.ap, tests/unit/guests_*, tests/guests.test.json | WP7, WP8, WP4 | lcc-simulation | 3 | active |
-| WP10 | Info & finance windows | src/windows.ap, tests/windows.test.json | WP7, WP9, WP3 | lcc-text-graphics | 3 | active |
+| WP10 | Info & finance windows | src/windows.ap, tests/windows.test.json | WP7, WP9, WP3 | lcc-text-graphics | 3 | review |
 | WP11 | Coaster designer (track editing, circuit check) | src/coaster.ap, tests/unit/coaster_* | WP6, WP2 | lcc-text-graphics + lcc-simulation | 4 | todo |
 | WP12 | Coaster ratings & train animation | src/coaster.ap (after WP11) | WP11, WP7 | lcc-simulation | 5 | todo |
 | WP13 | Staff (handymen, mechanics), litter, breakdowns | src/staff.ap, tests/unit/staff_* | WP9 | lcc-simulation | 5 | todo |
 | WP14 | Rating, scenario goal, title screen, win/lose | src/scenario.ap, tests/scenario.test.json | WP9, WP4 | lcc-text-graphics + lcc-simulation | 5 | todo |
 | WP15 | Sound, polish, balance | (assigned per change) | WP14 | lcc-qa + domain | 6 | todo |
-| QA-n | Review + playtest after each wave | tests/ only | wave done | lcc-qa | each | todo |
+| QA-n | Review + playtest after each wave | tests/ only | wave done | lcc-qa | each | QA-1 done |
 
 Interface changes requested by WPs go into small architect WPs (`ARCH-n`, `lcc-architect`)
 that run alone between waves.
@@ -114,6 +114,8 @@ enqueue refusal when closed, a full board→run→unload cycle with income, stal
 **Log:**
 - 2026-11-18 Claude Opus 5.5: done. 9 rides_ops scenarios. Catalog: Merry Spinner, Sky Ring, Whirl Swings, Sky Plunge, Bump Arena, Snack Hut, Fizz Kiosk, Restrooms, Track Coaster. Breakdown % = (100-reliab)^2/100 per cycle. Notes for WP9: riders sit on footprint tiles; unload may land on a demolished exit; boarding is lowest-index-first.
 - ARCH-1 (orchestrator, between waves 2 and 3): G_SPARE → G_TOILET; SPEED_MAX 3 → 4 (speed tests updated); state.ap notes build as R_ENT/R_EXIT writer. check 125/125.
+- QA-1 (Claude Opus 5.5) on WP1-WP7: 2 verified bugs in build.ap (re-apply same tile charges; tree demolish refunds $5×209) + risks (exit ignores paths; demolish drops riders on grass). tests/qa1.test.json 4 pass / 3 BUG. Rest clean: 1-year idle run no drift, ~47K instr/frame. WP6-fix dispatched (Codex).
+- WP6-fix (Codex): all 4 QA-1 findings fixed; qa1 BUG scenarios pass and renamed. WP1-WP8 done.
 
 ## WP8 — Pathfinding
 **Goal:** BFS distance fields over walkable tiles with a small cache keyed by target
@@ -144,6 +146,7 @@ income/expense, park value; b/r borrow/repay).
 **Acceptance:** `tests/windows.test.json` opens each window type in a scripted park and pins
 its text; keys inside windows work.
 **Log:**
+- 2026-11-18 Claude Opus 5.5: done. 10 game + 1 unit scenario; ride/stall/guest/tile/finance windows, live refresh, ~25K instr/frame while open; 34.4K/48K words. st_entry_fee writer note updated. Cosmetic request: help row while window open (WP15). Harness: --profile by-routine attribution is off (by-module fine).
 
 ## WP11 — Coaster designer
 **Goal:** `cst_begin/key/add_piece/undo/closed/finish/cancel/draw`: grid track pieces

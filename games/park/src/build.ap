@@ -202,6 +202,9 @@ bld_quote:
         cmp r0, T_QUEUE
         brnz bld_quote_blocked
 bld_quote_tile_cost:
+        ldr r1, r4, 0
+        cmp r0, r1
+        brz bld_quote_blocked
         cmp r0, T_TREE
         ldr r0, r4, 1
         brnz bld_quote_done
@@ -324,8 +327,8 @@ bld_plan_body:
         ldr r1, r4, BLD_BODY
         cmp r1, T_STALL
         brz bld_plan_stall
-        mov r1, 0
-        bl bld_find_door        ; skip the entrance's index
+        mov r1, 1
+        bl bld_find_door        ; prefer a path or queue, excluding the entrance
         cmp r0, 0
         brn bld_plan_blocked
         br bld_plan_exit
@@ -746,35 +749,42 @@ bld_demolish_info_done:
         pop r3
         ret
 
-; r0=ride index. Remove the doors while the record still holds their
-; locations, then clear the footprint and release the slot.
+; r0=ride index. Save the geometry before ride_free evicts guests and
+; clears the record, then remove the doors and footprint.
+        .define BLD_RIDE_GEOMETRY R_EXIT_Y-R_X+1
 bld_clear_ride:
         push r1
         push r2
         push r3
         push r4
         push lr
-        push r0
-        bl ride_addr
         mov r4, r0
-        ldr r2, sp, 0
+        bl ride_addr
+        sub sp, sp, BLD_RIDE_GEOMETRY
+        add r1, r0, R_X
+        mov r0, sp
+        mov r2, BLD_RIDE_GEOMETRY
+        bl util_memcpy
+        mov r0, r4
+        bl ride_free
+
+        mov r2, r4
         sll r2, T_RIDE_SHIFT
         add r2, r2, T_ENTRANCE
-        ldr r0, r4, R_ENT_X
-        ldr r1, r4, R_ENT_Y
+        ldr r0, sp, R_ENT_X-R_X
+        ldr r1, sp, R_ENT_Y-R_X
         bl bld_clear_door
         add r2, r2, T_EXIT-T_ENTRANCE
-        ldr r0, r4, R_EXIT_X
-        ldr r1, r4, R_EXIT_Y
+        ldr r0, sp, R_EXIT_X-R_X
+        ldr r1, sp, R_EXIT_Y-R_X
         bl bld_clear_door
-        ldr r0, r4, R_X
-        ldr r1, r4, R_Y
-        ldr r2, r4, R_W
-        ldr r3, r4, R_H
+        ldr r0, sp, 0
+        ldr r1, sp, R_Y-R_X
+        ldr r2, sp, R_W-R_X
+        ldr r3, sp, R_H-R_X
         mov r4, T_GRASS
         bl map_fill
-        pop r0
-        bl ride_free
+        add sp, sp, BLD_RIDE_GEOMETRY
         pop lr
         pop r4
         pop r3
@@ -836,7 +846,7 @@ bld_scenery_specs:
 
 bld_refund_basis:
         .word -1                ; grass
-        .word COST_TREE
+        .word 0                 ; tree
         .word -1                ; water
         .word COST_PATH
         .word COST_QUEUE

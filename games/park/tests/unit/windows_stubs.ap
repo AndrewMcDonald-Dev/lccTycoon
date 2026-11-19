@@ -1,0 +1,136 @@
+; Stubs for the windows unit driver: just enough of rides, guests, map, ui
+; and the catalog for windows.ap (+ the real economy.ap) to link, so the
+; unit test does not depend on WP9 (guests) progress.
+; Guest 3 stands on (5,5); ride 0 covers (10,10). Calling convention kept.
+gst_at:
+        push r2
+        mov r2, 5
+        cmp r0, r2
+        brnz stub_gat_none
+        cmp r1, r2
+        brnz stub_gat_none
+        mov r0, 3
+        pop r2
+        ret
+stub_gat_none:
+        mov r0, -1
+        pop r2
+        ret
+gst_addr:
+        push r1
+        sll r0, GUEST_SHIFT
+        lea r1, st_guests
+        add r0, r0, r1
+        pop r1
+        ret
+gst_name:                       ; copies "Pat Tester" into r1
+        push r1
+        push r2
+        push r3
+        lea r2, stub_s_name
+stub_gn_lp:
+        ldr r3, r2, 0
+        str r3, r1, 0
+        add r1, r1, 1
+        add r2, r2, 1
+        cmp r3, 0
+        brnz stub_gn_lp
+        pop r3
+        pop r2
+        pop r1
+        mov r0, r1
+        ret
+gst_thought_text:
+        cmp r0, TH_HUNGRY
+        brz stub_th_hungry
+        lea r0, stub_s_empty
+        ret
+stub_th_hungry:
+        lea r0, stub_s_hungry
+        ret
+ride_at:
+        push r2
+        mov r2, 10
+        cmp r0, r2
+        brnz stub_rat_none
+        cmp r1, r2
+        brnz stub_rat_none
+        mov r0, 0
+        pop r2
+        ret
+stub_rat_none:
+        mov r0, -1
+        pop r2
+        ret
+ride_addr:
+        push r1
+        sll r0, RIDE_SHIFT
+        lea r1, st_rides
+        add r0, r0, r1
+        pop r1
+        ret
+ride_name:
+        lea r0, stub_s_ride
+        ret
+ride_set_price:                 ; clamp 0..PRICE_MAX
+        push r0
+        push r2
+        push lr
+        bl ride_addr
+        cmp r1, 0
+        brp stub_sp_hi
+        mov r1, 0
+stub_sp_hi:
+        mov r2, PRICE_MAX
+        cmp r1, r2
+        brlt stub_sp_st
+        mov r1, r2
+stub_sp_st:
+        str r1, r0, R_PRICE
+        pop lr
+        pop r2
+        pop r0
+        ret
+ride_toggle:                    ; records the call, status unchanged
+        st r0, drv_toggled
+        push lr
+        bl ride_addr
+        ldr r0, r0, R_STATUS
+        pop lr
+        ret
+ride_type_info:
+        mov r0, 0
+        ret
+map_index:
+        cmp r0, 0
+        brn stub_mi_bad
+        cmp r1, 0
+        brn stub_mi_bad
+        push r2
+        mov r2, MAP_W
+        cmp r0, r2
+        brlt stub_mi_y
+        pop r2
+        br stub_mi_bad
+stub_mi_y:
+        mov r2, MAP_H
+        cmp r1, r2
+        pop r2
+        brlt stub_mi_ok
+stub_mi_bad:
+        mov r0, -1
+        ret
+stub_mi_ok:
+        push r1
+        sll r1, MAP_SHIFT
+        add r0, r0, r1
+        pop r1
+        ret
+ui_msg:
+        st r0, drv_msg
+        ret
+
+stub_s_empty:   .string ""
+stub_s_name:    .string "Pat Tester"
+stub_s_hungry:  .string "I want a snack."
+stub_s_ride:    .string "Test Wheel"

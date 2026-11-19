@@ -1,0 +1,32 @@
+{
+  "scenarios": [
+    {
+      "name": "a keyboard-built park earns admissions, carousel fares and Snack Hut sales",
+      "clock": 0,
+      "keys": "p 1 s*3 <space> d*2 w*2 3 <space> o a*5 s*2 4 <space> o d*3 w 1 <space> w <space> w <space> d <space> a s*3 2 <space> p >> _100",
+      "expect": {
+        "status": "frames-complete",
+        "maxStepsPerFrame": 600000,
+        "memory": {
+          "st_park_open": 1,
+          "st_guest_count": 20,
+          "st_guests_total": 20,
+          "st_cash_k": 9,
+          "st_cash_u": 94,
+          "st_mon_inc_u": 306,
+          "st_rides": [
+            1, 34, 41, 3, 3, 33, 43, 34, 40, 1, 2, 6, 6, 4, 300, 120,
+            80, 0, 70, 35, 100, 0, 0, 0, 0, 0, 70, 0, 0, 0, 0, 0,
+            6, 29, 43, 2, 1, 31, 43, -1, -1, 1, 3, 0, 0, 0, 0, 0,
+            0, 0, 36, 12
+          ]
+        },
+        "frames": [
+          { "frame": 40, "screen": { "contains": ["Tile    Queue", "$8,788   Guests 0"] } },
+          { "frame": 46, "screen": { "contains": ["$8,798   Guests 1", "☺"] } }
+        ],
+        "screen": { "contains": ["$9,094   Guests 20", "Speed 4", "☺"] }
+      }
+    }
+  ]
+}

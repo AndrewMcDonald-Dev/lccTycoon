@@ -1,0 +1,119 @@
+{
+  "scenarios": [
+    {
+      "name": "i on a ride opens the ride window over the panel",
+      "keys": "p 1 s*3 <space> d*2 w*2 3 <space> a*5 s*2 4 <space> d*5 w*2 i",
+      "expect": {
+        "status": "frames-complete",
+        "memory": { "st_window": 1, "st_win_arg": 0, "st_sel_ride": 0 },
+        "screen": {
+          "contains": ["│ PARK BUILDER", "├─┤ Ride ├───", "│ Merry Spinner", "Status      Closed", "Price       $2",
+                       "In queue    0", "On ride     0", "Excitement  300  Medium", "Intensity   120  Low",
+                       "Nausea      80  Low", "Total rides 0", "This month  $0", "Income      $0",
+                       "Reliable    100%", "+ - price   o open/close", "esc close"],
+          "notContains": ["Tool    Stall"]
+        }
+      }
+    },
+    {
+      "name": "+ + raises the ride price, o opens it, o again closes it, live",
+      "keys": "p 1 s*3 <space> d*2 w*2 3 <space> a*5 s*2 4 <space> d*5 w*2 i + + o o",
+      "expect": {
+        "status": "frames-complete",
+        "memory": { "st_window": 1, "st_cash_k": 8, "st_cash_u": 840 },
+        "frames": [
+          { "frame": 29, "screen": { "contains": ["Price       $3", "Status      Closed"] } },
+          { "frame": 30, "screen": { "contains": ["Price       $4", "Status      Closed"] } },
+          { "frame": 31, "screen": { "contains": ["Price       $4", "Status      Open"] } }
+        ],
+        "screen": { "contains": ["Status      Closed", "Price       $4"] }
+      }
+    },
+    {
+      "name": "i on a stall opens the stall window; - lowers its price; ESC closes",
+      "keys": "p 1 s*3 <space> d*2 w*2 3 <space> a*5 s*2 4 <space> i - <esc>",
+      "expect": {
+        "status": "frames-complete",
+        "memory": { "st_window": 0, "st_sel_ride": 1 },
+        "frames": [
+          { "frame": 21, "screen": { "contains": ["├─┤ Stall ├───", "│ Snack Hut", "Status      Closed", "Price       $3",
+                                                  "Sold        0", "This month  $0", "Income      $0"],
+                                     "notContains": ["Excitement", "Reliable"] } },
+          { "frame": 22, "screen": { "contains": ["Price       $2"] } }
+        ],
+        "screen": { "contains": ["Tool    Stall", "Item    Snack Hut"], "notContains": ["├─┤ Stall"] }
+      }
+    },
+    {
+      "name": "f opens finance; b borrows $1,000 (cash and loan up); r r repays twice; ESC closes",
+      "keys": "p f b r r <esc>",
+      "expect": {
+        "status": "frames-complete",
+        "memory": { "st_window": 0, "st_cash_k": 9, "st_cash_u": 0, "st_loan_k": 9, "st_loan_u": 0 },
+        "frames": [
+          { "frame": 1, "screen": { "contains": ["├─┤ Finance ├───", "Cash        $10,000", "Loan        $10,000",
+                                                 "Park value  $0", "Entry fee   $10", "│ This month", "│ Last month",
+                                                 "  Income    $0", "  Expenses  $0", "  Profit    $0",
+                                                 "b borrow  r repay  ($1,000)", "+ - entry fee   esc close"] } },
+          { "frame": 2, "screen": { "contains": ["Cash        $11,000", "Loan        $11,000", "$11,000   Guests"] } },
+          { "frame": 4, "screen": { "contains": ["Cash        $9,000", "Loan        $9,000"] } }
+        ],
+        "screen": { "contains": ["Tool    Look"], "notContains": ["Finance"] }
+      }
+    },
+    {
+      "name": "finance: building shows this month's expenses and profit",
+      "keys": "p 1 s*3 <space> f",
+      "expect": {
+        "status": "frames-complete",
+        "screen": { "contains": ["Cash        $9,990", "  Expenses  $10", "  Profit    -$10"] }
+      }
+    },
+    {
+      "name": "finance: + + - changes the entry fee; borrowing stops at the loan limit",
+      "keys": "p f + + - b*21",
+      "expect": {
+        "status": "frames-complete",
+        "memory": { "st_window": 3, "st_entry_fee": 11, "st_loan_k": 30, "st_cash_k": 30 },
+        "frames": [ { "frame": 4, "screen": { "contains": ["Entry fee   $11"] } } ],
+        "screen": { "contains": ["Loan        $30,000", "Loan limit reached."] }
+      }
+    },
+    {
+      "name": "i on grass opens the tile window; i again closes it",
+      "keys": "p i i",
+      "expect": {
+        "status": "frames-complete",
+        "memory": { "st_window": 0 },
+        "frames": [ { "frame": 1, "screen": { "contains": ["├─┤ Tile ├───", "│ Grass", "Position    32,40", "Ground      Clean"] } } ],
+        "screen": { "contains": ["Tool    Look"] }
+      }
+    },
+    {
+      "name": "tile window on the gate shows the entry fee; + (handled by input) updates it live",
+      "keys": "p S S i +",
+      "expect": {
+        "status": "frames-complete",
+        "memory": { "st_window": 4, "st_entry_fee": 11 },
+        "screen": { "contains": ["│ Park gate", "Position    32,47", "Entry fee   $11", "+ - entry fee"] }
+      }
+    },
+    {
+      "name": "keys a window does not use still move the cursor",
+      "keys": "p f d d",
+      "expect": {
+        "status": "frames-complete",
+        "memory": { "st_window": 3, "st_cur_x": 34 }
+      }
+    },
+    {
+      "name": "demolishing the ride under an open ride window closes the window",
+      "keys": "p 1 s*3 <space> d*2 w*2 3 <space> a*5 s*2 4 <space> d*5 w*2 i x <space> _",
+      "expect": {
+        "status": "frames-complete",
+        "memory": { "st_window": 0, "st_ride_count": 1 },
+        "screen": { "contains": ["Tool    Demolish"], "notContains": ["├─┤ Ride"] }
+      }
+    }
+  ]
+}

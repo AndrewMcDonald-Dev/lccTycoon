@@ -45,7 +45,7 @@ st_loan_k:      .word START_LOAN_K  ; loan owed — W: economy
 st_loan_u:      .word 0
 st_value_k:     .word 0             ; park value (rides at cost, depreciated) — W: economy
 st_value_u:     .word 0
-st_entry_fee:   .word ENTRY_FEE_DEF ; $ 0..ENTRY_FEE_MAX — W: input (via +/- on gate)
+st_entry_fee:   .word ENTRY_FEE_DEF ; $ 0..ENTRY_FEE_MAX — W: input, windows (via +/- on gate)
 st_mon_inc_k:   .word 0             ; income this month — W: economy
 st_mon_inc_u:   .word 0
 st_mon_exp_k:   .word 0             ; expenses this month — W: economy

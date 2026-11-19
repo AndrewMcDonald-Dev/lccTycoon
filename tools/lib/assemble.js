@@ -142,7 +142,7 @@ function lintLine(line) {
   // Upstream encodes cmp's register operand as `sr2 & 3`, so `cmp rX, r4..r7`
   // silently compares against r0..r3. Swap the operands (and the branch sense) instead.
   if (mn === 'cmp' && ops.length === 2 && /^(r[4-7]|fp|sp|lr)$/i.test(ops[1])) {
-    return `cmp's second register must be r0..r3 (the assembler encodes only 2 bits, so "${ops[1]}" would silently become r${({ fp: 5, sp: 6, lr: 7 })[ops[1].toLowerCase()] ?? ops[1].slice(1)} & 3); swap the operands and the branch condition, or copy it into r0..r3`;
+    return `cmp's second register must be r0..r3 (the assembler encodes only 2 bits, so "${ops[1]}" would silently become r${(({ fp: 5, sp: 6, lr: 7 })[ops[1].toLowerCase()] ?? +ops[1].slice(1)) & 3}); swap the operands and the branch condition, or copy it into r0..r3`;
   }
   const spaced = ops.find(o => /^[^'"]*\s+[A-Za-z_]/.test(o) && !/^'/.test(o));
   if (spaced) return `unexpected token after operand "${spaced}" — one instruction per line (the assembler would silently drop the rest)`;

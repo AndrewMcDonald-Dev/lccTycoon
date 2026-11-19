@@ -9,10 +9,60 @@
 ;; win_info_at    r0=x r1=y         -> r0=1 opened, 0 nothing there   open the right info window for the tile (ride_at, gst_at, else WIN_TILE)
 ;; win_key        r0=key            -> r0=1 consumed, 0 not   keys while a window is open (esc/i close, + - price, o open/close, b/r borrow/repay in finance)
 ;; win_draw       ()                -> -           draw the open window over the panel; nothing for WIN_NONE
+;
+; Layout: the window box covers panel rows WIN_TOP..PANEL_ROWS-1 (2..23);
+; the panel title (rows 0-1, drawn by ui) stays visible. Labels at
+; WIN_COL, values at WIN_VCOL, key help on the last two inner rows.
+; Values are read every frame, so an open window is live.
+; Keys (win_key): esc / i close any window. Ride/stall: + (or =) / -
+; price ±$1 (ride_set_price clamps), o open/close (ride_toggle).
+; Finance: b borrow, r repay (eco_borrow/eco_repay; refusal → ui_msg),
+; + (=) / - entry fee ±$1 clamped 0..ENTRY_FEE_MAX (writes st_entry_fee).
+; Other keys are not consumed (cursor movement etc. keep working).
+; A ride window whose ride was demolished, closes itself on the next draw.
+;
+; Reads: st_window st_win_arg st_rides (R_*) st_guests (G_*) st_map
+; st_cash/loan/value/mon/last_* st_entry_fee.
+; Calls: ride_at ride_addr ride_name ride_set_price ride_toggle gst_at
+; gst_addr gst_name gst_thought_text map_index eco_money_text eco_borrow
+; eco_repay ui_msg video_* util_strlen.
+; Cost: ~23-28K instructions per frame while a window is open (0 when closed).
 ; ---------------------------------------------------------------------
 
-; WP0 stub: no windows.
+        .define WIN_TOP         PANEL_ROW+2     ; box top row (joins the panel title)
+        .define WIN_ROWS        PANEL_ROWS-2    ; box height (rows 2..23)
+        .define WIN_IN_ROW      WIN_TOP+1
+        .define WIN_IN_ROWS     WIN_ROWS-2
+        .define WIN_IN_COL      PANEL_COL+1
+        .define WIN_IN_COLS     PANEL_COLS-2
+        .define WIN_COL         PANEL_COL+2     ; label / text column
+        .define WIN_VCOL        PANEL_COL+14    ; value column (labels <= 11 chars)
+        .define WIN_HELP1       WIN_TOP+WIN_ROWS-3
+        .define WIN_HELP2       WIN_TOP+WIN_ROWS-2
+        .define WIN_BAR_W       16              ; meter bar cells (+ space + 3 digits)
+        .define WIN_BUF_LEN     24
+        .define WIN_TMP_LEN     12
+        .define WIN_NAME_LEN    17
+        .define WIN_A_VAL       FG_BWHITE
+        .define WIN_A_HELP      FG_CYAN
+        .define WIN_A_WARN      FG_BYELLOW
+        .define WIN_C_FULL      219             ; █
+        .define WIN_C_EMPTY     176|A_DIM       ; ░
+
+; ======================= public routines ==============================
+
 win_open:
+        st r0, st_window
+        st r1, st_win_arg
+        cmp r0, WIN_RIDE
+        brnz win_open_g
+        st r1, st_sel_ride
+        ret
+win_open_g:
+        cmp r0, WIN_GUEST
+        brnz win_open_done
+        st r1, st_sel_guest
+win_open_done:
         ret
 
 win_close:
@@ -23,12 +73,1124 @@ win_close:
         ret
 
 win_info_at:
+        push r1
+        push r2
+        push lr
+        mov r2, r0              ; x
+        bl ride_at
+        cmp r0, 0
+        brn win_ia_guest
+        mov r1, r0
+        mov r0, WIN_RIDE
+        br win_ia_open
+win_ia_guest:
+        mov r0, r2
+        bl gst_at
+        cmp r0, 0
+        brn win_ia_tile
+        mov r1, r0
+        mov r0, WIN_GUEST
+        br win_ia_open
+win_ia_tile:
+        mov r0, r2
+        bl map_index
+        cmp r0, 0
+        brn win_ia_none
+        mov r1, r0
+        mov r0, WIN_TILE
+win_ia_open:
+        bl win_open
+        mov r0, 1
+        br win_ia_out
+win_ia_none:
         mov r0, 0
+win_ia_out:
+        pop lr
+        pop r2
+        pop r1
         ret
 
 win_key:
+        push r1
+        push r2
+        push lr
+        mov r2, r0              ; key
+        ld r1, st_window
+        cmp r1, WIN_NONE
+        brz win_k_no
+        mov r0, KEY_ESC
+        cmp r2, r0
+        brz win_k_close
+        mov r0, KEY_INFO
+        cmp r2, r0
+        brz win_k_close
+        cmp r1, WIN_RIDE
+        brz win_k_ride
+        cmp r1, WIN_FINANCE
+        brz win_k_fin
+win_k_no:
         mov r0, 0
+        br win_k_out
+win_k_close:
+        bl win_close
+win_k_yes:
+        mov r0, 1
+win_k_out:
+        pop lr
+        pop r2
+        pop r1
+        ret
+
+win_k_ride:                     ; r2 = key
+        ld r0, st_win_arg
+        mov r1, KEY_OPEN
+        cmp r2, r1
+        brnz win_k_rprice
+        bl ride_toggle
+        br win_k_yes
+win_k_rprice:
+        bl win_delta            ; r1 = +1 / -1 / 0
+        cmp r1, 0
+        brz win_k_no
+        push r0
+        bl ride_addr
+        ldr r0, r0, R_PRICE
+        add r1, r1, r0
+        pop r0
+        bl ride_set_price       ; clamps 0..PRICE_MAX
+        br win_k_yes
+
+win_k_fin:                      ; r2 = key
+        mov r0, 'b'
+        cmp r2, r0
+        brnz win_k_frep
+        bl eco_borrow
+        cmp r0, 0
+        brnz win_k_yes
+        lea r0, win_s_noloan
+        bl ui_msg
+        br win_k_yes
+win_k_frep:
+        mov r0, 'r'
+        cmp r2, r0
+        brnz win_k_ffee
+        bl eco_repay
+        cmp r0, 0
+        brnz win_k_yes
+        lea r0, win_s_norepay
+        bl ui_msg
+        br win_k_yes
+win_k_ffee:
+        bl win_delta
+        cmp r1, 0
+        brz win_k_no
+        ld r0, st_entry_fee
+        add r0, r0, r1
+        brn win_k_yes           ; below 0: unchanged
+        mov r1, ENTRY_FEE_MAX
+        cmp r0, r1
+        brgt win_k_yes
+        st r0, st_entry_fee
+        br win_k_yes
+
+; win_delta r2=key -> r1 = +1 ('+' or '='), -1 ('-'), else 0. Keeps r0.
+win_delta:
+        mov r1, KEY_PLUS
+        cmp r2, r1
+        brz win_delta_up
+        mov r1, '='
+        cmp r2, r1
+        brz win_delta_up
+        mov r1, KEY_MINUS
+        cmp r2, r1
+        brz win_delta_dn
+        mov r1, 0
+        ret
+win_delta_up:
+        mov r1, 1
+        ret
+win_delta_dn:
+        mov r1, -1
         ret
 
 win_draw:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        ld r0, st_window
+        cmp r0, WIN_RIDE
+        brnz win_d_g
+        bl win_draw_ride
+        br win_d_out
+win_d_g:
+        cmp r0, WIN_GUEST
+        brnz win_d_f
+        bl win_draw_guest
+        br win_d_out
+win_d_f:
+        cmp r0, WIN_FINANCE
+        brnz win_d_t
+        bl win_draw_fin
+        br win_d_out
+win_d_t:
+        cmp r0, WIN_TILE
+        brnz win_d_out
+        bl win_draw_tile
+win_d_out:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
         ret
+
+; ======================= window bodies (clobber r0-r4) =====================
+
+win_draw_ride:
+        push lr
+        ld r0, st_win_arg
+        bl ride_addr
+        mov r4, r0              ; r4 = ride record
+        ldr r1, r4, R_TYPE
+        cmp r1, 0
+        brnz win_dr_live
+        bl win_close            ; demolished while open
+        br win_dr_out
+win_dr_live:
+        mov r2, 0               ; r2 = 1 for stalls
+        cmp r1, RT_FIRST_STALL
+        brlt win_dr_kind
+        cmp r1, RT_LAST_STALL
+        brgt win_dr_kind
+        mov r2, 1
+win_dr_kind:
+        st r2, win_stall
+        lea r0, win_s_t_ride
+        cmp r2, 0
+        brz win_dr_frame
+        lea r0, win_s_t_stall
+win_dr_frame:
+        bl win_frame
+        ld r0, st_win_arg
+        bl ride_name
+        ld r1, win_a_title
+        bl win_head
+        ; status
+        lea r0, win_s_status
+        bl win_lbl
+        ldr r0, r4, R_STATUS
+        bl win_status_str       ; r0 = str, r1 = attr
+        bl win_vstr
+        ; price
+        lea r0, win_s_price
+        bl win_lbl
+        bl win_begin
+        ldr r0, r4, R_PRICE
+        bl win_catdollars
+        bl win_vflush
+        ld r0, win_stall
+        cmp r0, 0
+        brnz win_dr_stall
+        ; ---- ride only: queue, riders, ratings ----
+        lea r0, win_s_queue
+        bl win_lbl
+        ldr r0, r4, R_QUEUE
+        bl win_vnum
+        lea r0, win_s_riders
+        bl win_lbl
+        ldr r0, r4, R_RIDERS
+        bl win_vnum
+        lea r0, win_s_excite
+        bl win_lbl
+        ldr r0, r4, R_EXCITE
+        bl win_vrating
+        lea r0, win_s_intens
+        bl win_lbl
+        ldr r0, r4, R_INTENS
+        bl win_vrating
+        lea r0, win_s_nausea
+        bl win_lbl
+        ldr r0, r4, R_NAUSEA
+        bl win_vrating
+        lea r0, win_s_total
+        br win_dr_money
+win_dr_stall:
+        lea r0, win_s_sold
+win_dr_money:                   ; r0 = label for R_TOTAL
+        bl win_lbl
+        ldr r0, r4, R_TOTAL
+        bl win_vnum
+        lea r0, win_s_month
+        bl win_lbl
+        bl win_begin
+        ldr r0, r4, R_MON_INC
+        bl win_catdollars
+        bl win_vflush
+        lea r0, win_s_income
+        bl win_lbl
+        bl win_begin
+        ldr r0, r4, R_INC_K
+        ldr r1, r4, R_INC_U
+        bl win_catmoney
+        bl win_vflush
+        ld r0, win_stall
+        cmp r0, 0
+        brnz win_dr_help
+        lea r0, win_s_reliab
+        bl win_lbl
+        bl win_begin
+        ldr r0, r4, R_RELIAB
+        bl win_catnum
+        mov r0, '%'
+        bl win_catch
+        bl win_vflush
+win_dr_help:
+        lea r0, win_s_h_ride
+        lea r1, win_s_h_close
+        bl win_help
+win_dr_out:
+        pop lr
+        ret
+
+win_draw_guest:
+        push lr
+        lea r0, win_s_t_guest
+        bl win_frame
+        ld r0, st_win_arg
+        bl gst_addr
+        mov r4, r0              ; r4 = guest record
+        ldr r0, r4, G_STATE
+        cmp r0, GS_FREE
+        brnz win_dg_live
+        lea r0, win_s_gone
+        ld r1, win_a_dim
+        bl win_head
+        br win_dg_help
+win_dg_live:
+        ld r0, st_win_arg
+        lea r1, win_nbuf
+        bl gst_name
+        ld r1, win_a_title
+        bl win_head
+        lea r0, win_s_state
+        bl win_lbl
+        ldr r0, r4, G_STATE
+        bl win_gstate_str
+        ld r1, win_a_val
+        bl win_vstr
+        lea r0, win_s_cash
+        bl win_lbl
+        bl win_begin
+        ldr r0, r4, G_CASH
+        bl win_catdollars
+        bl win_vflush
+        lea r0, win_s_happy
+        bl win_lbl
+        ldr r0, r4, G_HAPPY
+        ld r1, win_a_good
+        bl win_vbar
+        lea r0, win_s_hunger
+        bl win_lbl
+        ldr r0, r4, G_HUNGER
+        ld r1, win_a_warn
+        bl win_vbar
+        lea r0, win_s_thirst
+        bl win_lbl
+        ldr r0, r4, G_THIRST
+        ld r1, win_a_warn
+        bl win_vbar
+        lea r0, win_s_energy
+        bl win_lbl
+        ldr r0, r4, G_ENERGY
+        ld r1, win_a_good
+        bl win_vbar
+        lea r0, win_s_nausea
+        bl win_lbl
+        ldr r0, r4, G_NAUSEA
+        ld r1, win_a_warn
+        bl win_vbar
+        lea r0, win_s_toilet
+        bl win_lbl
+        ldr r0, r4, G_TOILET
+        ld r1, win_a_warn
+        bl win_vbar
+        lea r0, win_s_rides
+        bl win_lbl
+        ldr r0, r4, G_RIDES
+        bl win_vnum
+        bl win_skip
+        lea r0, win_s_thinks
+        ld r1, win_a_dim
+        bl win_head
+        ldr r0, r4, G_THOUGHT
+        bl gst_thought_text
+        ld r1, win_a_text
+        bl win_head
+win_dg_help:
+        lea r0, win_s_empty
+        lea r1, win_s_h_close
+        bl win_help
+        pop lr
+        ret
+
+win_draw_tile:
+        push lr
+        lea r0, win_s_t_tile
+        bl win_frame
+        ld r4, st_win_arg       ; map index
+        lea r0, st_map
+        add r0, r0, r4
+        ldr r3, r0, 0           ; r3 = tile word
+        and r0, r3, T_KIND_MASK
+        lea r1, win_kind_tab
+        add r1, r1, r0
+        ldr r0, r1, 0
+        ld r1, win_a_title
+        bl win_head
+        lea r0, win_s_pos
+        bl win_lbl
+        bl win_begin
+        mov r1, MAP_W-1
+        and r0, r4, r1
+        bl win_catnum           ; x
+        mov r0, ','
+        bl win_catch
+        mov r0, r4
+        srl r0, MAP_SHIFT
+        bl win_catnum           ; y
+        bl win_vflush
+        lea r0, win_s_litter
+        bl win_lbl
+        ld r1, win_k_litter
+        and r1, r3, r1
+        ld r2, win_k_vomit
+        and r2, r3, r2
+        lea r0, win_s_clean
+        cmp r1, 0
+        brz win_dt_nolit
+        lea r0, win_s_lit
+        cmp r2, 0
+        brz win_dt_dirty
+        lea r0, win_s_litvom
+        br win_dt_dirty
+win_dt_nolit:
+        cmp r2, 0
+        brz win_dt_clean
+        lea r0, win_s_vom
+win_dt_dirty:
+        ld r1, win_a_warn
+        br win_dt_show
+win_dt_clean:
+        ld r1, win_a_val
+win_dt_show:
+        bl win_vstr
+        and r0, r3, T_KIND_MASK
+        cmp r0, T_GATE
+        brnz win_dt_help
+        lea r0, win_s_fee
+        bl win_lbl
+        bl win_begin
+        ld r0, st_entry_fee
+        bl win_catdollars
+        bl win_vflush
+        lea r0, win_s_h_fee             ; input handles + - on the gate
+        br win_dt_help2
+win_dt_help:
+        lea r0, win_s_empty
+win_dt_help2:
+        lea r1, win_s_h_close
+        bl win_help
+        pop lr
+        ret
+
+win_draw_fin:
+        push lr
+        lea r0, win_s_t_fin
+        bl win_frame
+        lea r0, win_s_cash
+        bl win_lbl
+        bl win_begin
+        ld r0, st_cash_k
+        ld r1, st_cash_u
+        bl win_catmoney
+        bl win_vflush
+        lea r0, win_s_loan
+        bl win_lbl
+        bl win_begin
+        ld r0, st_loan_k
+        ld r1, st_loan_u
+        bl win_catmoney
+        bl win_vflush
+        lea r0, win_s_value
+        bl win_lbl
+        bl win_begin
+        ld r0, st_value_k
+        ld r1, st_value_u
+        bl win_catmoney
+        bl win_vflush
+        lea r0, win_s_fee
+        bl win_lbl
+        bl win_begin
+        ld r0, st_entry_fee
+        bl win_catdollars
+        bl win_vflush
+        bl win_skip
+        lea r0, win_s_thismon
+        ld r1, win_a_title
+        bl win_head
+        ld r0, st_mon_inc_k
+        ld r1, st_mon_inc_u
+        ld r2, st_mon_exp_k
+        ld r3, st_mon_exp_u
+        bl win_fin_block
+        bl win_skip
+        lea r0, win_s_lastmon
+        ld r1, win_a_title
+        bl win_head
+        ld r0, st_last_inc_k
+        ld r1, st_last_inc_u
+        ld r2, st_last_exp_k
+        ld r3, st_last_exp_u
+        bl win_fin_block
+        lea r0, win_s_h_fin1
+        lea r1, win_s_h_fin2
+        bl win_help
+        pop lr
+        ret
+
+; win_fin_block r0/r1=income K/U r2/r3=expense K/U: Income, Expenses,
+; Profit (income - expense, green/red) lines. Clobbers r0-r4.
+win_fin_block:
+        push lr
+        mov r4, r0
+        lea r0, win_s_inc
+        bl win_lbl
+        bl win_begin
+        mov r0, r4
+        bl win_catmoney
+        bl win_vflush
+        push r1
+        lea r0, win_s_exp
+        bl win_lbl
+        bl win_begin
+        mov r0, r2
+        mov r1, r3
+        bl win_catmoney
+        bl win_vflush
+        pop r1
+        sub r0, r4, r2          ; profit K
+        sub r1, r1, r3          ; profit U (-999..999)
+        cmp r1, 0
+        brp win_fb_norm
+        bre win_fb_norm
+        ld r2, win_k_1000
+        add r1, r1, r2
+        sub r0, r0, 1
+win_fb_norm:
+        mov r4, r0
+        lea r0, win_s_profit
+        bl win_lbl
+        bl win_begin
+        mov r0, r4
+        bl win_catmoney
+        ld r0, win_a_good
+        cmp r4, 0
+        brn win_fb_neg
+        br win_fb_show
+win_fb_neg:
+        ld r0, win_a_bad
+win_fb_show:
+        bl win_vflush_a
+        pop lr
+        ret
+
+; ======================= drawing helpers (preserve r0-r4) ===================
+
+; win_frame r0=title: clear the window area, box, title on the top border;
+; win_row = WIN_TOP.
+win_frame:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        push r0
+        mov r0, WIN_IN_ROW              ; clear the inside (direct stores,
+        mov r1, WIN_IN_COL              ; ~4 instructions per cell)
+        bl video_addr
+        mov r4, G_SPACE
+        mov r2, WIN_IN_ROWS
+win_frame_row:
+        mov r1, r0
+        mov r3, WIN_IN_COLS
+win_frame_col:
+        str r4, r1, 0
+        add r1, r1, 1
+        sub r3, r3, 1
+        brnz win_frame_col
+        mov r3, SCR_COLS
+        add r0, r0, r3
+        sub r2, r2, 1
+        brnz win_frame_row
+        mov r0, WIN_TOP
+        mov r1, PANEL_COL
+        mov r2, WIN_ROWS
+        mov r3, PANEL_COLS
+        ld r4, win_a_frame
+        bl video_box
+        ld r2, win_c_ml                 ; joins the panel's side lines
+        bl video_put
+        mov r1, PANEL_COL+PANEL_COLS-1
+        ld r2, win_c_mr
+        bl video_put
+        mov r1, WIN_COL
+        bl video_put                    ; ┤ title ├
+        mov r1, WIN_COL+1
+        pop r2
+        ld r3, win_a_title
+        bl video_text
+        mov r0, r2
+        bl util_strlen
+        mov r1, WIN_COL+1
+        add r1, r1, r0
+        mov r0, WIN_TOP
+        ld r2, win_c_ml
+        bl video_put
+        st r0, win_row
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; win_skip: next row stays empty
+win_skip:
+        push r0
+        ld r0, win_row
+        add r0, r0, 1
+        st r0, win_row
+        pop r0
+        ret
+
+; win_head r0=str r1=attr: next row, text from WIN_COL
+win_head:
+        push r0
+        push r1
+        push r2
+        push r3
+        push lr
+        mov r2, r0
+        mov r3, r1
+        bl win_skip
+        ld r0, win_row
+        mov r1, WIN_COL
+        bl video_text
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; win_lbl r0=str: next row, dim label at WIN_COL
+win_lbl:
+        push r1
+        push lr
+        ld r1, win_a_dim
+        bl win_head
+        pop lr
+        pop r1
+        ret
+
+; win_help r0=line1 r1=line2: key help on the last two inner rows
+win_help:
+        push r0
+        push r1
+        push r2
+        push r3
+        push lr
+        mov r2, r0
+        push r1
+        mov r0, WIN_HELP1
+        mov r1, WIN_COL
+        ld r3, win_a_help
+        bl video_text
+        mov r0, WIN_HELP2
+        pop r2
+        bl video_text
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; win_vstr r0=str r1=attr: value on the current row
+win_vstr:
+        push r0
+        push r1
+        push r2
+        push r3
+        push lr
+        mov r2, r0
+        mov r3, r1
+        ld r0, win_row
+        mov r1, WIN_VCOL
+        bl video_text
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; win_vflush: win_buf as the value (WIN_A_VAL); win_vflush_a r0=attr
+win_vflush:
+        push r0
+        ld r0, win_a_val
+        push lr
+        bl win_vflush_a
+        pop lr
+        pop r0
+        ret
+win_vflush_a:
+        push r0
+        push r1
+        push lr
+        mov r1, r0
+        lea r0, win_buf
+        bl win_vstr
+        pop lr
+        pop r1
+        pop r0
+        ret
+
+; win_vnum r0=n: decimal value
+win_vnum:
+        push lr
+        bl win_begin
+        bl win_catnum
+        bl win_vflush
+        pop lr
+        ret
+
+; win_vrating r0=n (0..RATING_MAX): "420 Medium"
+win_vrating:
+        push r0
+        push r1
+        push r2
+        push lr
+        bl win_begin
+        bl win_catnum
+        mov r1, r0
+        mov r0, ' '
+        bl win_catch
+        bl win_catch
+        lea r0, win_s_r_low
+        mov r2, 250
+        cmp r1, r2
+        brlt win_vr_cat
+        lea r0, win_s_r_med
+        ld r2, win_k_500
+        cmp r1, r2
+        brlt win_vr_cat
+        lea r0, win_s_r_high
+        ld r2, win_k_750
+        cmp r1, r2
+        brlt win_vr_cat
+        lea r0, win_s_r_vhigh
+win_vr_cat:
+        bl win_cat
+        bl win_vflush
+        pop lr
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; win_vbar r0=meter 0..METER_MAX r1=attr: WIN_BAR_W-cell bar + number
+win_vbar:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        mov r4, r0                      ; value
+        mov r3, r1                      ; attr
+        ld r0, win_row
+        mov r1, WIN_VCOL
+        bl video_addr
+        mov r1, WIN_C_FULL
+        or r1, r3                       ; full cell
+        mov r2, r4
+        add r2, r2, 15
+        srl r2, 4                       ; filled cells (v+15)/16
+        cmp r4, 0
+        brp win_vbar_clamp
+        mov r2, 0
+win_vbar_clamp:
+        mov r3, WIN_BAR_W
+        cmp r2, r3
+        brlt win_vbar_lp
+        mov r2, r3
+win_vbar_lp:
+        cmp r2, 0
+        brp win_vbar_full
+        ld r4, win_c_empty
+        br win_vbar_put
+win_vbar_full:
+        mov r4, r1
+        sub r2, r2, 1
+win_vbar_put:
+        str r4, r0, 0
+        add r0, r0, 1
+        sub r3, r3, 1
+        brnz win_vbar_lp
+        ldr r2, sp, 5                   ; saved r0 = value
+        ld r0, win_row
+        mov r1, WIN_VCOL+WIN_BAR_W+1
+        ld r3, win_a_val
+        bl video_num
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; ---- string builder into win_buf (always NUL-terminated, truncates) ------
+
+win_begin:
+        push r0
+        lea r0, win_buf
+        st r0, win_bp
+        push r1
+        mov r1, 0
+        str r1, r0, 0
+        pop r1
+        pop r0
+        ret
+
+; win_cat r0=str
+win_cat:
+        push r0
+        push r1
+        push r2
+        push r3
+        ld r1, win_bp
+        lea r2, win_buf_end
+win_cat_lp:
+        ldr r3, r0, 0
+        cmp r3, 0
+        brz win_cat_end
+        cmp r1, r2
+        brz win_cat_end
+        str r3, r1, 0
+        add r1, r1, 1
+        add r0, r0, 1
+        br win_cat_lp
+win_cat_end:
+        mov r3, 0
+        str r3, r1, 0
+        st r1, win_bp
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; win_catch r0=char
+win_catch:
+        push r0
+        push lr
+        st r0, win_chbuf
+        lea r0, win_chbuf
+        bl win_cat
+        pop lr
+        pop r0
+        ret
+
+; win_catnum r0=n (signed decimal; -32768 prints as -32767)
+win_catnum:
+        push r0
+        push r1
+        push r2
+        push r3
+        push lr
+        lea r3, win_nend
+        cmp r0, 0
+        brp win_cn_dg
+        bre win_cn_dg
+        push r0
+        mov r0, '-'
+        bl win_catch
+        pop r0
+        not r0, r0
+        add r0, r0, 1
+        brp win_cn_dg
+        ld r0, win_k_max                ; -32768
+win_cn_dg:
+        mov r1, r0
+        mov r2, 10
+        rem r1, r2
+        push r2
+        mov r2, '0'
+        add r1, r1, r2
+        pop r2
+        sub r3, r3, 1
+        str r1, r3, 0
+        div r0, r2
+        cmp r0, 0
+        brnz win_cn_dg
+        mov r0, r3
+        bl win_cat
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; win_catmoney r0=K r1=U: "$12,345" via eco_money_text
+win_catmoney:
+        push r0
+        push r1
+        push r2
+        push lr
+        mov r2, r1
+        mov r1, r0
+        lea r0, win_tmp
+        bl eco_money_text
+        bl win_cat
+        pop lr
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; win_catdollars r0=$ (signed 16-bit): "$1,234" / "-$5"
+win_catdollars:
+        push r0
+        push r1
+        push r2
+        push lr
+        cmp r0, 0
+        brp win_cd_pos
+        bre win_cd_pos
+        push r0
+        mov r0, '-'
+        bl win_catch
+        pop r0
+        not r0, r0
+        add r0, r0, 1
+        brp win_cd_pos
+        ld r0, win_k_max
+win_cd_pos:
+        mov r1, r0
+        ld r2, win_k_1000
+        rem r1, r2                      ; U
+        div r0, r2                      ; K
+        bl win_catmoney
+        pop lr
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; ---- small lookups -------------------------------------------------------
+
+; win_status_str r0=RS_* -> r0=str r1=attr
+win_status_str:
+        push r2
+        cmp r0, 0
+        brn win_ss_bad
+        cmp r0, RS_BUILDING
+        brgt win_ss_bad
+        lea r1, win_status_tab
+        add r1, r1, r0
+        ldr r2, r1, 0
+        lea r1, win_status_attr
+        add r1, r1, r0
+        ldr r1, r1, 0
+        mov r0, r2
+        pop r2
+        ret
+win_ss_bad:
+        lea r0, win_s_empty
+        ld r1, win_a_val
+        pop r2
+        ret
+
+; win_gstate_str r0=GS_* -> r0=str
+win_gstate_str:
+        push r1
+        cmp r0, 0
+        brn win_gs_bad
+        cmp r0, GS_LEAVE
+        brgt win_gs_bad
+        lea r1, win_gstate_tab
+        add r1, r1, r0
+        ldr r0, r1, 0
+        pop r1
+        ret
+win_gs_bad:
+        lea r0, win_s_empty
+        pop r1
+        ret
+
+; ======================= data =============================================
+
+win_row:     .word 0                    ; current row (win_head/win_lbl advance it)
+win_stall:   .word 0
+win_bp:      .word 0
+win_chbuf:   .word 0
+             .word 0
+win_nbuf:    .zero WIN_NAME_LEN         ; guest name (gst_name)
+win_ndig:    .zero 6
+win_nend:    .word 0
+win_tmp:     .zero WIN_TMP_LEN          ; eco_money_text output
+win_buf:     .zero WIN_BUF_LEN-1
+win_buf_end: .word 0                    ; last writable word (NUL)
+
+win_k_1000:  .word 1000
+win_k_500:   .word 500
+win_k_750:   .word 750
+win_k_max:   .word 32767
+win_k_litter: .word T_LITTER
+win_k_vomit: .word T_VOMIT
+win_a_title: .word A_TITLE
+win_a_dim:   .word A_DIM
+win_a_text:  .word A_TEXT
+win_a_val:   .word WIN_A_VAL
+win_a_good:  .word A_GOOD
+win_a_bad:   .word A_BAD
+win_a_warn:  .word WIN_A_WARN
+win_a_help:  .word WIN_A_HELP
+win_a_frame: .word A_FRAME
+win_c_ml:    .word 195|A_FRAME          ; ├
+win_c_mr:    .word 180|A_FRAME          ; ┤
+win_c_empty: .word WIN_C_EMPTY
+
+win_status_tab:  .word win_s_closed
+                 .word win_s_open
+                 .word win_s_broken
+                 .word win_s_building
+win_status_attr: .word A_DIM
+                 .word A_GOOD
+                 .word A_BAD
+                 .word WIN_A_WARN
+
+win_gstate_tab:  .word win_s_empty
+                 .word win_s_gs_enter
+                 .word win_s_gs_walk
+                 .word win_s_gs_queue
+                 .word win_s_gs_ride
+                 .word win_s_gs_buy
+                 .word win_s_gs_rest
+                 .word win_s_gs_leave
+
+win_kind_tab:    .word win_s_k_grass
+                 .word win_s_k_tree
+                 .word win_s_k_water
+                 .word win_s_k_path
+                 .word win_s_k_queue
+                 .word win_s_k_gate
+                 .word win_s_k_ride
+                 .word win_s_k_ent
+                 .word win_s_k_exit
+                 .word win_s_k_stall
+                 .word win_s_k_track
+                 .word win_s_k_flowers
+                 .word win_s_k_bench
+                 .word win_s_k_bin
+                 .word win_s_k_fence
+                 .word win_s_empty
+
+win_s_empty:     .string ""
+win_s_t_ride:    .string " Ride "
+win_s_t_stall:   .string " Stall "
+win_s_t_guest:   .string " Guest "
+win_s_t_tile:    .string " Tile "
+win_s_t_fin:     .string " Finance "
+win_s_status:    .string "Status"
+win_s_price:     .string "Price"
+win_s_queue:     .string "In queue"
+win_s_riders:    .string "On ride"
+win_s_excite:    .string "Excitement"
+win_s_intens:    .string "Intensity"
+win_s_nausea:    .string "Nausea"
+win_s_total:     .string "Total rides"
+win_s_sold:      .string "Sold"
+win_s_month:     .string "This month"
+win_s_income:    .string "Income"
+win_s_reliab:    .string "Reliable"
+win_s_h_ride:    .string "+ - price   o open/close"
+win_s_h_close:   .string "esc close"
+win_s_closed:    .string "Closed"
+win_s_open:      .string "Open"
+win_s_broken:    .string "Broken down"
+win_s_building:  .string "Building"
+win_s_r_low:     .string "Low"
+win_s_r_med:     .string "Medium"
+win_s_r_high:    .string "High"
+win_s_r_vhigh:   .string "Very high"
+win_s_gone:      .string "This guest has left."
+win_s_state:     .string "Doing"
+win_s_cash:      .string "Cash"
+win_s_happy:     .string "Happiness"
+win_s_hunger:    .string "Hunger"
+win_s_thirst:    .string "Thirst"
+win_s_energy:    .string "Energy"
+win_s_toilet:    .string "Toilet"
+win_s_rides:     .string "Rides"
+win_s_thinks:    .string "Thinking:"
+win_s_gs_enter:  .string "Arriving"
+win_s_gs_walk:   .string "Walking"
+win_s_gs_queue:  .string "Queuing"
+win_s_gs_ride:   .string "Riding"
+win_s_gs_buy:    .string "Buying"
+win_s_gs_rest:   .string "Resting"
+win_s_gs_leave:  .string "Leaving"
+win_s_pos:       .string "Position"
+win_s_litter:    .string "Ground"
+win_s_clean:     .string "Clean"
+win_s_lit:       .string "Litter"
+win_s_vom:       .string "Vomit"
+win_s_litvom:    .string "Litter, vomit"
+win_s_fee:       .string "Entry fee"
+win_s_h_fee:     .string "+ - entry fee"
+win_s_k_grass:   .string "Grass"
+win_s_k_tree:    .string "Tree"
+win_s_k_water:   .string "Water"
+win_s_k_path:    .string "Path"
+win_s_k_queue:   .string "Queue line"
+win_s_k_gate:    .string "Park gate"
+win_s_k_ride:    .string "Ride"
+win_s_k_ent:     .string "Entrance"
+win_s_k_exit:    .string "Exit"
+win_s_k_stall:   .string "Stall"
+win_s_k_track:   .string "Coaster track"
+win_s_k_flowers: .string "Flowers"
+win_s_k_bench:   .string "Bench"
+win_s_k_bin:     .string "Litter bin"
+win_s_k_fence:   .string "Fence"
+win_s_loan:      .string "Loan"
+win_s_value:     .string "Park value"
+win_s_thismon:   .string "This month"
+win_s_lastmon:   .string "Last month"
+win_s_inc:       .string "  Income"
+win_s_exp:       .string "  Expenses"
+win_s_profit:    .string "  Profit"
+win_s_h_fin1:    .string "b borrow  r repay  ($1,000)"
+win_s_h_fin2:    .string "+ - entry fee   esc close"
+win_s_noloan:    .string "Loan limit reached."
+win_s_norepay:   .string "Nothing to repay, or not enough cash."

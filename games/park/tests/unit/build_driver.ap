@@ -174,10 +174,14 @@ drv_ride:
         mov r1, 11
         bl map_set
         mov r0, 12
-        bl map_set              ; tree on the linked entrance
+        bl map_set              ; tree on the linked exit
         mov r0, 13
         mov r2, T_QUEUE
         bl map_set
+        mov r0, 13
+        mov r1, 10
+        mov r2, T_PATH
+        bl map_set              ; two east doors touch paths; north is fallback
         mov r0, 10
         mov r1, 10
         bl bld_can_place
@@ -252,13 +256,13 @@ drv_ride:
         mov r2, 12
         bl drv_expect
         ldr r0, r4, R_ENT_Y
-        mov r2, 11
-        bl drv_expect
-        ldr r0, r4, R_EXIT_X
         mov r2, 10
         bl drv_expect
+        ldr r0, r4, R_EXIT_X
+        mov r2, 12
+        bl drv_expect
         ldr r0, r4, R_EXIT_Y
-        mov r2, 9
+        mov r2, 11
         bl drv_expect
 
         mov r0, 45
@@ -279,10 +283,13 @@ drv_ride:
         st r0, drv_case
         mov r0, TOOL_DEMOLISH
         st r0, st_tool
-        mov r0, 10
-        mov r1, 9
+        mov r0, 12
+        mov r1, 11
         bl bld_apply
         mov r2, 1
+        bl drv_expect
+        ld r0, drv_exit_kind_at_free
+        mov r2, T_EXIT
         bl drv_expect
         ld r0, st_ride_count
         mov r2, 0
@@ -532,6 +539,18 @@ drv_tile_cases:
         .word SC_COUNT
         .word -1
         .word T_GRASS
+        ; queue on queue
+        .word T_QUEUE
+        .word TOOL_QUEUE
+        .word 0
+        .word -1
+        .word T_QUEUE
+        ; bench on bench
+        .word T_BENCH
+        .word TOOL_SCENERY
+        .word SC_BENCH
+        .word -1
+        .word T_BENCH
         ; path on water
         .word T_WATER
         .word TOOL_PATH
@@ -614,7 +633,7 @@ drv_tile_cases:
 
 drv_tile_refunds:
         .word 0
-        .word COST_TREE*REFUND_PCT/100
+        .word 0
         .word 0
         .word COST_PATH*REFUND_PCT/100
         .word COST_QUEUE*REFUND_PCT/100
@@ -644,8 +663,8 @@ drv_unbuilt_ride_tiles:
         .word 12
         .word 11
         .word T_TREE
+        .word 12
         .word 10
-        .word 9
         .word T_GRASS
 
 drv_ride_tiles:
@@ -662,10 +681,10 @@ drv_ride_tiles:
         .word 11
         .word DRV_RIDE_TAG|T_RIDE
         .word 12
-        .word 11
-        .word DRV_RIDE_TAG|T_ENTRANCE
         .word 10
-        .word 9
+        .word DRV_RIDE_TAG|T_ENTRANCE
+        .word 12
+        .word 11
         .word DRV_RIDE_TAG|T_EXIT
 
 drv_cleared_ride_tiles:
@@ -684,8 +703,8 @@ drv_cleared_ride_tiles:
         .word 12
         .word 11
         .word T_GRASS
+        .word 12
         .word 10
-        .word 9
         .word T_GRASS
         .word 13
         .word 11
