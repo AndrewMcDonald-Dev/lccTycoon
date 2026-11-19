@@ -6,7 +6,7 @@
 ;
 ;; scn_title      ()               -> r0=scenario index   title screen + scenario choice; runs its own frames (draw, video_present, sleep FRAME_MS) until a choice is made. Called once before the *_init routines.
 ;; scn_start      r0=scenario      -> -                   set st_scenario and goals; may adjust starting cash/loan/map after the *_init routines ran
-;; scn_rate       ()               -> -                   recompute st_rating 0..RATING_MAX from guest happiness, ride count/variety, litter, prices (main calls on each new day)
+;; scn_rate       ()               -> -                   recompute st_rating 0..RATING_MAX from guest happiness, gate-connected open attractions, breakdowns, litter, prices (main calls on each new day)
 ;; scn_check      ()               -> r0=st_game_state     set GAME_WON when goals are met by the deadline, GAME_LOST after it (main calls on each new day)
 ;; scn_end_screen ()               -> r0=1 quit, 0 keep playing   win/lose screen with its own frames (called by main when st_game_state != GAME_PLAY)
 ; ---------------------------------------------------------------------
@@ -264,8 +264,9 @@ scn_happiness_done:
 
 scn_guest_words: .word MAX_GUESTS*GUEST_SIZE
 
-; Open rides and stalls earn 25 points each, plus 50 for the first of
-; each type. Asking above catalog price costs 3 points per excess dollar.
+; Open rides and stalls reachable from the gate earn 25 points each,
+; plus 50 for the first of each type. Asking above catalog price costs
+; 3 points per excess dollar.
 ; Each broken attraction costs 60 points. Closed/unfinished rides earn 0.
 scn_attraction_score:
         push r4
@@ -285,6 +286,18 @@ scn_attraction_loop:
         brz scn_attraction_broken
         cmp r1, RS_OPEN
         brnz scn_attraction_next
+        push r2                 ; preserve the ride pointer and type bitset
+        push r3
+        ldr r0, r2, R_ENT_X
+        ldr r1, r2, R_ENT_Y
+        ld r2, st_gate_x        ; use the pinned gate distance field
+        ld r3, st_gate_y
+        bl pth_dist
+        pop r3
+        pop r2
+        cmp r0, 0
+        brn scn_attraction_next
+        ldr r0, r2, R_TYPE
         mov r1, 25
         add r4, r4, r1
         lea r1, scn_type_bits

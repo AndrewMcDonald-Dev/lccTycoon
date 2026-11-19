@@ -9,6 +9,7 @@
 ;; pth_update     ()                     -> -          if st_map_dirty: invalidate/rebuild fields, st_map_dirty = 0
 ;; pth_next       r0=x r1=y r2=tx r3=ty  -> r0=DIR_* first step from (x,y) toward (tx,ty) along walkable tiles, DIR_NONE if unreachable or already there
 ;; pth_dist       r0=x r1=y r2=tx r3=ty  -> r0=steps, -1 if unreachable
+;; pth_gate_dist  r0=x r1=y              -> r0=steps to the gate, -1 if unreachable
 ;; pth_to_gate    r0=x r1=y              -> r0=DIR_* first step toward the park gate (st_gate_x/y), DIR_NONE if unreachable
 ;; pth_random_dir r0=x r1=y              -> r0=random walkable DIR_* from (x,y), DIR_NONE if boxed in
 ;; pth_cached     r0=tx r1=ty             -> r0=1 if the target field is ready, else 0 (never builds a field)
@@ -49,6 +50,18 @@ pth_to_gate:
         ld r2, st_gate_x
         ld r3, st_gate_y
         bl pth_next
+        pop lr
+        pop r3
+        pop r2
+        ret
+
+pth_gate_dist:
+        push r2
+        push r3
+        push lr
+        ld r2, st_gate_x
+        ld r3, st_gate_y
+        bl pth_dist
         pop lr
         pop r3
         pop r2

@@ -40,17 +40,41 @@ drv_rate_test:
         mov r0, 2
         st r0, st_guest_count
 
+        ; Run the three entrances along y=44, with a single path tile
+        ; between the stall and the wheel.
+        bl map_init
         mov r0, RT_CAROUSEL
+        mov r1, 32
+        mov r2, 41
         bl drv_open_ride
         mov r0, RT_FOOD
+        mov r1, 33
+        mov r2, 43
         bl drv_open_ride
         mov r0, RT_WHEEL
+        mov r1, 35
+        mov r2, 40
         bl drv_open_ride
+        mov r0, 34
+        mov r1, 44
+        mov r2, T_PATH
+        bl map_set
         bl drv_rate_from_start
         st r0, drv_happy_first
         bl scn_rate
         ld r0, st_rating
         st r0, drv_happy_second
+
+        mov r0, 34
+        mov r1, 44
+        mov r2, T_GRASS
+        bl map_set
+        bl drv_rate_from_start
+        st r0, drv_disconnected_rating
+        mov r0, 34
+        mov r1, 44
+        mov r2, T_PATH
+        bl map_set
 
         lea r4, st_map
         ld r0, drv_dirty_path
@@ -109,13 +133,12 @@ drv_bounds:
         ld r0, st_rating
         st r0, drv_min
 
-        lea r0, st_map
-        mov r1, T_GRASS
-        ld r2, drv_map_size
-        bl util_memset
+        bl map_init
         mov r4, MAX_RIDES
 drv_fill_rides:
         mov r0, RT_CAROUSEL
+        mov r1, 32
+        mov r2, 41
         bl drv_open_ride
         sub r4, r4, 1
         brp drv_fill_rides
@@ -179,12 +202,17 @@ drv_last_day:
         st r0, st_year
         ret
 
-drv_open_ride:                  ; r0=type, returns the new ride's status
+drv_open_ride:                  ; r0=type r1=x r2=y; open the ride and place its entrance
         push lr
-        mov r1, 0
-        mov r2, 0
         bl ride_new
+        push r0
         bl ride_toggle
+        pop r0
+        bl ride_addr
+        ldr r1, r0, R_ENT_Y
+        ldr r0, r0, R_ENT_X
+        mov r2, T_ENTRANCE
+        bl map_set
         pop lr
         ret
 
@@ -207,6 +235,7 @@ drv_dirty_grass:       .word T_GRASS|T_LITTER
 drv_empty:             .word 0
 drv_happy_first:       .word 0
 drv_happy_second:      .word 0
+drv_disconnected_rating: .word 0
 drv_dirty_rating:      .word 0
 drv_price_rating:      .word 0
 drv_broken_rating:     .word 0
@@ -220,6 +249,8 @@ drv_year_off:          .word -1
 drv_after:             .word -1
 
         .include "../../src/state.ap"
+        .include "../../src/map.ap"
+        .include "../../src/path.ap"
         .include "../../src/scenario.ap"
         .include "../../src/economy.ap"
         .include "../../src/rides.ap"

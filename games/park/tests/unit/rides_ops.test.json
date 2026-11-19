@@ -52,10 +52,10 @@
       } }
     },
     {
-      "name": "capacity: 14 queued for a 12-seat ride board 12, the other 2 on the next cycle",
+      "name": "the 12 earliest arrivals board first even when higher slots arrive first on the same tick",
       "keys": "f",
       "expect": { "status": "halted", "memory": {
-        "drv_cap": [12, 2, 3, 2, 0, 14, 28, 4]
+        "drv_cap": [12, 2, 3, 2, 0, 14, 28, 4, 4]
       } }
     },
     {
@@ -70,11 +70,13 @@
       } }
     },
     {
-      "name": "reliability 0 breaks down on the first cycle: riders to exit unhappy, message, sound, R_DOWN counts, enqueue refused",
+      "name": "a breakdown before boarding evicts the queue and preserves cash and all fare totals",
       "keys": "h",
       "expect": { "status": "halted", "sounds": ["beep"], "memory": {
         "drv_brk": [2, 0, 0, 0, 3, 0, 2],
-        "drv_brk_g": [2, -1, 12, 8, 68, 0],
+        "drv_brk_g": [2, -1, 0, 0, 68, 0, 20, 20],
+        "drv_brk_fares": [0, 0, 0, 0],
+        "st_cash_k": [10, 0], "st_mon_inc_k": [0, 0],
         "drv_msg": "Sky Plunge has broken down", "drv_msgs": 1
       } }
     },
@@ -82,6 +84,14 @@
       "name": "new month: reliability -= 1 + age/8, month income reset",
       "keys": "i",
       "expect": { "status": "halted", "memory": { "drv_mon": [97, 0, 97] } }
+    },
+    {
+      "name": "an exit on a path island blocks boarding until a path connects it to the gate",
+      "keys": "j",
+      "expect": { "status": "halted", "memory": {
+        "drv_exit_counts": [1, 0, 0, 1],
+        "st_cash_k": [10, 2]
+      } }
     }
   ]
 }

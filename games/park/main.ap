@@ -4,13 +4,13 @@
 ; ';;' lines in each module header (node tools/lccgame.js api games/park).
 ;
 ; Frame (DESIGN.md "Frame loop & timing"):
-;   inp_handle → [not paused: st_speed × main_tick] → ren_draw → cst_draw
+;   inp_handle → [not paused: up to st_speed × main_tick] → ren_draw → cst_draw
 ;   → ui_tick → ui_draw → win_draw → video_present → sleep FRAME_MS
 ; main_tick: eco_tick → pth_update → ride_tick → gst_tick → stf_tick
 ;   → cst_tick → (new day: scn_rate, scn_check)
 ;
 ;; main_start  (entry)  init all modules, title, frame loop; halts on confirmed quit
-;; main_tick   ()       one simulation tick of every module (called st_speed× per frame)
+;; main_tick   ()       one simulation tick of every module (up to st_speed times per frame)
 ; =====================================================================
         .lccplus
         .start main_start
@@ -51,6 +51,9 @@ main_tick_lp:
         brz main_render
         brn main_render
         bl main_tick
+        ld r0, st_game_state
+        cmp r0, GAME_PLAY
+        brnz main_render
         sub r1, r1, 1
         br main_tick_lp
 main_render:

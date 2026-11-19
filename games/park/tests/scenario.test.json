@@ -60,6 +60,18 @@
         ],
         "memory": { "st_game_state": 1, "st_scenario": 1, "st_frame": 1 }
       }
+    },
+    {
+      "name": "Switchback Hollow freezes the simulation on the deadline at speed four",
+      "clock": 0,
+      "keys": "3 p p >> _2000",
+      "maxSteps": 200000000,
+      "expect": {
+        "status": "frames-complete",
+        "frames": [{ "frame": 2002, "screen": { "contains": ["Jan 1, Y2", "Speed 4"] } }],
+        "screen": { "contains": ["SCENARIO FAILED", "Jan 1, Y2"] },
+        "memory": { "st_game_state": 3, "st_tick": 0, "st_ticks_total": 8000 }
+      }
     }
   ]
 }

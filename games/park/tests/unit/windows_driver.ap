@@ -61,7 +61,7 @@ drv_main:
         mov r0, GS_FREE
         str r0, r4, G_STATE
         bl drv_frame
-        ; ---- frame 3: 'o' not consumed by a guest window, 'i' closes -----
+        ; ---- frame 3: closed window no longer consumes keys -------------
         mov r0, KEY_OPEN
         bl win_key
         st r0, drv_key_o
@@ -111,6 +111,18 @@ drv_main:
         ; ---- frame 6: ride demolished -> window closes on draw ------------
         mov r0, RT_NONE
         str r0, r4, R_TYPE
+        bl drv_frame
+        ; ---- frame 7: same slot reused between draws -> auto-close ------
+        mov r0, 3
+        bl gst_addr
+        mov r4, r0
+        mov r0, GS_WALK
+        str r0, r4, G_STATE
+        mov r0, WIN_GUEST
+        mov r1, 3
+        bl win_open
+        mov r0, 42
+        str r0, r4, G_NAME
         bl drv_frame
         halt
 

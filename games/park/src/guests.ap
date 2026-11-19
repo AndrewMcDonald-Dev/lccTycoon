@@ -31,6 +31,7 @@
         .define GST_RETRY         5
         .define GST_BUY_STEPS     4     ; updates to reach a path after a sale
         .define GST_QUEUE_LONG    12
+        .define GST_QUEUE_PATIENCE 480  ; ticks, checked on each guest's slice
         .define GST_ROUTE_DELAY   9     ; ticks between cold attraction fields
         .define GST_TOL_BASE      300
 
@@ -158,6 +159,9 @@ gst_spawn_gate:
         bl pth_random_dir
         cmp r0, DIR_NONE
         brz gst_spawn_fail
+        ; Prime the gate field before arrivals begin querying ride routes.
+        ld r0, st_gate_x
+        bl pth_gate_dist
 
         mov r0, r4
         mov r1, 0
@@ -338,6 +342,15 @@ gst_update_drift:
         bl map_walkable
         cmp r0, 0
         brz gst_recover
+        bl gst_location
+        bl map_kind
+        cmp r0, T_EXIT
+        brnz gst_update_dirt
+        bl gst_location
+        bl pth_gate_dist
+        cmp r0, 0
+        brn gst_begin_leave
+gst_update_dirt:
         bl gst_dirt
         ldr r0, r4, G_STATE
         cmp r0, GS_LEAVE
@@ -397,12 +410,42 @@ gst_queue_wait:
         brz gst_update_done
         brgt gst_update_done
         bl ride_addr
-        ldr r0, r0, R_QUEUE
+        mov r2, r0
+        ldr r0, r4, G_ENERGY
+        cmp r0, GST_EXHAUSTED
+        brgt gst_queue_happy
+        mov r0, TH_TIRED
+        br gst_queue_leave
+gst_queue_happy:
+        mov r1, GST_LOW_HAPPY
+        ldr r0, r4, G_HAPPY
+        cmp r0, r1
+        brlt gst_queue_impatient
+        ld r0, st_ticks_total
+        ldr r1, r4, G_DIR      ; join tick, wraps with st_ticks_total
+        sub r0, r0, r1
+        ld r1, gst_queue_patience
+        cmp r0, r1
+        brlt gst_queue_thought
+gst_queue_impatient:
+        mov r0, TH_QUEUE_LONG
+gst_queue_leave:
+        str r0, r4, G_THOUGHT
+        ldr r0, r2, R_QUEUE
+        cmp r0, 0
+        brz gst_begin_leave
+        sub r0, r0, 1
+        str r0, r2, R_QUEUE
+        br gst_begin_leave
+gst_queue_thought:
+        ldr r0, r2, R_QUEUE
         cmp r0, GST_QUEUE_LONG
         brlt gst_update_done
         mov r0, TH_QUEUE_LONG
         str r0, r4, G_THOUGHT
         br gst_update_done
+
+gst_queue_patience: .word GST_QUEUE_PATIENCE
 
 gst_mark_leaving:
         mov r0, GS_LEAVE
@@ -422,6 +465,8 @@ gst_recover:
         bl gst_mark_leaving
         bl gst_location
         bl pth_random_dir
+        cmp r0, DIR_NONE
+        brz gst_leave
         br gst_move_done
 
 gst_enter:

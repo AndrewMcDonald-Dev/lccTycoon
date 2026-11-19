@@ -2,12 +2,13 @@
   "game": "scenario_driver.ap",
   "scenarios": [
     {
-      "name": "daily rating drifts down in an empty park and rises with happy guests and open attractions",
+      "name": "daily rating rewards happy guests and open attractions with a path to the gate",
       "keys": "r",
       "expect": {
         "status": "halted",
         "memory": {
           "drv_empty": 407, "drv_happy_first": 534, "drv_happy_second": 560,
+          "drv_disconnected_rating": 516,
           "drv_dirty_rating": 532, "drv_price_rating": 523,
           "drv_broken_rating": 501, "drv_closed_rating": 516, "drv_repeated_rating": 522
         }

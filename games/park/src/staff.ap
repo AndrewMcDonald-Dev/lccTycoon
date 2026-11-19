@@ -50,6 +50,20 @@ stf_hire_gate:
         bl map_walkable
         cmp r0, 0
         brz stf_hire_no
+        ; Check exits without consuming a random movement roll.
+        mov r2, DIR_N
+stf_hire_exit:
+        ld r0, st_gate_x
+        ld r1, st_gate_y
+        bl stf_offset
+        bl map_walkable
+        cmp r0, 0
+        brnz stf_hire_find_slot
+        add r2, r2, 1
+        cmp r2, DIR_W
+        brgt stf_hire_no
+        br stf_hire_exit
+stf_hire_find_slot:
         lea r2, st_staff
         mov r0, 0
         mov r3, MAX_STAFF
@@ -195,6 +209,21 @@ stf_tick_scan:
         bl stf_addr
         mov r4, r0
         ldr r0, r4, SF_TYPE
+        cmp r0, SFT_NONE
+        brz stf_tick_next
+        ; The gate field excludes both demolished tiles and cut-off paths.
+        push r2
+        push r3
+        ldr r0, r4, SF_X
+        ldr r1, r4, SF_Y
+        ld r2, st_gate_x
+        ld r3, st_gate_y
+        bl pth_dist
+        pop r3
+        pop r2
+        cmp r0, 0
+        brn stf_tick_redeploy
+        ldr r0, r4, SF_TYPE
         cmp r0, SFT_HANDYMAN
         brnz stf_tick_mechanic
         bl stf_handyman
@@ -203,6 +232,15 @@ stf_tick_mechanic:
         cmp r0, SFT_MECHANIC
         brnz stf_tick_next
         bl stf_mechanic
+        br stf_tick_next
+stf_tick_redeploy:
+        bl stf_release_job
+        ld r0, st_gate_x
+        str r0, r4, SF_X
+        ld r0, st_gate_y
+        str r0, r4, SF_Y
+        mov r0, DIR_NONE
+        str r0, r4, SF_DIR
 stf_tick_next:
         add r0, r2, 1
         bl stf_wrap_slot
@@ -377,11 +415,6 @@ stf_mechanic:
         push r2
         push r3
         push lr
-        ldr r0, r4, SF_X
-        ldr r1, r4, SF_Y
-        bl map_walkable
-        cmp r0, 0
-        brz stf_mechanic_recover
         ldr r0, r4, SF_TARGET
         cmp r0, 0
         brn stf_mechanic_claim
@@ -442,18 +475,6 @@ stf_mechanic_count:
         str r0, r4, SF_TIMER
         brp stf_mechanic_done
         bl stf_repair
-        br stf_mechanic_done
-stf_mechanic_recover:
-        ; The tile beneath the mechanic may have been demolished.
-        ldr r0, r4, SF_TARGET
-        cmp r0, 0
-        brn stf_mechanic_safe_step
-        bl stf_release_job
-stf_mechanic_safe_step:
-        ldr r0, r4, SF_X
-        ldr r1, r4, SF_Y
-        bl pth_random_dir
-        bl stf_step
 stf_mechanic_done:
         pop lr
         pop r3

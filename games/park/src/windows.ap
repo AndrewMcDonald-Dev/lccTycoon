@@ -20,7 +20,8 @@
 ; h hire handyman, m hire mechanic (stf_hire; result → ui_msg),
 ; + (=) / - entry fee ±$1 clamped 0..ENTRY_FEE_MAX (writes st_entry_fee).
 ; Other keys are not consumed (cursor movement etc. keep working).
-; A ride window whose ride was demolished, closes itself on the next draw.
+; A ride window closes on the next draw after its ride is demolished.
+; A guest window closes when its guest leaves or their slot is reused.
 ;
 ; Reads: st_window st_win_arg st_rides (R_*) st_guests (G_*) st_map
 ; st_cash/loan/value/mon/last_* st_entry_fee.
@@ -63,6 +64,14 @@ win_open_g:
         cmp r0, WIN_GUEST
         brnz win_open_done
         st r1, st_sel_guest
+        push r0
+        push lr
+        mov r0, r1
+        bl gst_addr
+        ldr r0, r0, G_NAME
+        st r0, win_guest_seed
+        pop lr
+        pop r0
 win_open_done:
         ret
 
@@ -388,19 +397,18 @@ win_dr_out:
 
 win_draw_guest:
         push lr
-        lea r0, win_s_t_guest
-        bl win_frame
         ld r0, st_win_arg
         bl gst_addr
         mov r4, r0              ; r4 = guest record
         ldr r0, r4, G_STATE
         cmp r0, GS_FREE
-        brnz win_dg_live
-        lea r0, win_s_gone
-        ld r1, win_a_dim
-        bl win_head
-        br win_dg_help
-win_dg_live:
+        brz win_dg_close
+        ldr r0, r4, G_NAME
+        ld r1, win_guest_seed
+        cmp r0, r1
+        brnz win_dg_close
+        lea r0, win_s_t_guest
+        bl win_frame
         ld r0, st_win_arg
         lea r1, win_nbuf
         bl gst_name
@@ -460,10 +468,13 @@ win_dg_live:
         bl gst_thought_text
         ld r1, win_a_text
         bl win_head
-win_dg_help:
         lea r0, win_s_empty
         lea r1, win_s_h_close
         bl win_help
+        br win_dg_out
+win_dg_close:
+        bl win_close
+win_dg_out:
         pop lr
         ret
 
@@ -1095,6 +1106,7 @@ win_gs_bad:
 
 win_row:     .word 0                    ; current row (win_head/win_lbl advance it)
 win_stall:   .word 0
+win_guest_seed: .word 0                 ; identity of the guest in st_win_arg
 win_bp:      .word 0
 win_chbuf:   .word 0
              .word 0
@@ -1187,7 +1199,6 @@ win_s_r_low:     .string "Low"
 win_s_r_med:     .string "Medium"
 win_s_r_high:    .string "High"
 win_s_r_vhigh:   .string "Very high"
-win_s_gone:      .string "This guest has left."
 win_s_state:     .string "Doing"
 win_s_cash:      .string "Cash"
 win_s_happy:     .string "Happiness"

@@ -183,6 +183,7 @@ happy vs empty park; forced win and lose screens.
 **Log:**
 - 2026-11-18 Codex gpt-6.2-sol: done. Original title art; presets Lantern Valley ($10k, 60 guests/600 by Y2), Clover Meadow ($15k, 40/500 by Y3), Switchback Hollow ($6.5k, 70/700 by Y1); Enter = preset 1; all game tests prefixed with one <enter>. Daily goal check; Keep Playing clears goals.
 - QA-2 (Codex) full game: all 3 scenarios winnable; 40.5K/48K words; peak 190K instr/frame. 8 verified bugs (tests/qa2.test.json): disconnected attractions count for rating (WP14), queue starvation + isolated exit + breakdown fare (WP7/WP9), stranded handyman + hire at blocked gate + guest panel switching (WP13/WP10), tick after outcome (main). FIX-A/B/C dispatched (Codex).
+- FIX-A/B/C (Codex): all 8 QA-2 bugs fixed; qa2 replays re-checkpointed after FIFO/rating changes (abandonment + arrival order now unit-tested). check 205/205, 40.8K words.
 
 ## WP15 — Polish & balance
 Assigned per finding from the full-game playtests (sound events, balance numbers, UX).

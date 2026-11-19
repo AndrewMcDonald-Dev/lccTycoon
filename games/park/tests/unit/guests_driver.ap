@@ -1,5 +1,4 @@
-; Key a tests admission and the pool, b tests walking decisions and departure,
-; c tests scenery and recovery, and d tests arrival rate. Uses real modules.
+; Tests admission, walking, scenery, arrival rate, queues and exit recovery.
         .lccplus
         .start drv_main
         .include "video_defs.ap"
@@ -35,6 +34,12 @@ drv_main:
         mov r1, 'd'
         cmp r0, r1
         brz drv_rate
+        mov r1, 'e'
+        cmp r0, r1
+        brz drv_queue
+        mov r1, 'f'
+        cmp r0, r1
+        brz drv_exit
         br drv_scenery
 
 drv_admit:
@@ -280,6 +285,82 @@ drv_rate:
         st r0, drv_high_after
         halt
 
+drv_queue:
+        mov r0, RT_WHEEL
+        mov r1, 10
+        bl drv_new
+        bl ride_toggle
+        mov r3, 0
+drv_queue_spawn:
+        bl gst_spawn
+        bl drv_walk_guest
+        add r3, r3, 1
+        cmp r3, 4
+        brlt drv_queue_spawn
+
+        ; Let guest 2 reach the patience limit across the tick counter wrap.
+        mov r0, -240
+        st r0, st_ticks_total
+        mov r0, 0
+        mov r1, 2
+        bl ride_enqueue
+        mov r0, 240
+        st r0, st_ticks_total
+
+        lea r4, st_guests
+        mov r0, 8
+        str r0, r4, G_ENERGY
+        mov r0, 0
+        str r0, r4, GUEST_SIZE+G_HAPPY
+        mov r1, 0
+        bl ride_enqueue
+        mov r0, 0
+        mov r1, 1
+        bl ride_enqueue
+        mov r0, 0
+        mov r1, 3
+        bl ride_enqueue
+
+        mov r0, 4
+        bl drv_ticks
+        mov r0, 0
+        bl ride_addr
+        ldr r0, r0, R_QUEUE
+        st r0, drv_queue_left
+        lea r1, drv_queue_guests
+        mov r3, 4
+drv_queue_snapshot:
+        ldr r0, r4, G_STATE
+        str r0, r1, 0
+        ldr r0, r4, G_TARGET
+        str r0, r1, 1
+        ldr r0, r4, G_THOUGHT
+        str r0, r1, 2
+        mov r0, GUEST_SIZE
+        add r4, r4, r0
+        add r1, r1, 3
+        sub r3, r3, 1
+        brp drv_queue_snapshot
+        halt
+
+drv_exit:
+        mov r0, 20
+        mov r1, 10
+        mov r2, T_EXIT
+        bl map_set
+        mov r0, 21
+        mov r2, T_PATH
+        bl map_set
+        bl gst_spawn
+        bl drv_walk_guest
+        mov r4, r0
+        mov r0, 20
+        str r0, r4, G_X
+        bl gst_tick
+        ldr r0, r4, G_STATE
+        st r0, drv_exit_state
+        halt
+
 ; r0=count
 drv_ticks:
         push r4
@@ -366,6 +447,9 @@ drv_low_before: .word -1
 drv_low_after: .word -1
 drv_high_before: .word -1
 drv_high_after: .word -1
+drv_queue_left: .word -1
+drv_queue_guests: .zero 12
+drv_exit_state: .word -1
 
         .include "../../src/state.ap"
         .include "../../src/map.ap"

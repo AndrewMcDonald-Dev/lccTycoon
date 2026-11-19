@@ -3,8 +3,8 @@
 ; (static table of RT_COUNT records × RTI_SIZE words, fields RTI_* in
 ; defs.ap, names, original content), ride records in st_rides (R_*),
 ; operation cycle, queues, boarding/unloading, stall sales, income.
-; Guests in a ride's queue have G_STATE=GS_QUEUE, G_TARGET=ride; boarding
-; sets GS_RIDE and G_TIMER; unloading puts them on the exit tile in GS_WALK.
+; GS_QUEUE uses G_TARGET for the ride, G_DIR for the join tick, and
+; G_TIMER for arrival order. Boarding sets GS_RIDE and the cycle timer.
 ; All routines: args r0..r4, result r0, all other registers preserved.
 ;
 ;; ride_init      ()                  -> -              clear st_rides, st_ride_count = 0
@@ -29,25 +29,24 @@
 ; - ride_buy refuses non-stalls. Food: G_HUNGER -RIDE_FILL, drink: G_THIRST
 ;   -RIDE_FILL, toilet: RIDE_G_TOILET = 0; every sale +RIDE_BUY_HAPPY.
 ;   The guest's G_STATE is not changed (the guest module owns GS_BUY).
-; - Boarding happens when a ride is idle (R_TIMER 0) and R_QUEUE > 0: one
-;   scan of st_guests boards up to RTI_CAP queued guests (lowest index
-;   first), re-counts the rest into R_QUEUE (self-healing), seats riders on
+; - Boarding happens when a ride is idle (R_TIMER 0), R_QUEUE > 0 and its
+;   exit can reach the gate. It boards up to RTI_CAP in arrival order, seats riders on
 ;   footprint tiles (G_X/G_Y). Guests who can't pay: GS_WALK, target -1,
 ;   TH_NO_MONEY, happiness -RIDE_NOPAY_UNHAPPY. Unloading is one scan when
-;   R_TIMER reaches 0. Position in the queue line is the guest module's job.
+;   R_TIMER reaches 0.
 ; - Unload: happy += excite/16 + RIDE_RIDE_HAPPY - (intensity-RIDE_INTENSE)/8
 ;   (if positive), nausea += R_NAUSEA/16, energy -= R_INTENS/32, G_RIDES+1,
 ;   thought TH_SICK (nausea > GUEST_SICK) else TH_GREAT_RIDE (excite >=
 ;   RIDE_GREAT) else unchanged.
-; - Breakdown: rolled each time a cycle starts; chance % = (100-R_RELIAB)^2/100
+; - Breakdown: rolled before the first fare of a cycle; chance % = (100-R_RELIAB)^2/100
 ;   (reliability 100 never, 90 → 1 %, 0 → always). Broken: RS_BROKEN,
-;   R_DOWN counts ticks broken, riders put on the exit and the queue sent
-;   away (both GS_WALK, -RIDE_BREAK_UNHAPPY), ui_msg "<name> has broken
+;   R_DOWN counts ticks broken, and the queue is sent away
+;   (GS_WALK, -RIDE_BREAK_UNHAPPY), ui_msg "<name> has broken
 ;   down", sound SND_BREAKDOWN. Repair is the staff module's job (R_STATUS,
 ;   R_RELIAB). On st_new_month: R_MON_INC = 0 and R_RELIAB -= 1 + R_AGE/8.
 ; - Closing a ride (ride_toggle) puts riders on the exit and sends the
 ;   queue away (GS_WALK, no penalty).
-; Calls: eco_earn, ui_msg, util_memset.
+; Calls: eco_earn, map_kind, pth_gate_dist, ui_msg, util_memset.
 ; ---------------------------------------------------------------------
 
         .define RIDE_RELIAB_FULL   100
@@ -239,9 +238,11 @@ ride_v_mode:     .word 0
 ride_v_cap:      .word 0
 ride_v_cycle:    .word 0
 ride_v_n:        .word 0
-ride_v_left:     .word 0
+ride_v_oldest:   .word 0
+ride_v_order:    .word 0
 ride_v_tmp:      .word 0
 ride_v_msg:      .zero RIDE_MSG_LEN
+ride_queue_seq:  .word 0
 
 ; ---- ride_init ------------------------------------------------------------
 ride_init:
@@ -255,6 +256,7 @@ ride_init:
         bl util_memset
         mov r0, 0
         st r0, st_ride_count
+        st r0, ride_queue_seq
         pop lr
         pop r2
         pop r1
@@ -436,7 +438,11 @@ ride_ev_rider:
         str r0, r2, G_X
         ldr r0, r3, R_EXIT_Y
         str r0, r2, G_Y
+        br ride_ev_walk
 ride_ev_queuer:
+        mov r0, 0
+        str r0, r2, G_TIMER
+ride_ev_walk:
         mov r0, GS_WALK
         str r0, r2, G_STATE
         mov r0, -1
@@ -665,6 +671,12 @@ ride_eq_join:
         mov r2, GS_QUEUE
         str r2, r0, G_STATE
         str r4, r0, G_TARGET
+        ld r2, st_ticks_total
+        str r2, r0, G_DIR
+        ld r2, ride_queue_seq
+        str r2, r0, G_TIMER
+        add r2, r2, 1
+        st r2, ride_queue_seq
         ldr r2, r3, R_QUEUE
         add r2, r2, 1
         str r2, r3, R_QUEUE
@@ -885,16 +897,23 @@ ride_run_idle:
         brp ride_run_board
         br ride_run_done
 ride_run_board:
+        ; A stand-alone ride simulation may omit the park gate.
+        ld r0, st_gate_x
+        ld r1, st_gate_y
+        bl map_kind
+        cmp r0, T_GATE
+        brnz ride_run_ready
+        ldr r0, r3, R_EXIT_X
+        ldr r1, r3, R_EXIT_Y
+        bl pth_gate_dist
+        cmp r0, 0
+        brn ride_run_done
+ride_run_ready:
+        ldr r1, sp, 2           ; catalog saved on entry
         mov r0, r1
         bl ride_board           ; r0 = riders boarded
         cmp r0, 0
         brz ride_run_done
-        bl ride_roll
-        cmp r0, 0
-        brz ride_run_start
-        bl ride_breakdown
-        br ride_run_done
-ride_run_start:
         ldr r0, r1, RTI_CYCLE
         cmp r0, 0
         brp ride_run_cycle
@@ -918,7 +937,12 @@ ride_board:
         st r1, ride_v_cycle
         mov r1, 0
         st r1, ride_v_n
-        st r1, ride_v_left
+ride_bd_select:
+        ldr r0, r3, R_QUEUE
+        cmp r0, 0
+        brz ride_bd_done
+        mov r1, 0
+        st r1, ride_v_oldest
         lea r2, st_guests
         mov r1, MAX_GUESTS
 ride_bd_loop:
@@ -928,20 +952,47 @@ ride_bd_loop:
         ldr r0, r2, G_TARGET
         cmp r4, r0
         brnz ride_bd_next
+        ld r0, ride_v_oldest
+        cmp r0, 0
+        brz ride_bd_oldest
+        ; Guest patience limits the number of joins between two queued
+        ; guests to less than half the 16-bit sequence range.
+        ld r0, ride_v_order
         push r1
-        ld r0, ride_v_n
-        ld r1, ride_v_cap
-        cmp r0, r1
-        brlt ride_bd_try
-        ld r0, ride_v_left      ; ride full: stays in the queue
-        add r0, r0, 1
-        st r0, ride_v_left
-        br ride_bd_pop
+        ldr r1, r2, G_TIMER
+        sub r0, r1, r0
+        pop r1
+        brn ride_bd_oldest
+        br ride_bd_next
+ride_bd_oldest:
+        st r2, ride_v_oldest
+        ldr r0, r2, G_TIMER
+        st r0, ride_v_order
+ride_bd_next:
+        ld r0, ride_k_gsize
+        add r2, r2, r0
+        sub r1, r1, 1
+        brp ride_bd_loop
+        ld r2, ride_v_oldest
+        cmp r2, 0
+        brnz ride_bd_try
+        str r2, r3, R_QUEUE     ; discard stale counts
+        br ride_bd_done
 ride_bd_try:
         ldr r0, r2, G_CASH
         ldr r1, r3, R_PRICE
         cmp r0, r1
         brlt ride_bd_nopay
+        ld r0, ride_v_n
+        cmp r0, 0
+        brnz ride_bd_charge
+        bl ride_roll
+        cmp r0, 0
+        brz ride_bd_charge
+        bl ride_breakdown
+        br ride_bd_done
+ride_bd_charge:
+        ldr r0, r2, G_CASH
         sub r0, r0, r1
         str r0, r2, G_CASH
         mov r0, r1
@@ -967,10 +1018,12 @@ ride_bd_try:
         ld r0, ride_v_n
         add r0, r0, 1
         st r0, ride_v_n
-        br ride_bd_pop
+        br ride_bd_taken
 ride_bd_nopay:
         mov r0, GS_WALK
         str r0, r2, G_STATE
+        mov r0, 0
+        str r0, r2, G_TIMER
         mov r0, -1
         str r0, r2, G_TARGET
         mov r0, TH_NO_MONEY
@@ -978,15 +1031,15 @@ ride_bd_nopay:
         add r0, r2, G_HAPPY
         mov r1, -RIDE_NOPAY_UNHAPPY
         bl ride_meter
-ride_bd_pop:
-        pop r1
-ride_bd_next:
-        ld r0, ride_k_gsize
-        add r2, r2, r0
-        sub r1, r1, 1
-        brp ride_bd_loop
-        ld r0, ride_v_left
+ride_bd_taken:
+        ldr r0, r3, R_QUEUE
+        sub r0, r0, 1
         str r0, r3, R_QUEUE
+        ld r0, ride_v_n
+        ld r1, ride_v_cap
+        cmp r0, r1
+        brlt ride_bd_select
+ride_bd_done:
         ld r0, ride_v_n
         str r0, r3, R_RIDERS
         pop lr
@@ -1147,3 +1200,6 @@ ride_copy_loop:
 ride_copy_done:
         pop r2
         ret
+
+        .include "map.ap"
+        .include "path.ap"

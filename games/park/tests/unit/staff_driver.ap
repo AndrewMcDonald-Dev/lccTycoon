@@ -17,7 +17,7 @@ drv_main:
         mov r1, 'a'
         sub r0, r0, r1
         brn drv_halt
-        cmp r0, 4
+        cmp r0, 5
         brgt drv_halt
         lea r4, drv_cases
         add r4, r4, r0
@@ -32,6 +32,7 @@ drv_cases:
         .word drv_sweep
         .word drv_repair
         .word drv_wages
+        .word drv_redeploy
 
 drv_gate:
         mov r0, 10
@@ -39,11 +40,21 @@ drv_gate:
         mov r2, T_GATE
         br map_set
 
+drv_gate_exit:
+        mov r0, 10
+        mov r1, 9
+        mov r2, T_PATH
+        br map_set
+
 drv_records:
         mov r0, SFT_HANDYMAN
         bl stf_hire             ; no gate tile yet
         st r0, drv_slots
         bl drv_gate
+        mov r0, SFT_HANDYMAN
+        bl stf_hire             ; gate exists but has no exit
+        st r0, drv_slots+10
+        bl drv_gate_exit
         mov r0, SFT_NONE
         bl stf_hire
         st r0, drv_slots+1
@@ -84,6 +95,7 @@ drv_records:
 
 drv_pool:
         bl drv_gate
+        bl drv_gate_exit
         mov r4, MAX_STAFF
 drv_pool_hire:
         mov r0, SFT_HANDYMAN
@@ -226,6 +238,7 @@ drv_repair_work:
 
 drv_wages:
         bl drv_gate
+        bl drv_gate_exit
         mov r0, SFT_HANDYMAN
         bl stf_hire
         mov r0, SFT_MECHANIC
@@ -242,7 +255,35 @@ drv_wages:
         bl eco_tick
         halt
 
-drv_slots:       .zero 10
+; Remove the tile below the handyman, cutting the mechanic off from the gate.
+drv_redeploy:
+        bl drv_gate
+        bl drv_gate_exit
+        mov r0, 10
+        mov r1, 8
+        mov r2, T_PATH
+        bl map_set
+        mov r0, SFT_HANDYMAN
+        bl stf_hire
+        mov r0, SFT_MECHANIC
+        bl stf_hire
+        bl stf_tick             ; handyman walks to (10,9), gate field is cached
+        lea r4, st_staff
+        add r4, r4, STAFF_SIZE
+        mov r0, 8
+        str r0, r4, SF_Y
+        mov r0, 2
+        str r0, r4, SF_TARGET
+        mov r0, 3
+        str r0, r4, SF_TIMER
+        mov r0, 10
+        mov r1, 9
+        mov r2, T_GRASS
+        bl map_set
+        bl stf_tick
+        halt
+
+drv_slots:       .zero 11
 drv_capacity:    .zero 7
 drv_swept:       .zero 4
 drv_walk:        .zero 6
