@@ -666,6 +666,13 @@ gst_buy_timer:
         str r0, r4, G_TIMER
         br gst_update_done
 gst_queue:
+        bl ride_addr            ; recheck: the exit may have been cut off en route
+        mov r1, GOODS_NONE
+        bl gst_attraction_reachable
+        cmp r0, 0
+        brz gst_forget_target
+        ldr r0, r4, G_TARGET
+        mov r1, r3
         bl ride_enqueue
         cmp r0, 0
         brz gst_forget_target

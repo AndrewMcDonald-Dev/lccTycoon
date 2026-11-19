@@ -5,24 +5,68 @@
       "keys": "_3",
       "expect": {
         "status": "frames-complete",
-        "screen": { "contains": [
-          "PARK BUILDER", "┌─┬───────┬─────┬─┐", "♣", "▀▀▀┴",
-          "1  Lantern Valley", "2  Clover Meadow", "3  Switchback Hollow",
-          "Up / Down and Enter to select"
-        ] },
-        "bg": { "matches": ["(?<![\\s\\S])(?:.*\\n){15}.{14}C{72}"] },
-        "memory": { "st_game_state": 0, "st_frame": 0, "st_ticks_total": 0 }
+        "screen": {
+          "contains": [
+            "PARK BUILDER",
+            "┌─┬───────┬─────┬─┐",
+            "♣",
+            "▀▀▀┴",
+            "1  Lantern Valley",
+            "2  Clover Meadow",
+            "3  Switchback Hollow",
+            "Up / Down and Enter to select"
+          ]
+        },
+        "bg": {
+          "matches": [
+            "(?<![\\s\\S])(?:.*\\n){15}.{14}C{72}"
+          ]
+        },
+        "memory": {
+          "st_game_state": 0,
+          "st_frame": 0,
+          "st_ticks_total": 0
+        }
       }
     },
     {
       "name": "1 opens Lantern Valley with the default cash and objectives",
       "keys": "1",
       "expect": {
-        "frames": [{ "frame": 0, "screen": { "contains": ["Choose a scenario"] } }],
-        "screen": { "contains": ["$10,000", "Goal: 60 guests, rating 600 by end of Y2"] },
+        "frames": [
+          {
+            "frame": 0,
+            "screen": {
+              "contains": [
+                "Choose a scenario"
+              ]
+            }
+          }
+        ],
+        "screen": {
+          "contains": [
+            "$10,000",
+            "Goal: 60 guests, rating 600 by end of Y2"
+          ]
+        },
         "memory": {
-          "st_game_state": 1, "st_scenario": 0, "st_goal_guests": [60, 600, 2],
-          "st_cash_k": [10, 0], "st_loan_k": [10, 0], "st_frame": 1, "st_tool": 0
+          "st_game_state": 1,
+          "st_scenario": 0,
+          "st_goal_guests": [
+            60,
+            600,
+            2
+          ],
+          "st_cash_k": [
+            10,
+            0
+          ],
+          "st_loan_k": [
+            10,
+            0
+          ],
+          "st_frame": 1,
+          "st_tool": 0
         }
       }
     },
@@ -30,10 +74,32 @@
       "name": "2 opens Clover Meadow with a grant and more time",
       "keys": "2",
       "expect": {
-        "screen": { "contains": ["$15,000", "Goal: 40 guests, rating 500 by end of Y3"] },
+        "screen": {
+          "contains": [
+            "$15,000",
+            "Goal: 40 guests, rating 500 by end of Y3"
+          ]
+        },
         "memory": {
-          "st_game_state": 1, "st_scenario": 1, "st_goal_guests": [40, 500, 3],
-          "st_cash_k": [15, 0], "st_loan_k": [10, 0], "st_mon_inc_k": [5, 0]
+          "st_game_state": 1,
+          "st_scenario": 1,
+          "st_goal_guests": [
+            40,
+            500,
+            3
+          ],
+          "st_cash_k": [
+            15,
+            0
+          ],
+          "st_loan_k": [
+            10,
+            0
+          ],
+          "st_mon_inc_k": [
+            5,
+            0
+          ]
         }
       }
     },
@@ -41,10 +107,32 @@
       "name": "3 opens Switchback Hollow with a smaller budget and an earlier deadline",
       "keys": "3",
       "expect": {
-        "screen": { "contains": ["$6,500", "Goal: 70 guests, rating 700 by end of Y1"] },
+        "screen": {
+          "contains": [
+            "$6,500",
+            "Goal: 70 guests, rating 700 by end of Y1"
+          ]
+        },
         "memory": {
-          "st_game_state": 1, "st_scenario": 2, "st_goal_guests": [70, 700, 1],
-          "st_cash_k": [6, 500], "st_loan_k": [10, 0], "st_mon_exp_k": [3, 500]
+          "st_game_state": 1,
+          "st_scenario": 2,
+          "st_goal_guests": [
+            70,
+            700,
+            1
+          ],
+          "st_cash_k": [
+            6,
+            500
+          ],
+          "st_loan_k": [
+            10,
+            0
+          ],
+          "st_mon_exp_k": [
+            3,
+            500
+          ]
         }
       }
     },
@@ -53,12 +141,44 @@
       "keys": "<up> <down> <down> <down> <up> <enter>",
       "expect": {
         "frames": [
-          { "frame": 0, "bg": { "matches": ["(?<![\\s\\S])(?:.*\\n){15}.{14}C{72}"] } },
-          { "frame": 2, "bg": { "matches": ["(?<![\\s\\S])(?:.*\\n){21}.{14}C{72}"] } },
-          { "frame": 3, "bg": { "matches": ["(?<![\\s\\S])(?:.*\\n){21}.{14}C{72}"] } },
-          { "frame": 4, "bg": { "matches": ["(?<![\\s\\S])(?:.*\\n){18}.{14}C{72}"] } }
+          {
+            "frame": 0,
+            "bg": {
+              "matches": [
+                "(?<![\\s\\S])(?:.*\\n){15}.{14}C{72}"
+              ]
+            }
+          },
+          {
+            "frame": 2,
+            "bg": {
+              "matches": [
+                "(?<![\\s\\S])(?:.*\\n){21}.{14}C{72}"
+              ]
+            }
+          },
+          {
+            "frame": 3,
+            "bg": {
+              "matches": [
+                "(?<![\\s\\S])(?:.*\\n){21}.{14}C{72}"
+              ]
+            }
+          },
+          {
+            "frame": 4,
+            "bg": {
+              "matches": [
+                "(?<![\\s\\S])(?:.*\\n){18}.{14}C{72}"
+              ]
+            }
+          }
         ],
-        "memory": { "st_game_state": 1, "st_scenario": 1, "st_frame": 1 }
+        "memory": {
+          "st_game_state": 1,
+          "st_scenario": 1,
+          "st_frame": 1
+        }
       }
     },
     {
@@ -66,8 +186,16 @@
       "clock": 0,
       "keys": "<enter> p 1 s*3 <space> d*2 w*2 3 <space> o i >> p _85",
       "expect": {
-        "memory": { "st_rating": 384 },
-        "screen": { "contains": ["Status      Open", "In queue    0 ", "Total rides 0 "] }
+        "memory": {
+          "st_rating": 384
+        },
+        "screen": {
+          "contains": [
+            "Status      Open",
+            "In queue    0 ",
+            "Total rides 0 "
+          ]
+        }
       }
     },
     {
@@ -77,9 +205,41 @@
       "maxSteps": 200000000,
       "expect": {
         "status": "frames-complete",
-        "frames": [{ "frame": 2002, "screen": { "contains": ["Jan 1, Y2", "Speed 4"] } }],
-        "screen": { "contains": ["SCENARIO FAILED", "Jan 1, Y2"] },
-        "memory": { "st_game_state": 3, "st_tick": 0, "st_ticks_total": 8000 }
+        "frames": [
+          {
+            "frame": 2002,
+            "screen": {
+              "contains": [
+                "Jan 1, Y2",
+                "Speed 4"
+              ]
+            }
+          }
+        ],
+        "screen": {
+          "contains": [
+            "SCENARIO FAILED",
+            "Jan 1, Y2"
+          ]
+        },
+        "memory": {
+          "st_game_state": 3,
+          "st_tick": 0,
+          "st_ticks_total": 8000
+        }
+      }
+    },
+    {
+      "name": "a guest already heading to a ride does not queue after its exit path is cut",
+      "clock": 0,
+      "keys": "<enter> p 1 s*3 <space> d*2 w*2 3 <space> 1 a*2 s <space> w <space> w <space> d <space> s d o >> p _35 p w a x <space> p _30 p d s i",
+      "expect": {
+        "screen": {
+          "contains": [
+            "Merry Spinner",
+            "In queue    0 "
+          ]
+        }
       }
     }
   ]
