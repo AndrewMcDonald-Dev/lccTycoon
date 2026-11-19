@@ -17,13 +17,13 @@ domain skill shown.
 | WP6 | Construction rules & costs | src/build.ap, tests/unit/build_*, tests/build.test.json | WP1, WP4 | lcc-simulation | 2 | done |
 | WP7 | Ride & stall catalog + operations | src/rides.ap, tests/unit/rides_* | WP1, WP4 | lcc-simulation | 2 | done |
 | WP8 | Pathfinding | src/path.ap, tests/unit/path_* | WP1 | lcc-simulation | 2 | done |
-| WP9 | Guests | src/guests.ap, tests/unit/guests_*, tests/guests.test.json | WP7, WP8, WP4 | lcc-simulation | 3 | active |
-| WP10 | Info & finance windows | src/windows.ap, tests/windows.test.json | WP7, WP9, WP3 | lcc-text-graphics | 3 | review |
-| WP11 | Coaster designer (track editing, circuit check) | src/coaster.ap, tests/unit/coaster_* | WP6, WP2 | lcc-text-graphics + lcc-simulation | 4 | todo |
+| WP9 | Guests | src/guests.ap, tests/unit/guests_*, tests/guests.test.json | WP7, WP8, WP4 | lcc-simulation | 3 | done |
+| WP10 | Info & finance windows | src/windows.ap, tests/windows.test.json | WP7, WP9, WP3 | lcc-text-graphics | 3 | done |
+| WP11 | Coaster designer (track editing, circuit check) | src/coaster.ap, tests/unit/coaster_* | WP6, WP2 | lcc-text-graphics + lcc-simulation | 4 | active |
 | WP12 | Coaster ratings & train animation | src/coaster.ap (after WP11) | WP11, WP7 | lcc-simulation | 5 | todo |
-| WP13 | Staff (handymen, mechanics), litter, breakdowns | src/staff.ap, tests/unit/staff_* | WP9 | lcc-simulation | 5 | todo |
-| WP14 | Rating, scenario goal, title screen, win/lose | src/scenario.ap, tests/scenario.test.json | WP9, WP4 | lcc-text-graphics + lcc-simulation | 5 | todo |
-| WP15 | Sound, polish, balance | (assigned per change) | WP14 | lcc-qa + domain | 6 | todo |
+| WP13 | Staff (handymen, mechanics), litter, breakdowns | src/staff.ap, tests/unit/staff_* | WP9 | lcc-simulation | 5 | active |
+| WP14 | Rating, scenario goal, title screen, win/lose | src/scenario.ap, tests/scenario.test.json | WP9, WP4 | lcc-text-graphics + lcc-simulation | 5 | active |
+| WP15 | Sound, polish, balance | (assigned per change) | WP14 | lcc-qa + domain | 6 | active |
 | QA-n | Review + playtest after each wave | tests/ only | wave done | lcc-qa | each | QA-1 done |
 
 Interface changes requested by WPs go into small architect WPs (`ARCH-n`, `lcc-architect`)
@@ -137,6 +137,7 @@ Time-sliced (1/4 of slots per tick).
 on a scripted park (path + ride + stall) shows guests arriving, riding and buying, cash
 rising; profile ≤ 600K instr/frame with 128 guests at speed 4.
 **Log:**
+- 2026-11-18 Codex gpt-6.2-sol: done. path.ap cache = gate + 3 attraction fields, one cold build per 9 ticks, new pth_cached. 128 guests/6 targets/speed 4: avg 198K, peak 451K instr/frame. 34.5K/48K words. Orchestrator run: 25 guests by May, cash rising. No gate open/close key (park open by default).
 
 ## WP10 — Info & finance windows
 **Goal:** `win_*` per contract over the panel: ride window (name, status, price, queue,

@@ -1,7 +1,7 @@
 ; ---------------------------------------------------------------------
 ; Module: path (prefix pth_) — owner WP8. Breadth-first distance fields
 ; over walkable tiles (map_walkable) and next-step queries for guests and
-; staff. Cache one field for the gate and one for the last other target.
+; staff. Cache one field for the gate and three recent other targets.
 ; A field doubles as its own BFS queue while rebuilding on a cache miss.
 ; All routines: args r0..r4, result r0, all other registers preserved.
 ;
@@ -11,7 +11,10 @@
 ;; pth_dist       r0=x r1=y r2=tx r3=ty  -> r0=steps, -1 if unreachable
 ;; pth_to_gate    r0=x r1=y              -> r0=DIR_* first step toward the park gate (st_gate_x/y), DIR_NONE if unreachable
 ;; pth_random_dir r0=x r1=y              -> r0=random walkable DIR_* from (x,y), DIR_NONE if boxed in
+;; pth_cached     r0=tx r1=ty             -> r0=1 if the target field is ready, else 0 (never builds a field)
 ; ---------------------------------------------------------------------
+
+        .define PTH_OTHER_FIELDS 3
 
 pth_init:
         push r0
@@ -31,6 +34,10 @@ pth_update:
 pth_invalidate:
         st r0, pth_gate_slot
         st r0, pth_other_slot
+        st r0, pth_other_slot+2
+        st r0, pth_other_slot+4
+        mov r0, 0
+        st r0, pth_replace
 pth_invalidate_done:
         pop r0
         ret
@@ -135,7 +142,19 @@ pth_route:
         lea r2, pth_gate_slot
         br pth_lookup
 pth_select_other:
+        bl pth_find_other
+        cmp r2, 0
+        brnz pth_lookup
+        ; Round-robin replacement, leaving the gate field pinned.
+        ld r3, pth_replace
         lea r2, pth_other_slot
+        add r2, r2, r3
+        add r3, r3, 2
+        cmp r3, PTH_OTHER_FIELDS*2
+        brlt pth_save_replace
+        mov r3, 0
+pth_save_replace:
+        st r3, pth_replace
 pth_lookup:
         ldr r1, r2, 1
         ldr r3, r2, 0
@@ -149,10 +168,57 @@ pth_route_return:
         pop lr
         ret
 
+pth_cached:
+        push r1
+        push r2
+        push r3
+        push lr
+        bl pth_update
+        bl map_index
+        cmp r0, 0
+        brn pth_cached_no
+        ld r2, pth_gate_slot
+        cmp r0, r2
+        brz pth_cached_yes
+        bl pth_find_other
+        cmp r2, 0
+        brz pth_cached_no
+pth_cached_yes:
+        mov r0, 1
+        br pth_cached_done
+pth_cached_no:
+        mov r0, 0
+pth_cached_done:
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; r0=target index -> r2=matching slot or 0. Uses r1 and r3 as scratch.
+pth_find_other:
+        lea r2, pth_other_slot
+        mov r3, PTH_OTHER_FIELDS
+pth_find_slot:
+        ldr r1, r2, 0
+        cmp r0, r1
+        brz pth_find_done
+        add r2, r2, 2
+        sub r3, r3, 1
+        brp pth_find_slot
+        mov r2, 0
+pth_find_done:
+        ret
+
 pth_gate_slot:  .word -1        ; target index, or -1 if invalid
                 .word pth_gate_field
 pth_other_slot: .word -1
-                .word pth_other_field
+                .word pth_other_first
+                .word -1
+                .word pth_other_second
+                .word -1
+                .word pth_other_third
+pth_replace:    .word 0         ; word offset of the next slot to replace
 pth_last_row:   .word MAP_SIZE-MAP_W
 pth_map_size:   .word MAP_SIZE
 
@@ -374,5 +440,7 @@ pth_neighbor_done:
         pop r2
         ret
 
-pth_gate_field:  .zero MAP_SIZE
-pth_other_field: .zero MAP_SIZE
+pth_gate_field:   .zero MAP_SIZE
+pth_other_first:  .zero MAP_SIZE
+pth_other_second: .zero MAP_SIZE
+pth_other_third:  .zero MAP_SIZE
