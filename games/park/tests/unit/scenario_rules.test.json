@@ -1,0 +1,75 @@
+{
+  "game": "scenario_driver.ap",
+  "scenarios": [
+    {
+      "name": "daily rating drifts down in an empty park and rises with happy guests and open attractions",
+      "keys": "r",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_empty": 407, "drv_happy_first": 534, "drv_happy_second": 560,
+          "drv_dirty_rating": 532, "drv_price_rating": 523,
+          "drv_broken_rating": 501, "drv_closed_rating": 516, "drv_repeated_rating": 522
+        }
+      }
+    },
+    {
+      "name": "daily rating converges at the minimum and maximum without crossing either",
+      "keys": "b",
+      "expect": { "status": "halted", "memory": { "drv_min": 0, "st_rating": 999 } }
+    },
+    {
+      "name": "meeting both goals on the last day wins and shows the final stats",
+      "keys": "w q",
+      "expect": {
+        "status": "halted",
+        "screen": { "contains": [
+          "SCENARIO COMPLETE", "Lantern Valley", "Guests in park        60              60",
+          "Park rating           600             600", "$10,000", "Dec 20, Y2", "End of Y2"
+        ] },
+        "memory": { "drv_before": 1, "drv_result": 2, "drv_quit": 1, "st_game_state": 2 }
+      }
+    },
+    {
+      "name": "the real calendar rollover loses even if the park meets the goals in the new year",
+      "keys": "l q",
+      "expect": {
+        "status": "halted",
+        "screen": { "contains": [
+          "SCENARIO FAILED", "The deadline passed before both goals were met.",
+          "Jan 1, Y3", "End of Y2", "Keep playing"
+        ] },
+        "memory": {
+          "drv_before": 1, "drv_result": 3, "drv_quit": 1,
+          "st_game_state": 3, "st_year": 3, "st_guest_count": 60, "st_rating": 600
+        }
+      }
+    },
+    {
+      "name": "continuing after a win returns to the park and clears the objectives",
+      "keys": "w c",
+      "expect": {
+        "status": "halted",
+        "frames": [{ "frame": 0, "screen": { "contains": ["SCENARIO COMPLETE"] } }],
+        "screen": { "contains": ["PARK BUILDER", "Speed 1"], "notContains": ["SCENARIO COMPLETE"] },
+        "memory": {
+          "drv_result": 2, "drv_quit": 0, "drv_year_off": 0, "drv_after": 1,
+          "st_game_state": 1, "st_goal_guests": [0, 0, 0]
+        }
+      }
+    },
+    {
+      "name": "Enter also returns to sandbox play from the loss screen",
+      "keys": "l <enter>",
+      "expect": {
+        "status": "halted",
+        "frames": [{ "frame": 0, "screen": { "contains": ["SCENARIO FAILED"] } }],
+        "screen": { "contains": ["PARK BUILDER", "Speed 1"], "notContains": ["SCENARIO FAILED"] },
+        "memory": {
+          "drv_result": 3, "drv_quit": 0, "drv_year_off": 0, "drv_after": 1,
+          "st_game_state": 1, "st_goal_guests": [0, 0, 0]
+        }
+      }
+    }
+  ]
+}

@@ -2,27 +2,27 @@
   "scenarios": [
     {
       "name": "extend the entrance path and protect the park gate",
-      "keys": "1 s*3 <space> s*4 x <space>",
+      "keys": "<enter> 1 s*3 <space> s*4 x <space>",
       "expect": {
         "status": "frames-complete",
         "memory": { "st_cash_k": 9, "st_cash_u": 990, "st_mon_exp_u": 10, "st_mon_inc_u": 0 },
         "frames": [
-          { "frame": 3, "screen": { "contains": ["Tile    Grass", "$10,000"] } },
-          { "frame": 4, "screen": { "contains": ["Tile    Path", "$9,990"] } }
+          { "frame": 4, "screen": { "contains": ["Tile    Grass", "$10,000"] } },
+          { "frame": 5, "screen": { "contains": ["Tile    Path", "$9,990"] } }
         ],
         "screen": { "contains": ["Cursor  32,47", "Tile    Park gate", "$9,990"] }
       }
     },
     {
       "name": "build a path, carousel and food stall from the keyboard",
-      "keys": "p 1 s*3 <space> d*2 w*2 3 <space> a*5 s*2 4 <space>",
+      "keys": "<enter> p 1 s*3 <space> d*2 w*2 3 <space> a*5 s*2 4 <space>",
       "expect": {
         "status": "frames-complete",
         "memory": { "st_cash_k": 8, "st_cash_u": 840, "st_ride_count": 2, "st_mon_exp_k": 1, "st_mon_exp_u": 160 },
         "frames": [
-          { "frame": 5, "screen": { "contains": ["Tile    Path", "$9,990"] } },
-          { "frame": 11, "screen": { "contains": ["Tile    Ride", "$9,090"] } },
-          { "frame": 20, "screen": { "contains": ["Tile    Stall", "$8,840"] } }
+          { "frame": 6, "screen": { "contains": ["Tile    Path", "$9,990"] } },
+          { "frame": 12, "screen": { "contains": ["Tile    Ride", "$9,090"] } },
+          { "frame": 21, "screen": { "contains": ["Tile    Stall", "$8,840"] } }
         ]
       }
     }

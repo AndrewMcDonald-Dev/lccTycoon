@@ -3,7 +3,7 @@
     {
       "name": "a keyboard-built park earns admissions, carousel fares and Snack Hut sales",
       "clock": 0,
-      "keys": "p 1 s*3 <space> d*2 w*2 3 <space> o a*5 s*2 4 <space> o d*3 w 1 <space> w <space> w <space> d <space> a s*3 2 <space> p >> _100",
+      "keys": "<enter> p 1 s*3 <space> d*2 w*2 3 <space> o a*5 s*2 4 <space> o d*3 w 1 <space> w <space> w <space> d <space> a s*3 2 <space> p >> _100",
       "expect": {
         "status": "frames-complete",
         "maxStepsPerFrame": 600000,
@@ -22,8 +22,8 @@
           ]
         },
         "frames": [
-          { "frame": 40, "screen": { "contains": ["Tile    Queue", "$8,788   Guests 0"] } },
-          { "frame": 46, "screen": { "contains": ["$8,798   Guests 1", "☺"] } }
+          { "frame": 41, "screen": { "contains": ["Tile    Queue", "$8,788   Guests 0"] } },
+          { "frame": 47, "screen": { "contains": ["$8,798   Guests 1", "☺"] } }
         ],
         "screen": { "contains": ["$9,094   Guests 20", "Speed 4", "☺"] }
       }

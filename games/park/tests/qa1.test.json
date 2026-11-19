@@ -2,13 +2,13 @@
   "scenarios": [
     {
       "name": "laying a path on an existing path is refused and costs nothing (WP6 bld_quote)",
-      "keys": "p 1 s*5 <space>",
+      "keys": "<enter> p 1 s*5 <space>",
       "clock": 0,
       "expect": {
         "status": "frames-complete",
         "frames": [
           {
-            "frame": 6,
+            "frame": 7,
             "screen": {
               "contains": [
                 "Cursor  32,45",
@@ -28,13 +28,13 @@
     },
     {
       "name": "planting flowers on flowers charges only once (WP6 bld_quote)",
-      "keys": "p 5 <space> <space>",
+      "keys": "<enter> p 5 <space> <space>",
       "clock": 0,
       "expect": {
         "status": "frames-complete",
         "frames": [
           {
-            "frame": 2,
+            "frame": 3,
             "screen": {
               "contains": [
                 "Tile    Flowers",
@@ -53,13 +53,13 @@
     },
     {
       "name": "demolishing a natural tree books no refund income (WP6 bld_refund_basis)",
-      "keys": "p A*4 w*3 x <space>",
+      "keys": "<enter> p A*4 w*3 x <space>",
       "clock": 0,
       "expect": {
         "status": "frames-complete",
         "frames": [
           {
-            "frame": 8,
+            "frame": 9,
             "screen": {
               "contains": [
                 "Cursor  12,37",
@@ -77,7 +77,7 @@
     },
     {
       "name": "ride price clamps at PRICE_MAX and o toggles open/closed, each with a message",
-      "keys": "p d*2 w*2 3 <space> +*20 o o o",
+      "keys": "<enter> p d*2 w*2 3 <space> +*20 o o o",
       "clock": 0,
       "expect": {
         "status": "frames-complete",
@@ -99,13 +99,13 @@
     },
     {
       "name": "spending to exactly $0 refuses the next ride and path; month close posts upkeep + interest (-$500, entry fee 0)",
-      "keys": "p W*8 s A*6 3 ] ] ] <space> d*4 <space> d*4 <space> d*4 <space> d*4 <space> d*4 <space> 1 <space> S*10 D D -*10 p > > _250",
+      "keys": "<enter> p W*8 s A*6 3 ] ] ] <space> d*4 <space> d*4 <space> d*4 <space> d*4 <space> d*4 <space> 1 <space> S*10 D D -*10 p > > _250",
       "clock": 0,
       "expect": {
         "status": "frames-complete",
         "frames": [
           {
-            "frame": 47,
+            "frame": 48,
             "screen": {
               "contains": [
                 " $0 ",
@@ -136,13 +136,13 @@
     },
     {
       "name": "carousel over 5 trees costs $925; demolishing it from its exit tile clears it and refunds $450",
-      "keys": "p A*4 w*4 3 <space> w d x <space>",
+      "keys": "<enter> p A*4 w*4 3 <space> w d x <space>",
       "clock": 0,
       "expect": {
         "status": "frames-complete",
         "frames": [
           {
-            "frame": 10,
+            "frame": 11,
             "screen": {
               "contains": [
                 "$9,075",
@@ -151,7 +151,7 @@
             }
           },
           {
-            "frame": 12,
+            "frame": 13,
             "screen": {
               "contains": [
                 "Tile    Ride exit"
@@ -179,7 +179,7 @@
     },
     {
       "name": "the 33rd ride/stall is refused with 'No ride slots available.'",
-      "keys": "p 4 ] W*8 s*2 A*7 d*2 <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d s*3 A*13 d*2 <space> d d <space>",
+      "keys": "<enter> p 4 ] W*8 s*2 A*7 d*2 <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d <space> d d s*3 A*13 d*2 <space> d d <space>",
       "clock": 0,
       "expect": {
         "status": "frames-complete",

@@ -1,0 +1,229 @@
+        .lccplus
+        .start drv_start
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_start:
+        lea r0, st_screen
+        bl video_bind
+        bl eco_init
+        nbain r0
+        mov r1, 'r'
+        cmp r0, r1
+        brz drv_rate_test
+        mov r1, 'b'
+        cmp r0, r1
+        brz drv_bounds
+        mov r1, 'w'
+        cmp r0, r1
+        brz drv_win
+        br drv_lose
+
+drv_rate_test:
+        bl scn_rate
+        bl scn_rate
+        ld r0, st_rating
+        st r0, drv_empty
+
+        ; The second occupied guest is in the last slot. Free slots carry
+        ; zero happiness and must be skipped rather than dilute the average.
+        lea r4, st_guests
+        mov r0, GS_WALK
+        str r0, r4, G_STATE
+        mov r1, 254
+        str r1, r4, G_HAPPY
+        ld r1, drv_last_guest_offset
+        add r4, r4, r1
+        str r0, r4, G_STATE
+        mov r1, 230
+        str r1, r4, G_HAPPY
+        mov r0, 2
+        st r0, st_guest_count
+
+        mov r0, RT_CAROUSEL
+        bl drv_open_ride
+        mov r0, RT_FOOD
+        bl drv_open_ride
+        mov r0, RT_WHEEL
+        bl drv_open_ride
+        bl drv_rate_from_start
+        st r0, drv_happy_first
+        bl scn_rate
+        ld r0, st_rating
+        st r0, drv_happy_second
+
+        lea r4, st_map
+        ld r0, drv_dirty_path
+        str r0, r4, 0
+        ld r0, drv_dirty_queue
+        str r0, r4, 1
+        ld r0, drv_dirty_grass
+        str r0, r4, 2
+        bl drv_rate_from_start
+        st r0, drv_dirty_rating
+        mov r0, 0
+        str r0, r4, 0
+        str r0, r4, 1
+        str r0, r4, 2
+
+        mov r0, 0
+        mov r1, 14
+        bl ride_set_price
+        mov r0, ENTRY_FEE_DEF+5
+        st r0, st_entry_fee
+        bl drv_rate_from_start
+        st r0, drv_price_rating
+        mov r0, ENTRY_FEE_DEF
+        st r0, st_entry_fee
+
+        lea r4, st_rides
+        mov r0, RS_BROKEN
+        str r0, r4, R_STATUS
+        bl drv_rate_from_start
+        st r0, drv_broken_rating
+        mov r0, RS_CLOSED
+        str r0, r4, R_STATUS
+        bl drv_rate_from_start
+        st r0, drv_closed_rating
+
+        ; Replace the closed carousel with a second wheel, at list price.
+        mov r0, RT_WHEEL
+        str r0, r4, R_TYPE
+        bl ride_type_info
+        ldr r0, r0, RTI_PRICE
+        str r0, r4, R_PRICE
+        mov r0, RS_OPEN
+        str r0, r4, R_STATUS
+        bl drv_rate_from_start
+        st r0, drv_repeated_rating
+        halt
+
+drv_bounds:
+        lea r0, st_map
+        ld r1, drv_dirty_path
+        ld r2, drv_map_size
+        bl util_memset
+        mov r0, 1
+        st r0, st_rating
+        bl scn_rate
+        ld r0, st_rating
+        st r0, drv_min
+
+        lea r0, st_map
+        mov r1, T_GRASS
+        ld r2, drv_map_size
+        bl util_memset
+        mov r4, MAX_RIDES
+drv_fill_rides:
+        mov r0, RT_CAROUSEL
+        bl drv_open_ride
+        sub r4, r4, 1
+        brp drv_fill_rides
+        ld r0, drv_near_max
+        st r0, st_rating
+        bl scn_rate
+        halt
+
+drv_win:
+        bl drv_last_day
+        ld r0, st_goal_guests
+        st r0, st_guest_count
+        ld r0, st_goal_rating
+        sub r0, r0, 1
+        st r0, st_rating
+        bl scn_check
+        st r0, drv_before
+        ld r0, st_goal_rating
+        st r0, st_rating
+        br drv_end
+
+drv_lose:
+        bl drv_last_day
+        ld r0, st_goal_rating
+        st r0, st_rating
+        ld r0, st_goal_guests
+        sub r0, r0, 1
+        st r0, st_guest_count
+        bl scn_check
+        st r0, drv_before
+        bl eco_tick
+        ld r0, st_goal_guests
+        st r0, st_guest_count   ; meeting goals after the deadline is too late
+drv_end:
+        bl scn_check
+        st r0, drv_result
+        bl scn_end_screen
+        st r0, drv_quit
+        cmp r0, 0
+        brnz drv_halt
+        ld r0, st_goal_year
+        st r0, drv_year_off
+        mov r0, 4
+        st r0, st_year
+        bl scn_check
+        st r0, drv_after
+        bl ren_draw
+        bl ui_draw
+        bl video_present
+drv_halt:
+        halt
+
+drv_last_day:
+        mov r0, DAY_TICKS-1
+        st r0, st_tick
+        mov r0, DAYS_PER_MONTH
+        st r0, st_day
+        mov r0, MONTHS_PER_YEAR-1
+        st r0, st_month
+        ld r0, st_goal_year
+        st r0, st_year
+        ret
+
+drv_open_ride:                  ; r0=type, returns the new ride's status
+        push lr
+        mov r1, 0
+        mov r2, 0
+        bl ride_new
+        bl ride_toggle
+        pop lr
+        ret
+
+drv_rate_from_start:
+        push lr
+        ld r0, drv_rating_start
+        st r0, st_rating
+        bl scn_rate
+        ld r0, st_rating
+        pop lr
+        ret
+
+drv_rating_start:      .word RATING_START
+drv_near_max:          .word RATING_MAX-1
+drv_map_size:          .word MAP_SIZE
+drv_last_guest_offset: .word (MAX_GUESTS-1)*GUEST_SIZE
+drv_dirty_path:        .word T_PATH|T_LITTER|T_VOMIT
+drv_dirty_queue:       .word T_QUEUE|T_VOMIT
+drv_dirty_grass:       .word T_GRASS|T_LITTER
+drv_empty:             .word 0
+drv_happy_first:       .word 0
+drv_happy_second:      .word 0
+drv_dirty_rating:      .word 0
+drv_price_rating:      .word 0
+drv_broken_rating:     .word 0
+drv_closed_rating:     .word 0
+drv_repeated_rating:   .word 0
+drv_min:               .word -1
+drv_before:            .word -1
+drv_result:            .word -1
+drv_quit:              .word -1
+drv_year_off:          .word -1
+drv_after:             .word -1
+
+        .include "../../src/state.ap"
+        .include "../../src/scenario.ap"
+        .include "../../src/economy.ap"
+        .include "../../src/rides.ap"
+        .include "../../src/render.ap"
+        .include "../../src/ui.ap"
+        .include "video.ap"
+        .include "util.ap"

@@ -22,8 +22,8 @@ domain skill shown.
 | WP11 | Coaster designer (track editing, circuit check) | src/coaster.ap, tests/unit/coaster_* | WP6, WP2 | lcc-text-graphics + lcc-simulation | 4 | done |
 | WP12 | Coaster ratings & train animation | src/coaster.ap (after WP11) | WP11, WP7 | lcc-simulation | 5 | active |
 | WP13 | Staff (handymen, mechanics), litter, breakdowns | src/staff.ap, tests/unit/staff_* | WP9 | lcc-simulation | 5 | active |
-| WP14 | Rating, scenario goal, title screen, win/lose | src/scenario.ap, tests/scenario.test.json | WP9, WP4 | lcc-text-graphics + lcc-simulation | 5 | active |
-| WP15 | Sound, polish, balance | (assigned per change) | WP14 | lcc-qa + domain | 6 | active |
+| WP14 | Rating, scenario goal, title screen, win/lose | src/scenario.ap, tests/scenario.test.json | WP9, WP4 | lcc-text-graphics + lcc-simulation | 5 | done |
+| WP15 | Sound, polish, balance | (assigned per change) | WP14 | lcc-qa + domain | 6 | done |
 | QA-n | Review + playtest after each wave | tests/ only | wave done | lcc-qa | each | QA-1 done |
 
 Interface changes requested by WPs go into small architect WPs (`ARCH-n`, `lcc-architect`)
@@ -179,6 +179,7 @@ restored); hire from the finance window or a key; monthly wages via economy.
 **Acceptance:** `tests/scenario.test.json`: title → choose → game; rating responds to a
 happy vs empty park; forced win and lose screens.
 **Log:**
+- 2026-11-18 Codex gpt-6.2-sol: done. Original title art; presets Lantern Valley ($10k, 60 guests/600 by Y2), Clover Meadow ($15k, 40/500 by Y3), Switchback Hollow ($6.5k, 70/700 by Y1); Enter = preset 1; all game tests prefixed with one <enter>. Daily goal check; Keep Playing clears goals.
 
 ## WP15 — Polish & balance
 Assigned per finding from the full-game playtests (sound events, balance numbers, UX).

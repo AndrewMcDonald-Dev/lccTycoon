@@ -1,6 +1,6 @@
 {
   "scenarios": [
-    { "name": "first frame shows viewport, panel, status, messages, help", "frames": 1,
+    { "name": "first frame shows viewport, panel, status, messages, help", "keys": "<enter>", "frames": 2,
       "expect": { "status": "frames-complete",
         "screen": {
           "matches": ["^.{64}┌──────────────────────────────────┐$", "^.{64}│ PARK BUILDER                     │$", "^.{64}└──────────────────────────────────┘$",
@@ -12,18 +12,18 @@
         "colors": { "matches": ["^.{64}cccccccccccccccccccccccccccccccccccc$"] },
         "bg": { "matches": ["(?<![\\s\\S])(?:.*\\n){16}.{32}Y"] },
         "memory": { "st_game_state": 1, "st_cash_k": 10, "st_quit_ask": 0 } } },
-    { "name": "q asks to confirm", "keys": "q",
+    { "name": "q asks to confirm", "keys": "<enter> q",
       "expect": { "status": "frames-complete", "memory": { "st_quit_ask": 1 },
         "screen": { "lines": { "29": " Quit? y = yes, any other key = no" } } } },
-    { "name": "q then y quits", "keys": "q y", "expect": { "status": "halted" } },
-    { "name": "q y in the same frame quits", "keys": "qy", "expect": { "status": "halted" } },
-    { "name": "q then another key cancels", "keys": "q n _2",
+    { "name": "q then y quits", "keys": "<enter> q y", "expect": { "status": "halted" } },
+    { "name": "q y in the same frame quits", "keys": "<enter> qy", "expect": { "status": "halted" } },
+    { "name": "q then another key cancels", "keys": "<enter> q n _2",
       "expect": { "status": "frames-complete", "memory": { "st_quit_ask": 0 },
         "screen": { "lines": { "29": " wasd move (WASD x5)  1-6 tools  x demolish  i info  f finance  p pause  > speed  q quit" } } } },
-    { "name": "cancelled quit can be asked again", "keys": "q n q y", "expect": { "status": "halted" } },
-    { "name": "p pauses and shows PAUSED", "keys": "p",
+    { "name": "cancelled quit can be asked again", "keys": "<enter> q n q y", "expect": { "status": "halted" } },
+    { "name": "p pauses and shows PAUSED", "keys": "<enter> p",
       "expect": { "memory": { "st_paused": 1 }, "screen": { "contains": ["PAUSED"] } } },
-    { "name": "frame cost stays small", "keys": "_10",
+    { "name": "frame cost stays small", "keys": "<enter> _10",
       "expect": { "status": "frames-complete", "maxStepsPerFrame": 2000000, "memory": { "st_frame": 11 } } }
   ]
 }

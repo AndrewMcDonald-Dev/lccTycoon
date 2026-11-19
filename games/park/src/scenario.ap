@@ -11,21 +11,797 @@
 ;; scn_end_screen ()               -> r0=1 quit, 0 keep playing   win/lose screen with its own frames (called by main when st_game_state != GAME_PLAY)
 ; ---------------------------------------------------------------------
 
-; WP0 stub: no title, goals from state.ap, never won or lost.
+        .define SCN_COUNT       3
+        .define SCN_SHIFT       3
+        .define SCN_GUESTS      0
+        .define SCN_RATING      1
+        .define SCN_YEAR        2
+        .define SCN_CASH_DELTA  3
+        .define SCN_NAME        4
+        .define SCN_DESC        5
+        .define SCN_GOAL_TEXT   6
+        .define SCN_MENU_ROW    15
+        .define SCN_MENU_GAP    3
+        .define SCN_KEY_RETURN  13      ; terminals can send CR for Enter
+
 scn_title:
-        mov r0, 0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        mov r0, GAME_TITLE
+        st r0, st_game_state
+        mov r4, 0               ; selected scenario
+        mov r2, 0               ; bytes seen in ESC [ arrow
+        bl scn_draw_title
+scn_title_poll:
+        nbain r0
+        cmp r0, 0
+        brz scn_title_wait
+        mov r1, KEY_ESC
+        cmp r0, r1
+        brz scn_title_escape
+        cmp r2, 1
+        brnz scn_title_arrow
+        mov r1, KEY_CSI
+        cmp r0, r1
+        brnz scn_title_key
+        mov r2, 2
+        br scn_title_poll
+scn_title_escape:
+        mov r2, 1
+        br scn_title_poll
+scn_title_arrow:
+        cmp r2, 2
+        brnz scn_title_key
+        mov r2, 0
+        mov r1, KEY_ARR_UP
+        cmp r0, r1
+        brz scn_title_up
+        mov r1, KEY_ARR_DOWN
+        cmp r0, r1
+        brz scn_title_down
+        br scn_title_poll
+scn_title_up:
+        cmp r4, 0
+        brz scn_title_poll
+        sub r4, r4, 1
+        br scn_title_move
+scn_title_down:
+        cmp r4, SCN_COUNT-1
+        brz scn_title_poll
+        add r4, r4, 1
+scn_title_move:
+        bl scn_draw_choices
+        br scn_title_poll
+scn_title_key:
+        mov r2, 0
+        cmp r0, KEY_ENTER
+        brz scn_title_choose
+        cmp r0, SCN_KEY_RETURN
+        brz scn_title_choose
+        mov r1, '1'
+        sub r0, r0, r1
+        brn scn_title_poll
+        cmp r0, SCN_COUNT
+        brlt scn_title_number
+        br scn_title_poll
+scn_title_number:
+        mov r4, r0
+        bl scn_draw_choices
+scn_title_choose:
+        bl scn_drain_keys
+        bl scn_present_frame
+        mov r0, r4
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
         ret
+scn_title_wait:
+        bl scn_present_frame
+        br scn_title_poll
 
 scn_start:
+        push r1
+        push lr
+        cmp r0, 0
+        brlt scn_start_default
+        cmp r0, SCN_COUNT
+        brlt scn_start_preset
+scn_start_default:
+        mov r0, 0
+scn_start_preset:
+        st r0, st_scenario
+        bl scn_preset_addr
+        mov r1, r0
+        ldr r0, r1, SCN_GUESTS
+        st r0, st_goal_guests
+        ldr r0, r1, SCN_RATING
+        st r0, st_goal_rating
+        ldr r0, r1, SCN_YEAR
+        st r0, st_goal_year
+        ldr r0, r1, SCN_CASH_DELTA
+        cmp r0, 0
+        brz scn_start_message
+        brn scn_start_expense
+        bl eco_earn             ; opening grant
+        br scn_start_message
+scn_start_expense:
+        not r0, r0
+        add r0, r0, 1
+        bl eco_pay              ; opening expense
+scn_start_message:
+        ldr r0, r1, SCN_GOAL_TEXT
+        bl ui_msg
+        lea r0, scn_welcome
+        bl ui_msg               ; keep the welcome above the goals
+        pop lr
+        pop r1
         ret
 
+scn_preset_addr:                 ; r0=index -> r0=preset, preserves r1
+        push r1
+        sll r0, SCN_SHIFT
+        lea r1, scn_presets
+        add r0, r0, r1
+        pop r1
+        ret
+
+scn_presets:
+        .word 60
+        .word 600
+        .word 2
+        .word 0
+        .word scn_lantern
+        .word scn_lantern_desc
+        .word scn_lantern_goal
+        .zero 1
+
+        .word 40
+        .word 500
+        .word 3
+        .word 5000
+        .word scn_clover
+        .word scn_clover_desc
+        .word scn_clover_goal
+        .zero 1
+
+        .word 70
+        .word 700
+        .word 1
+        .word -3500
+        .word scn_switchback
+        .word scn_switchback_desc
+        .word scn_switchback_goal
+        .zero 1
+
+scn_lantern:         .string "1  Lantern Valley"
+scn_lantern_desc:    .string "$10,000   A balanced opening budget"
+scn_lantern_goal:    .string "Goal: 60 guests, rating 600 by end of Y2"
+scn_clover:          .string "2  Clover Meadow"
+scn_clover_desc:     .string "$15,000   Extra funds and time to build"
+scn_clover_goal:     .string "Goal: 40 guests, rating 500 by end of Y3"
+scn_switchback:      .string "3  Switchback Hollow"
+scn_switchback_desc: .string " $6,500   A tight budget and one season"
+scn_switchback_goal: .string "Goal: 70 guests, rating 700 by end of Y1"
+scn_welcome:         .string "Welcome to Park Builder!"
+
+; Daily target = 290 + half the average happiness + attraction score
+; - 5 per dirty path tile - 2 per dollar above the default admission.
+; Clamp the target, then move a quarter of the remaining gap (round away
+; from zero so the final few points converge).
 scn_rate:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        bl scn_happiness
+        srl r0, 1
+        ld r4, scn_rating_base
+        add r4, r4, r0
+        bl scn_attraction_score
+        add r4, r4, r0
+        bl scn_dirt_penalty
+        sub r4, r4, r0
+        ld r0, st_entry_fee
+        sub r0, r0, ENTRY_FEE_DEF
+        brn scn_rate_clamp
+        sll r0, 1
+        sub r4, r4, r0
+scn_rate_clamp:
+        mov r0, r4
+        mov r1, 0
+        bl util_max
+        ld r1, scn_rating_max
+        bl util_min
+        ld r1, st_rating
+        sub r0, r0, r1
+        brn scn_rate_step
+        add r0, r0, 3
+scn_rate_step:
+        sra r0, 2
+        add r0, r0, r1
+        st r0, st_rating
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
         ret
 
+scn_rating_base: .word 290
+scn_rating_max:  .word RATING_MAX
+
+scn_happiness:                  ; private: r0=average of occupied slots, clobbers r1..r3
+        push r4
+        lea r3, st_guests
+        ld r4, scn_guest_words
+        add r4, r4, r3
+        mov r0, 0               ; happiness sum (<= 128 * 255)
+        mov r1, 0               ; occupied slots
+scn_happiness_loop:
+        ldr r2, r3, G_STATE
+        cmp r2, GS_FREE
+        brz scn_happiness_next
+        ldr r2, r3, G_HAPPY
+        add r0, r0, r2
+        add r1, r1, 1
+scn_happiness_next:
+        mov r2, GUEST_SIZE
+        add r3, r3, r2
+        cmp r4, r3
+        brnz scn_happiness_loop
+        cmp r1, 0
+        brz scn_happiness_done
+        div r0, r1
+scn_happiness_done:
+        pop r4
+        ret
+
+scn_guest_words: .word MAX_GUESTS*GUEST_SIZE
+
+; Open rides and stalls earn 25 points each, plus 50 for the first of
+; each type. Asking above catalog price costs 3 points per excess dollar.
+; Each broken attraction costs 60 points. Closed/unfinished rides earn 0.
+scn_attraction_score:
+        push r4
+        push lr
+        lea r2, st_rides
+        ld r0, scn_ride_words
+        add r0, r0, r2
+        push r0                 ; end of pool
+        mov r3, 0               ; bitset of scored types
+        mov r4, 0               ; score
+scn_attraction_loop:
+        ldr r0, r2, R_TYPE
+        cmp r0, RT_NONE
+        brz scn_attraction_next
+        ldr r1, r2, R_STATUS
+        cmp r1, RS_BROKEN
+        brz scn_attraction_broken
+        cmp r1, RS_OPEN
+        brnz scn_attraction_next
+        mov r1, 25
+        add r4, r4, r1
+        lea r1, scn_type_bits
+        add r1, r1, r0
+        ldr r1, r1, 0
+        push r0                 ; type for catalog lookup
+        mov r0, r3
+        and r0, r0, r1
+        brnz scn_attraction_value
+        or r3, r1
+        mov r1, 50
+        add r4, r4, r1
+scn_attraction_value:
+        pop r0
+        bl ride_type_info
+        ldr r1, r0, RTI_PRICE
+        ldr r0, r2, R_PRICE
+        sub r0, r0, r1
+        brn scn_attraction_next
+        mov r1, 3
+        mul r0, r1
+        sub r4, r4, r0
+        br scn_attraction_next
+scn_attraction_broken:
+        mov r0, 60
+        sub r4, r4, r0
+scn_attraction_next:
+        mov r0, RIDE_SIZE
+        add r2, r2, r0
+        ldr r0, sp, 0
+        cmp r2, r0
+        brnz scn_attraction_loop
+        pop r0
+        mov r0, r4
+        pop lr
+        pop r4
+        ret
+
+scn_ride_words: .word MAX_RIDES*RIDE_SIZE
+scn_type_bits:
+        .word 0
+        .word 1<<RT_CAROUSEL
+        .word 1<<RT_WHEEL
+        .word 1<<RT_SWINGS
+        .word 1<<RT_DROP
+        .word 1<<RT_BUMPER
+        .word 1<<RT_FOOD
+        .word 1<<RT_DRINK
+        .word 1<<RT_TOILET
+        .word 1<<RT_COASTER
+
+; Scan the small map once per day rather than miss isolated dirty paths
+; with stride sampling. Path, queue, gate, entrance and exit are walkable.
+scn_dirt_penalty:               ; private: r0=penalty, clobbers r1..r3
+        push r4
+        mov r0, 0
+        lea r1, st_map
+        ld r2, scn_map_words
+        add r2, r2, r1
+        ld r4, scn_dirt_mask
+scn_dirt_loop:
+        ldr r3, r1, 0
+        and r3, r3, r4
+        brz scn_dirt_next
+        ldr r3, r1, 0
+        and r3, r3, T_KIND_MASK
+        cmp r3, T_PATH
+        brlt scn_dirt_next
+        cmp r3, T_EXIT
+        brgt scn_dirt_next
+        cmp r3, T_RIDE
+        brz scn_dirt_next
+        add r0, r0, 5
+scn_dirt_next:
+        add r1, r1, 1
+        cmp r1, r2
+        brnz scn_dirt_loop
+        pop r4
+        ret
+
+scn_map_words: .word MAP_SIZE
+scn_dirt_mask: .word T_LITTER|T_VOMIT
+
+; Win immediately on a daily check that meets both goals. The first day
+; of the following year loses even if its new rating would meet the goal.
+; Year 0 disables goals. Keep the result latched until the end screen.
 scn_check:
-        mov r0, GAME_PLAY
+        push r1
+        push r2
+        ld r0, st_game_state
+        cmp r0, GAME_PLAY
+        brnz scn_check_done
+        ld r1, st_goal_year
+        cmp r1, 0
+        brz scn_check_done
+        ld r2, st_year
+        cmp r2, r1
+        brgt scn_check_lost
+        ld r1, st_guest_count
+        ld r2, st_goal_guests
+        cmp r1, r2
+        brlt scn_check_done
+        ld r1, st_rating
+        ld r2, st_goal_rating
+        cmp r1, r2
+        brlt scn_check_done
+        mov r0, GAME_WON
+        br scn_check_store
+scn_check_lost:
+        mov r0, GAME_LOST
+scn_check_store:
+        st r0, st_game_state
+scn_check_done:
+        pop r2
+        pop r1
         ret
 
 scn_end_screen:
+        push r1
+        push lr
+        bl scn_draw_end
+scn_end_poll:
+        nbain r0
+        cmp r0, 0
+        brz scn_end_wait
+        mov r1, KEY_QUIT
+        cmp r0, r1
+        brz scn_end_quit
+        mov r1, 'c'
+        cmp r0, r1
+        brz scn_end_continue
+        cmp r0, KEY_ENTER
+        brz scn_end_continue
+        cmp r0, SCN_KEY_RETURN
+        brz scn_end_continue
+        br scn_end_poll
+scn_end_wait:
+        bl scn_present_frame
+        br scn_end_poll
+scn_end_continue:
+        bl scn_drain_keys
+        bl scn_present_frame
+        mov r0, 0
+        st r0, st_goal_year
+        st r0, st_goal_guests
+        st r0, st_goal_rating
+        mov r0, GAME_PLAY
+        st r0, st_game_state
+        mov r0, 0
+        br scn_end_done
+scn_end_quit:
+        bl scn_drain_keys
+        bl scn_present_frame
         mov r0, 1
+scn_end_done:
+        pop lr
+        pop r1
         ret
+
+scn_present_frame:
+        push lr
+        bl video_present
+        mov r0, FRAME_MS
+        sleep r0
+        pop lr
+        ret
+
+scn_drain_keys:                 ; do not pass same-frame menu keys to the park
+        nbain r0
+        cmp r0, 0
+        brnz scn_drain_keys
+        ret
+
+; ---- Full-screen title and results -----------------------------------
+
+scn_draw_title:                 ; r4=selection, preserves r1..r4
+        push lr
+        bl scn_draw_border
+        lea r0, scn_title_text
+        bl scn_draw_text
+        bl scn_draw_art
+        bl scn_draw_choices
+        pop lr
+        ret
+
+scn_draw_border:                ; preserves r1..r4
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        mov r0, G_SPACE
+        bl video_clear
+        mov r0, 1
+        mov r1, 4
+        mov r2, SCR_ROWS-2
+        mov r3, SCR_COLS-8
+        ld r4, scn_a_border
+        bl video_box
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; Draw a table of (row, column, string, attr) until row -1.
+scn_draw_text:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        mov r4, r0
+scn_draw_text_loop:
+        ldr r0, r4, 0
+        cmp r0, -1
+        brz scn_draw_text_done
+        ldr r1, r4, 1
+        ldr r2, r4, 2
+        ldr r3, r4, 3
+        bl video_text
+        add r4, r4, 4
+        br scn_draw_text_loop
+scn_draw_text_done:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+scn_draw_choices:               ; r4=selection, preserves r1..r4
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        push r4                 ; selected index
+        mov r4, 0               ; current index
+scn_draw_choice:
+        mov r0, SCN_MENU_GAP
+        mul r0, r4
+        add r0, r0, SCN_MENU_ROW
+        push r0                 ; current screen row
+        ldr r0, sp, 1
+        cmp r4, r0
+        ld r3, scn_a_normal
+        brnz scn_draw_choice_bg
+        ld r3, scn_a_selected
+scn_draw_choice_bg:
+        push r3
+        mov r0, G_SPACE
+        or r0, r3
+        push r4
+        mov r4, r0
+        ldr r0, sp, 2
+        mov r1, 14
+        mov r2, 1
+        mov r3, 72
+        bl video_fill
+        pop r4
+        pop r3
+        mov r0, r4
+        bl scn_preset_addr
+        mov r2, r0
+        ldr r0, sp, 0
+        mov r1, 16
+        push r2
+        ldr r2, r2, SCN_NAME
+        bl video_text
+        ldr r2, sp, 0
+        ldr r2, r2, SCN_DESC
+        mov r1, 43
+        bl video_text
+        pop r2
+        ldr r2, r2, SCN_GOAL_TEXT
+        pop r0
+        add r0, r0, 1
+        ld r3, scn_a_detail
+        bl video_text
+        add r4, r4, 1
+        cmp r4, SCN_COUNT
+        brlt scn_draw_choice
+        pop r4
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; A CP437 coaster skyline. The letter codes select glyphs and colors
+; from scn_art_cells. Spaces let the black screen show through.
+scn_draw_art:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        lea r4, scn_art_rows
+        mov r0, 4
+scn_art_row:
+        ldr r3, r4, 0
+        cmp r3, 0
+        brz scn_art_done
+        mov r1, 15
+scn_art_cell:
+        ldr r2, r3, 0
+        cmp r2, 0
+        brz scn_art_next_row
+        ; All drawn codes are lowercase letters, and space is below 'a'.
+        push r0
+        mov r0, 'a'
+        sub r2, r2, r0
+        pop r0
+        brn scn_art_next_cell
+        push r3
+        lea r3, scn_art_cells
+        add r2, r2, r3
+        ldr r2, r2, 0
+        pop r3
+        bl video_put
+scn_art_next_cell:
+        add r3, r3, 1
+        add r1, r1, 1
+        br scn_art_cell
+scn_art_next_row:
+        add r4, r4, 1
+        add r0, r0, 1
+        br scn_art_row
+scn_art_done:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+scn_draw_end:                   ; private, preserves r1..r4
+        push r1
+        push r2
+        push r3
+        push lr
+        bl scn_draw_border
+        lea r0, scn_end_text
+        bl scn_draw_text
+        ld r0, st_game_state
+        cmp r0, GAME_WON
+        lea r2, scn_lost_title
+        ld r3, scn_a_lost
+        brz scn_draw_win
+        mov r0, 8
+        mov r1, 26
+        push r2
+        lea r2, scn_lost_reason
+        bl video_text
+        pop r2
+        br scn_draw_outcome
+scn_draw_win:
+        lea r2, scn_won_title
+        ld r3, scn_a_won
+scn_draw_outcome:
+        mov r0, 5
+        mov r1, 40
+        bl video_text
+        ld r0, st_scenario
+        bl scn_preset_addr
+        ldr r2, r0, SCN_NAME
+        add r2, r2, 3           ; skip the numeric menu shortcut
+        mov r0, 7
+        mov r1, 40
+        ld r3, scn_a_normal
+        bl video_text
+
+        mov r0, 12
+        mov r1, 47
+        ld r2, st_guest_count
+        bl video_num
+        mov r1, 63
+        ld r2, st_goal_guests
+        bl video_num
+        mov r0, 14
+        mov r1, 47
+        ld r2, st_rating
+        bl video_num
+        mov r1, 63
+        ld r2, st_goal_rating
+        bl video_num
+
+        lea r0, scn_end_buffer
+        bl eco_cash_text
+        mov r2, r0
+        mov r0, 17
+        mov r1, 47
+        bl video_text
+        lea r0, scn_end_buffer
+        bl eco_date_text
+        mov r2, r0
+        mov r0, 19
+        mov r1, 47
+        bl video_text
+        mov r1, 63
+        lea r2, scn_end_year
+        bl video_text
+        mov r1, 71
+        ld r2, st_goal_year
+        bl video_num
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+scn_a_border:   .word FG_CYAN
+scn_a_normal:   .word FG_BWHITE
+scn_a_selected: .word FG_BLACK|BG_BCYAN
+scn_a_detail:   .word FG_GRAY
+scn_a_won:      .word FG_BGREEN
+scn_a_lost:     .word FG_BYELLOW
+
+scn_title_text:
+        .word 2
+        .word 44
+        .word scn_title_name
+        .word FG_BYELLOW
+        .word 13
+        .word 16
+        .word scn_choose_park
+        .word FG_BCYAN
+        .word 26
+        .word 21
+        .word scn_title_help
+        .word FG_BWHITE
+        .word -1
+
+scn_title_name:  .string "PARK BUILDER"
+scn_choose_park: .string "Choose a scenario"
+scn_title_help:  .string "1 / 2 / 3 to start   |   Up / Down and Enter to select"
+
+scn_end_text:
+        .word 10
+        .word 47
+        .word scn_end_actual
+        .word FG_BCYAN
+        .word 10
+        .word 63
+        .word scn_end_goal
+        .word FG_BCYAN
+        .word 12
+        .word 25
+        .word scn_end_guests
+        .word FG_GRAY
+        .word 14
+        .word 25
+        .word scn_end_rating
+        .word FG_GRAY
+        .word 17
+        .word 25
+        .word scn_end_cash
+        .word FG_GRAY
+        .word 19
+        .word 25
+        .word scn_end_date
+        .word FG_GRAY
+        .word 24
+        .word 26
+        .word scn_end_help
+        .word FG_BWHITE
+        .word -1
+
+scn_won_title:  .string "SCENARIO COMPLETE"
+scn_lost_title: .string "SCENARIO FAILED"
+scn_lost_reason: .string "The deadline passed before both goals were met."
+scn_end_actual: .string "Park"
+scn_end_goal:   .string "Goal"
+scn_end_guests: .string "Guests in park"
+scn_end_rating: .string "Park rating"
+scn_end_cash:   .string "Cash"
+scn_end_date:   .string "Date"
+scn_end_year:   .string "End of Y"
+scn_end_help:   .string "C / Enter  Keep playing     Q  Quit"
+scn_end_buffer: .zero 12
+
+scn_art_cells:
+        .word G_TOP_L|FG_BYELLOW     ; a ┌
+        .word G_HORIZ|FG_BYELLOW     ; b ─
+        .word G_TOP_R|FG_BYELLOW     ; c ┐
+        .word G_BOT_L|FG_BYELLOW     ; d └
+        .word G_BOT_R|FG_BYELLOW     ; e ┘
+        .word G_VERT|FG_CYAN     ; f │
+        .word G_TEE_D|FG_BYELLOW     ; g ┬
+        .word G_TEE_U|FG_CYAN     ; h ┴
+        .word G_UPHALF|FG_GREEN     ; i ▀
+        .word G_CLUB|FG_BGREEN     ; j ♣
+        .word G_TRI_U|FG_GREEN     ; k ▲
+        .word G_SUN|FG_BYELLOW     ; l ☼
+        .word G_DOT|FG_GRAY     ; m ·
+        .word G_LOWHALF|FG_BCYAN     ; n ▄
+
+scn_art_rows:
+        .word scn_art_0
+        .word scn_art_1
+        .word scn_art_2
+        .word scn_art_3
+        .word scn_art_4
+        .word scn_art_5
+        .word scn_art_6
+        .word scn_art_7
+        .word scn_art_8
+        .word 0
+scn_art_0: .string "    m                            nnn              m           l"
+scn_art_1: .string "                     abgbbbbbbbgbbbbbgbc                m"
+scn_art_2: .string "  m                  f f       f     f f       m                    m"
+scn_art_3: .string "       m     abbgbbbbe f       f     f dbbbgbbbbbc           m"
+scn_art_4: .string " m  nnn      f  f      f       f     f     f     f             nn m"
+scn_art_5: .string "   abbbbbgbbbe  f      f       f     f     f     dbbbgbbbbc"
+scn_art_6: .string " j f     f      f  j   f       f     f     f  j      f    dbbbbgbbbbc"
+scn_art_7: .string "k kf     f      f j j  f       f     f     f k k     f         f jk db"
+scn_art_8: .string "iiihiiiiihiiiiiihiiiiiihiiiiiiihiiiiihiiiiihiiiiiiiiihiiiiiiiiihiiiiii"
