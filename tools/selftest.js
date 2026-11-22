@@ -6,9 +6,51 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const assert = require('assert');
 const { build, ROOT, VENDOR } = require('./lib/assemble');
 const { runHeadless } = require('./lib/headless');
 const { parseKeys } = require('./lib/keys');
+const display = require('./lib/display');
+
+// Interactive terminal display checks: built-in opaque palette, canvas fill, SGR translator.
+(function testInteractiveDisplay() {
+  const mem = new Uint16Array(64);
+  // 3x1 block at (0,0): [attr=0 space, FG_GREEN 'A', FG_BLACK|BG_BYELLOW '@']
+  mem[0] = 3; mem[1] = 1; mem[2] = 0; mem[3] = 0;
+  mem[4] = 32;                     // attr=0 (must still get explicit opaque RGB bg, never bare \x1b[0m)
+  mem[5] = 65 | 0x0200;            // FG_GREEN on BG_BLACK
+  mem[6] = 64 | 0xB000;            // FG_BLACK on BG_BYELLOW
+  const prev = new Map();
+  const out = display.presentToAnsi(mem, 0, prev, { colorMode: 'truecolor' });
+  assert(!out.includes('\x1b[0m'), 'presentToAnsi must not emit bare SGR reset (see-through default bg)');
+  assert(out.includes('48;2;17;19;26m'), 'attr=0 and BG_BLACK must use explicit opaque canvas RGB');
+  assert(out.includes('38;2;68;179;96;48;2;17;19;26mA'), 'FG_GREEN cell uses built-in RGB palette');
+  assert(out.includes('38;2;17;19;26;48;2;245;204;66m@'), 'cursor cell uses dark ink on bright yellow RGB');
+  assert.strictEqual(display.presentToAnsi(mem, 0, prev, { colorMode: 'truecolor' }), '', 'unchanged frame diffs to empty');
+
+  // 256-color fallback uses fixed 16..255 indices (never terminal 0..15 theme colors).
+  const out256 = display.presentToAnsi(mem, 0, new Map(), { colorMode: '256' });
+  assert(out256.includes('48;5;233m'), '256-color mode uses fixed opaque background index 233');
+
+  // Canvas fill covers every row with explicit opaque background and disables/restores autowrap.
+  const canvas = display.fillCanvasAnsi(3, 5, 'truecolor');
+  assert(canvas.includes('\x1b[?7l') && canvas.includes('\x1b[?7h'), 'canvas fill guards autowrap');
+  assert(canvas.includes('\x1b[3;1H     '), 'canvas fill paints bottom row with spaces');
+
+  // Stream translator handles split escape sequences (term_color/term_reset in lemonade) without see-through resets.
+  const tr = display.createAnsiTranslator('truecolor');
+  const translated = tr.translate('\x1b[') + tr.translate('33') + tr.translate('mHI') + tr.translate('\x1b[0m!');
+  assert(!translated.includes('\x1b[0m'), 'SGR 0 reset translates to opaque default style');
+  assert(translated.includes('38;2;217;168;62;48;2;17;19;26mHI'), 'SGR 33 translates to built-in yellow on opaque canvas');
+  assert(translated.includes('38;2;202;208;220;48;2;17;19;26m!'), 'SGR 0 restores built-in white on opaque canvas');
+
+  // Color mode detection.
+  assert.strictEqual(display.detectColorMode({ TERM: 'xterm-256color' }), 'truecolor');
+  assert.strictEqual(display.detectColorMode({ TERM_PROGRAM: 'Apple_Terminal' }), '256');
+  assert.strictEqual(display.detectColorMode({ TERM_PROGRAM: 'Apple_Terminal', COLORTERM: 'truecolor' }), 'truecolor');
+  assert.strictEqual(display.detectColorMode({ TERM: 'linux' }), 'ansi');
+  assert.strictEqual(display.detectColorMode({ LCC_COLOR_MODE: 'ansi', COLORTERM: 'truecolor' }), 'ansi');
+})();
 
 const files = [];
 const demoDir = path.join(VENDOR, 'plusdemos');
