@@ -1,0 +1,408 @@
+; Multi-seed stress driver for src/dungeon.ap (WP1).
+; Runs 60 seeds across depths 1..10 (one sleep per seed so maxStepsPerFrame
+; also bounds dun_generate + checks per seed).
+; Verifies for every seed:
+;   - ROOMS_MIN <= st_room_count <= MAX_ROOMS
+;   - every room within ROOM_MIN/MAX_W/H and strictly inside walls [1..MAP_W-2] x [1..MAP_H-2]
+;   - player tile is T_FLOOR and inside st_start_room
+;   - stairs tile is T_STAIRS, inside a room != st_start_room, and unique (count == 1)
+;   - BFS from player over dun_walkable reaches stairs AND 100% of walkable tiles
+;   - 10 calls to dun_random_floor per seed (600 total) all return room T_FLOOR tiles
+;   - doors and rubble both appear across the 60 floors
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+        .define SEED_COUNT 60
+
+drv_main:
+        millis r0
+        st r0, drv_base_seed
+        mov r0, 0
+        st r0, drv_seed_i
+        st r0, drv_fail_rooms
+        st r0, drv_fail_bounds
+        st r0, drv_fail_ply
+        st r0, drv_fail_stairs
+        st r0, drv_fail_bfs
+        st r0, drv_fail_rf
+        st r0, drv_total_doors
+        st r0, drv_total_rubble
+        st r0, drv_min_rooms
+        mov r0, 99
+        st r0, drv_min_rooms
+        mov r0, 0
+        st r0, drv_max_rooms
+
+drv_seed_loop:
+        ld r0, drv_seed_i
+        mov r1, SEED_COUNT
+        cmp r0, r1
+        brlt drv_run_one
+        br drv_finish
+
+drv_run_one:
+        ; seed = base_seed + seed_i * 17 + 1
+        mov r1, 17
+        mul r0, r1
+        ld r1, drv_base_seed
+        add r0, r0, r1
+        add r0, r0, 1
+        srand r0
+        ; depth = (seed_i % 10) + 1
+        ld r0, drv_seed_i
+        mov r1, 10
+        rem r0, r1
+        add r0, r0, 1
+        bl dun_generate
+
+        ; 1. Room count in [ROOMS_MIN, MAX_ROOMS]
+        ld r0, st_room_count
+        ld r1, drv_min_rooms
+        cmp r0, r1
+        brlt drv_upd_min
+        br drv_chk_max
+drv_upd_min:
+        st r0, drv_min_rooms
+drv_chk_max:
+        ld r1, drv_max_rooms
+        cmp r0, r1
+        brgt drv_upd_max
+        br drv_chk_rc
+drv_upd_max:
+        st r0, drv_max_rooms
+drv_chk_rc:
+        cmp r0, ROOMS_MIN
+        brlt drv_bad_rc
+        cmp r0, MAX_ROOMS
+        brgt drv_bad_rc
+        br drv_chk_rm_bounds
+drv_bad_rc:
+        ld r1, drv_fail_rooms
+        add r1, r1, 1
+        st r1, drv_fail_rooms
+
+        ; 2. Room bounds & sizes
+drv_chk_rm_bounds:
+        ld r3, st_room_count
+        lea r4, st_rooms
+drv_rmb_loop:
+        cmp r3, 0
+        brp drv_rmb_one
+        br drv_chk_ply
+drv_rmb_one:
+        ldr r0, r4, RM_W
+        cmp r0, ROOM_MIN_W
+        brlt drv_rmb_bad
+        cmp r0, ROOM_MAX_W
+        brgt drv_rmb_bad
+        ldr r1, r4, RM_H
+        cmp r1, ROOM_MIN_H
+        brlt drv_rmb_bad
+        cmp r1, ROOM_MAX_H
+        brgt drv_rmb_bad
+        ldr r2, r4, RM_X
+        cmp r2, 1
+        brlt drv_rmb_bad
+        add r2, r2, r0
+        mov r0, MAP_W
+        cmp r2, r0
+        brlt drv_rmb_y
+        br drv_rmb_bad
+drv_rmb_y:
+        ldr r2, r4, RM_Y
+        cmp r2, 1
+        brlt drv_rmb_bad
+        add r2, r2, r1
+        mov r1, MAP_H
+        cmp r2, r1
+        brlt drv_rmb_next
+drv_rmb_bad:
+        ld r0, drv_fail_bounds
+        add r0, r0, 1
+        st r0, drv_fail_bounds
+drv_rmb_next:
+        add r4, r4, ROOM_SIZE
+        sub r3, r3, 1
+        br drv_rmb_loop
+
+        ; 3. Player on T_FLOOR and in st_start_room
+drv_chk_ply:
+        ld r0, st_px
+        ld r1, st_py
+        bl dun_get
+        cmp r0, T_FLOOR
+        brnz drv_bad_ply
+        ld r0, st_px
+        ld r1, st_py
+        bl dun_room_of
+        ld r1, st_start_room
+        cmp r0, r1
+        bre drv_chk_stairs
+drv_bad_ply:
+        ld r0, drv_fail_ply
+        add r0, r0, 1
+        st r0, drv_fail_ply
+
+        ; 4. Stairs on T_STAIRS, in room != st_start_room, unique; count doors & rubble
+drv_chk_stairs:
+        ld r0, st_stairs_x
+        ld r1, st_stairs_y
+        bl dun_get
+        cmp r0, T_STAIRS
+        brnz drv_bad_st
+        ld r0, st_stairs_x
+        ld r1, st_stairs_y
+        bl dun_room_of
+        cmp r0, 0
+        brn drv_bad_st
+        ld r1, st_start_room
+        cmp r0, r1
+        bre drv_bad_st
+        br drv_scan_map
+drv_bad_st:
+        ld r0, drv_fail_stairs
+        add r0, r0, 1
+        st r0, drv_fail_stairs
+
+drv_scan_map:
+        lea r0, st_map
+        ld r1, drv_k_mapsize
+        mov r2, 0               ; stairs count
+        mov r3, 0               ; walkable count
+drv_sm_loop:
+        ldr r4, r0, 0
+        cmp r4, T_STAIRS
+        brnz drv_sm_door
+        add r2, r2, 1
+        add r3, r3, 1
+        br drv_sm_next
+drv_sm_door:
+        cmp r4, T_DOOR
+        brnz drv_sm_rub
+        push r0
+        ld r0, drv_total_doors
+        add r0, r0, 1
+        st r0, drv_total_doors
+        pop r0
+        add r3, r3, 1
+        br drv_sm_next
+drv_sm_rub:
+        cmp r4, T_RUBBLE
+        brnz drv_sm_flr
+        push r0
+        ld r0, drv_total_rubble
+        add r0, r0, 1
+        st r0, drv_total_rubble
+        pop r0
+        add r3, r3, 1
+        br drv_sm_next
+drv_sm_flr:
+        cmp r4, T_FLOOR
+        bre drv_sm_w
+        cmp r4, T_DOOR_OPEN
+        brnz drv_sm_next
+drv_sm_w:
+        add r3, r3, 1
+drv_sm_next:
+        add r0, r0, 1
+        sub r1, r1, 1
+        brp drv_sm_loop
+        st r3, drv_walkable_total
+        cmp r2, 1
+        bre drv_do_bfs
+        ld r0, drv_fail_stairs
+        add r0, r0, 1
+        st r0, drv_fail_stairs
+
+        ; 5. Fast BFS over st_map from (st_px, st_py)
+drv_do_bfs:
+        bl drv_run_bfs
+        ; Check stairs visited and visited_cnt == walkable_total
+        ld r0, st_stairs_y
+        sll r0, MAP_SHIFT
+        ld r1, st_stairs_x
+        or r0, r1
+        lea r2, drv_vis
+        add r2, r2, r0
+        ldr r0, r2, 0
+        cmp r0, 1
+        brnz drv_bad_bfs
+        ld r0, drv_visited_cnt
+        ld r1, drv_walkable_total
+        cmp r0, r1
+        bre drv_do_rf
+drv_bad_bfs:
+        ld r0, drv_fail_bfs
+        add r0, r0, 1
+        st r0, drv_fail_bfs
+
+        ; 6. 10 calls to dun_random_floor
+drv_do_rf:
+        mov r3, 10
+drv_rf_loop:
+        bl dun_random_floor
+        mov r1, r0
+        mov r2, MAP_XMASK
+        and r0, r0, r2
+        srl r1, MAP_SHIFT
+        push r0
+        push r1
+        bl dun_get
+        cmp r0, T_FLOOR
+        pop r1
+        pop r0
+        brnz drv_rf_bad
+        bl dun_room_of
+        cmp r0, 0
+        brn drv_rf_bad
+        br drv_rf_next
+drv_rf_bad:
+        ld r0, drv_fail_rf
+        add r0, r0, 1
+        st r0, drv_fail_rf
+drv_rf_next:
+        sub r3, r3, 1
+        brp drv_rf_loop
+
+        ; Frame boundary per seed
+        mov r0, 1
+        sleep r0
+        ld r0, drv_seed_i
+        add r0, r0, 1
+        st r0, drv_seed_i
+        br drv_seed_loop
+
+drv_finish:
+        ; Check doors > 0 and rubble > 0 across 60 floors
+        mov r0, 0
+        ld r1, drv_total_doors
+        cmp r1, 0
+        brp drv_has_d
+        br drv_st_d
+drv_has_d:
+        mov r0, 1
+drv_st_d:
+        st r0, drv_has_doors
+
+        mov r0, 0
+        ld r1, drv_total_rubble
+        cmp r1, 0
+        brp drv_has_r
+        br drv_st_r
+drv_has_r:
+        mov r0, 1
+drv_st_r:
+        st r0, drv_has_rubble
+        halt
+
+; Fast BFS using index offsets (+/-1, +/-MAP_W); every walkable tile has x in 1..62, y in 1..22.
+drv_run_bfs:
+        push lr
+        lea r0, drv_vis
+        ld r1, drv_k_mapsize
+        mov r2, 0
+drv_bf_clr:
+        str r2, r0, 0
+        add r0, r0, 1
+        sub r1, r1, 1
+        brp drv_bf_clr
+
+        ld r0, st_py
+        sll r0, MAP_SHIFT
+        ld r1, st_px
+        or r0, r1
+        lea r2, drv_vis
+        add r2, r2, r0
+        mov r1, 1
+        str r1, r2, 0
+        lea r2, drv_q
+        str r0, r2, 0
+        mov r0, 0
+        st r0, drv_q_head
+        mov r0, 1
+        st r0, drv_q_tail
+        st r0, drv_visited_cnt
+
+drv_bf_loop:
+        ld r0, drv_q_head
+        ld r1, drv_q_tail
+        cmp r0, r1
+        brlt drv_bf_pop
+        pop lr
+        ret
+drv_bf_pop:
+        lea r2, drv_q
+        add r2, r2, r0
+        ldr r4, r2, 0           ; idx
+        add r0, r0, 1
+        st r0, drv_q_head
+        ; Try idx+1, idx-1, idx+MAP_W, idx-MAP_W
+        add r0, r4, 1
+        bl drv_bf_visit
+        sub r0, r4, 1
+        bl drv_bf_visit
+        mov r1, MAP_W
+        add r0, r4, r1
+        bl drv_bf_visit
+        mov r1, MAP_W
+        sub r0, r4, r1
+        bl drv_bf_visit
+        br drv_bf_loop
+
+drv_bf_visit:
+        ; r0 = neighbor idx
+        lea r1, drv_vis
+        add r1, r1, r0
+        ldr r2, r1, 0
+        cmp r2, 0
+        brnz drv_bf_v_ret
+        lea r2, st_map
+        add r2, r2, r0
+        ldr r2, r2, 0
+        ; walkable iff != T_ROCK (0) and != T_WALL (2)
+        cmp r2, T_ROCK
+        bre drv_bf_v_ret
+        cmp r2, T_WALL
+        bre drv_bf_v_ret
+        mov r2, 1
+        str r2, r1, 0
+        ld r2, drv_q_tail
+        lea r3, drv_q
+        add r3, r3, r2
+        str r0, r3, 0
+        add r2, r2, 1
+        st r2, drv_q_tail
+        ld r2, drv_visited_cnt
+        add r2, r2, 1
+        st r2, drv_visited_cnt
+drv_bf_v_ret:
+        ret
+
+drv_k_mapsize:      .word MAP_SIZE
+drv_base_seed:      .word 0
+drv_seed_i:         .word 0
+drv_q_head:         .word 0
+drv_q_tail:         .word 0
+drv_visited_cnt:    .word 0
+drv_walkable_total: .word 0
+
+drv_fail_rooms:     .word 99
+drv_fail_bounds:    .word 99
+drv_fail_ply:       .word 99
+drv_fail_stairs:    .word 99
+drv_fail_bfs:       .word 99
+drv_fail_rf:        .word 99
+drv_total_doors:    .word 0
+drv_total_rubble:   .word 0
+drv_has_doors:      .word 99
+drv_has_rubble:     .word 99
+drv_min_rooms:      .word 99
+drv_max_rooms:      .word 0
+
+drv_vis:            .zero MAP_SIZE
+drv_q:              .zero MAP_SIZE
+
+        .include "../../src/state.ap"
+        .include "../../src/dungeon.ap"

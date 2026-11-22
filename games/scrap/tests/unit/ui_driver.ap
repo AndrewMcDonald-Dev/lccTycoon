@@ -1,0 +1,559 @@
+; Unit driver for src/ui.ap (WP4).
+; Isolated from parts/actors/items/combat via minimal contract-faithful stubs below.
+; Dispatches on the first key token:
+;   'p'  panel layout (loadout, empty slots, carried, target, here, messages, score)
+;   'b'  ui_bar at 100%, 50%, 10%, 0% (width 10) and 10% (width 8)
+;   'm'  message ring: 63-char truncation, ui_msg_add/addn, wrap after 10 msgs, A_BAD attr
+;   '0'..'6'  ui_draw with st_mode = 0..6 (MODE_MAP..MODE_QUIT)
+;   't'  ui_title (next frame key decides return value -> drv_ret)
+;   'd'  ui_end_screen in GAME_DEAD (next frame key -> drv_ret, score -> drv_score)
+;   'w'  ui_end_screen in GAME_WON  (next frame key -> drv_ret, score -> drv_score)
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        lea r0, st_screen
+        bl video_bind
+        bl ui_init
+        bl drv_setup_world
+        ; read command key (frame 0)
+        nbain r0
+        mov r1, 'p'
+        cmp r0, r1
+        brz drv_case_panel
+        mov r1, 'b'
+        cmp r0, r1
+        brz drv_case_bars
+        mov r1, 'm'
+        cmp r0, r1
+        brz drv_case_msgs
+        mov r1, 't'
+        cmp r0, r1
+        brz drv_case_title
+        mov r1, 'd'
+        cmp r0, r1
+        brz drv_case_dead
+        mov r1, 'w'
+        cmp r0, r1
+        brz drv_case_won
+        ; '0'..'6' -> st_mode
+        mov r1, '0'
+        sub r0, r0, r1
+        st r0, st_mode
+        mov r0, G_SPACE
+        bl video_clear
+        bl ui_draw
+        bl video_present
+        mov r0, FRAME_MS
+        sleep r0
+        halt
+
+; ---- 'p': full panel + ui_score checks ------------------------------
+drv_case_panel:
+        mov r0, G_SPACE
+        bl video_clear
+        lea r0, drv_s_m1
+        bl ui_msg
+        lea r0, drv_s_m2
+        bl ui_msg
+        bl ui_draw
+        bl video_present
+        ; check ui_score for mid-run state (depth_best=6, kills=3, PLAY -> (10-6)*100 + 3*10 = 430)
+        bl ui_score
+        st r0, drv_score
+        mov r0, FRAME_MS
+        sleep r0
+        halt
+
+; ---- 'b': ui_bar 100%, 50%, 10%, 0% (w=10) + 10% (w=8) --------------
+drv_case_bars:
+        mov r0, G_SPACE
+        bl video_clear
+        ; row 0: 100% (40/40, w=10) -> 10 blocks A_GOOD
+        mov r0, 0
+        mov r1, 0
+        mov r2, 40
+        mov r3, 40
+        mov r4, 10
+        bl ui_bar
+        ; row 1: 50% (20/40, w=10) -> 5 blocks A_WARN + 5 light A_DIM
+        mov r0, 1
+        mov r1, 0
+        mov r2, 20
+        mov r3, 40
+        mov r4, 10
+        bl ui_bar
+        ; row 2: 10% (4/40, w=10) -> 1 block A_BAD + 9 light A_DIM
+        mov r0, 2
+        mov r1, 0
+        mov r2, 4
+        mov r3, 40
+        mov r4, 10
+        bl ui_bar
+        ; row 3: 0% (0/40, w=10) -> 10 light A_DIM
+        mov r0, 3
+        mov r1, 0
+        mov r2, 0
+        mov r3, 40
+        mov r4, 10
+        bl ui_bar
+        ; row 4: 10% (2/20, w=8) -> 1 block A_BAD + 7 light A_DIM
+        mov r0, 4
+        mov r1, 0
+        mov r2, 2
+        mov r3, 20
+        mov r4, 8
+        bl ui_bar
+        bl video_present
+        mov r0, FRAME_MS
+        sleep r0
+        halt
+
+; ---- 'm': truncation at 63 chars + ring wrap after 10 messages ------
+drv_case_msgs:
+        mov r0, G_SPACE
+        bl video_clear
+        ; 1) 70-char string -> truncated to 63 chars
+        lea r0, drv_s_long70
+        bl ui_msg
+        ld r1, st_msg_head
+        sll r1, MSG_SHIFT
+        lea r0, st_msg_text
+        add r0, r0, r1
+        bl util_strlen
+        st r0, drv_trunc_len
+        ; check NUL at offset 63
+        ld r1, st_msg_head
+        sll r1, MSG_SHIFT
+        lea r0, st_msg_text
+        add r0, r0, r1
+        mov r2, 63
+        add r0, r0, r2
+        ldr r0, r0, 0
+        st r0, drv_trunc_nul
+        ; 2) ui_msg + ui_msg_add + ui_msg_addn truncation test
+        lea r0, drv_s_add_base
+        bl ui_msg
+        lea r0, drv_s_add_more
+        bl ui_msg_add
+        mov r0, -42
+        bl ui_msg_addn
+        ld r1, st_msg_head
+        sll r1, MSG_SHIFT
+        lea r0, st_msg_text
+        add r0, r0, r1
+        bl util_strlen
+        st r0, drv_add_len
+        ; 3) Now post 10 numbered messages (Msg 1 .. Msg 10) to wrap the 8-slot ring
+        mov r4, 1
+drv_msg_lp:
+        lea r0, drv_s_mpre
+        bl ui_msg
+        mov r0, r4
+        bl ui_msg_addn
+        add r4, r4, 1
+        cmp r4, 11
+        brlt drv_msg_lp
+        ; color the newest message (Msg 10) in A_BAD
+        ld r0, drv_a_bad
+        bl ui_msg_attr
+        ; also verify ui_msg_add + ui_msg_addn on newest: "Msg 10: hit -7"
+        lea r0, drv_s_mtag
+        bl ui_msg_add
+        mov r0, -7
+        bl ui_msg_addn
+        ld r0, st_msg_head
+        st r0, drv_head
+        bl ui_draw
+        bl video_present
+        mov r0, FRAME_MS
+        sleep r0
+        halt
+
+; ---- 't': title screen ----------------------------------------------
+drv_case_title:
+        mov r0, GAME_TITLE
+        st r0, st_game_state
+        bl ui_title
+        st r0, drv_ret
+        halt
+
+; ---- 'd': dead end screen -------------------------------------------
+drv_case_dead:
+        mov r0, GAME_DEAD
+        st r0, st_game_state
+        mov r0, 6
+        st r0, st_depth
+        st r0, st_depth_best
+        mov r0, 5
+        st r0, st_kills
+        mov r0, 142
+        st r0, st_turn
+        mov r0, EN_RIFLER
+        st r0, st_death_cause
+        bl ui_score
+        st r0, drv_score
+        bl ui_end_screen
+        st r0, drv_ret
+        halt
+
+; ---- 'w': won end screen --------------------------------------------
+drv_case_won:
+        mov r0, GAME_WON
+        st r0, st_game_state
+        mov r0, 0
+        st r0, st_depth
+        st r0, st_depth_best
+        mov r0, 12
+        st r0, st_kills
+        ld r0, drv_k_310
+        st r0, st_turn
+        mov r0, CAUSE_NONE
+        st r0, st_death_cause
+        bl ui_score
+        st r0, drv_score
+        bl ui_end_screen
+        st r0, drv_ret
+        halt
+
+; ---- populate realistic fake state for ui_draw ----------------------
+drv_setup_world:
+        push r0
+        push r1
+        push r2
+        mov r0, GAME_PLAY
+        st r0, st_game_state
+        mov r0, MODE_MAP
+        st r0, st_mode
+        mov r0, 10
+        st r0, st_depth
+        mov r0, 6
+        st r0, st_depth_best
+        mov r0, 123
+        st r0, st_turn
+        mov r0, 3
+        st r0, st_kills
+        mov r0, 40
+        st r0, st_core_hp
+        mov r0, 12
+        st r0, st_energy
+        mov r0, 20
+        st r0, st_energy_max
+        mov r0, 100
+        st r0, st_move_cost
+        mov r0, 8
+        st r0, st_sight
+        mov r0, 0
+        st r0, st_acc_bonus
+        mov r0, 10
+        st r0, st_px
+        mov r0, 10
+        st r0, st_py
+        ; loadout: slots 0-1 Stub Legs (20/20), 2 Cell Pack (13/15), 3 Rivet Gun (12/12),
+        ;          4 Spark Prod (11/15), 5-7 empty
+        lea r0, st_slots
+        mov r1, PT_STUB_LEGS
+        mov r2, 20
+        str r1, r0, 0
+        str r2, r0, 1
+        str r1, r0, 2
+        str r2, r0, 3
+        mov r1, PT_CELL_PACK
+        mov r2, 13
+        str r1, r0, 4
+        str r2, r0, 5
+        mov r1, PT_RIVET_GUN
+        mov r2, 12
+        str r1, r0, 6
+        str r2, r0, 7
+        mov r1, PT_SPARK_PROD
+        mov r2, 11
+        str r1, r0, 8
+        str r2, r0, 9
+        mov r1, PART_NONE
+        mov r2, 0
+        str r1, r0, 10
+        str r2, r0, 11
+        str r1, r0, 12
+        str r2, r0, 13
+        str r1, r0, 14
+        str r2, r0, 15
+        ; carried: inv 0 = Pulse Rifle (14/18), inv 1..3 = empty
+        lea r0, st_inv
+        mov r1, PT_PULSE_RIFLE
+        mov r2, 14
+        str r1, r0, 0
+        str r2, r0, 1
+        mov r1, PART_NONE
+        mov r2, 0
+        str r1, r0, 2
+        str r2, r0, 3
+        str r1, r0, 4
+        str r2, r0, 5
+        str r1, r0, 6
+        str r2, r0, 7
+        ; enemy 0 = Rifler at (15, 12) -> Chebyshev dist = max(5, 2) = 5, HP 9/14
+        lea r0, st_enemies
+        mov r1, EN_RIFLER
+        str r1, r0, E_TYPE
+        mov r1, 15
+        str r1, r0, E_X
+        mov r1, 12
+        str r1, r0, E_Y
+        mov r1, 9
+        str r1, r0, E_HP
+        mov r0, 0
+        st r0, st_target
+        ; floor item 0 = Hex Armor under player at (10, 10)
+        lea r0, st_items
+        mov r1, PT_HEX_ARMOR
+        str r1, r0, I_PART
+        mov r1, 10
+        str r1, r0, I_X
+        str r1, r0, I_Y
+        mov r1, 50
+        str r1, r0, I_HP
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; =====================================================================
+; Minimal contract-faithful stubs for dependencies (parts/actors/items/combat)
+; =====================================================================
+
+prt_info:
+        cmp r0, PT_STUB_LEGS
+        brz drv_pi_legs
+        cmp r0, PT_CELL_PACK
+        brz drv_pi_cell
+        cmp r0, PT_RIVET_GUN
+        brz drv_pi_rivet
+        cmp r0, PT_SPARK_PROD
+        brz drv_pi_spark
+        cmp r0, PT_PULSE_RIFLE
+        brz drv_pi_pulse
+        mov r1, PT_HEX_ARMOR
+        cmp r0, r1
+        brz drv_pi_hex
+        mov r0, 0
+        ret
+drv_pi_legs:
+        lea r0, drv_p_legs
+        ret
+drv_pi_cell:
+        lea r0, drv_p_cell
+        ret
+drv_pi_rivet:
+        lea r0, drv_p_rivet
+        ret
+drv_pi_spark:
+        lea r0, drv_p_spark
+        ret
+drv_pi_pulse:
+        lea r0, drv_p_pulse
+        ret
+drv_pi_hex:
+        lea r0, drv_p_hex
+        ret
+
+prt_name:
+        push lr
+        bl prt_info
+        cmp r0, 0
+        brz drv_pn_none
+        ldr r0, r0, P_NAME
+        pop lr
+        ret
+drv_pn_none:
+        lea r0, drv_s_dash
+        pop lr
+        ret
+
+act_type_info:
+        cmp r0, EN_RIFLER
+        brz drv_ati_rifler
+        mov r0, 0
+        ret
+drv_ati_rifler:
+        lea r0, drv_et_rifler
+        ret
+
+act_name:
+        lea r0, drv_s_rifler
+        ret
+
+itm_at:
+        push r2
+        lea r2, st_items
+        ldr r2, r2, I_PART
+        cmp r2, PART_NONE
+        brz drv_ia_none
+        lea r2, st_items
+        ldr r2, r2, I_X
+        cmp r0, r2
+        brnz drv_ia_none
+        lea r2, st_items
+        ldr r2, r2, I_Y
+        cmp r1, r2
+        brnz drv_ia_none
+        mov r0, 0
+        pop r2
+        ret
+drv_ia_none:
+        mov r0, -1
+        pop r2
+        ret
+
+; cbt_hit_chance (r0=acc, r1=dist) -> acc - HIT_DIST_PEN*(dist-1), clamped HIT_MIN..HIT_MAX
+cbt_hit_chance:
+        push r1
+        push r2
+        sub r1, r1, 1
+        cmp r1, 0
+        brp drv_chc_pen
+        mov r1, 0
+drv_chc_pen:
+        mov r2, HIT_DIST_PEN
+        mul r1, r2
+        sub r0, r0, r1
+        mov r2, HIT_MIN
+        cmp r0, r2
+        brgt drv_chc_hi
+        mov r0, r2
+drv_chc_hi:
+        mov r2, HIT_MAX
+        cmp r0, r2
+        brlt drv_chc_done
+        mov r0, r2
+drv_chc_done:
+        pop r2
+        pop r1
+        ret
+
+; ---- driver outputs -------------------------------------------------
+drv_ret:        .word 99
+drv_score:      .word 99
+drv_trunc_len:  .word 99
+drv_trunc_nul:  .word 99
+drv_add_len:    .word 99
+drv_head:       .word 99
+drv_a_bad:      .word A_BAD
+drv_k_310:      .word 310
+
+; ---- fake catalog records (16 words each) ---------------------------
+drv_p_legs:
+        .word PK_PROP
+        .word drv_s_legs
+        .word GL_PROP|A_TIER1
+        .word 20
+        .word 1
+        .word 3
+        .word 100
+        .word 5
+        .word MT_LEGS
+        .zero 7
+drv_p_cell:
+        .word PK_POWER
+        .word drv_s_cell
+        .word GL_POWER|A_TIER1
+        .word 15
+        .word 1
+        .word 2
+        .word 2
+        .word 20
+        .zero 8
+drv_p_rivet:
+        .word PK_WEAPON
+        .word drv_s_rivet
+        .word GL_WEAPON|A_TIER1
+        .word 12
+        .word 1
+        .word 3
+        .word 2
+        .word 4
+        .word 6
+        .word 2
+        .word 70
+        .word 0
+        .zero 4
+drv_p_spark:
+        .word PK_WEAPON
+        .word drv_s_spark
+        .word GL_WEAPON|A_TIER1
+        .word 15
+        .word 1
+        .word 3
+        .word 2
+        .word 5
+        .word 1
+        .word 0
+        .word 80
+        .word 1
+        .zero 4
+drv_p_pulse:
+        .word PK_WEAPON
+        .word drv_s_pulse
+        .word GL_WEAPON|A_TIER2
+        .word 18
+        .word 2
+        .word 3
+        .word 4
+        .word 7
+        .word 8
+        .word 4
+        .word 70
+        .word 0
+        .zero 4
+drv_p_hex:
+        .word PK_UTIL
+        .word drv_s_hex
+        .word GL_UTIL|A_TIER2
+        .word 50
+        .word 2
+        .word 8
+        .word UT_ARMOR
+        .word 2
+        .zero 8
+
+; fake enemy type record (16 words): Rifler, HP 14
+drv_et_rifler:
+        .word drv_s_rifler
+        .word 'r'|FG_BRED
+        .word 14
+        .word 100
+        .word 100
+        .word 2
+        .word 5
+        .word 6
+        .word 60
+        .word AI_RANGED
+        .word 1
+        .word 9
+        .word 0
+        .word 50
+        .word 8
+        .word 10
+
+drv_s_legs:     .string "Stub Legs"
+drv_s_cell:     .string "Cell Pack"
+drv_s_rivet:    .string "Rivet Gun"
+drv_s_spark:    .string "Spark Prod"
+drv_s_pulse:    .string "Pulse Rifle"
+drv_s_hex:      .string "Hex Armor"
+drv_s_rifler:   .string "Rifler"
+drv_s_dash:     .string "-"
+drv_s_m1:       .string "Older status message."
+drv_s_m2:       .string "Newest status message."
+drv_s_long70:   .string "0123456789012345678901234567890123456789012345678901234567890123456789"
+drv_s_add_base: .string "01234567890123456789012345678901234567890123456789"
+drv_s_add_more: .string "ABCDEFGHIJKLMNOPQRST"
+drv_s_mpre:     .string "Msg "
+drv_s_mtag:     .string ": hit "
+
+        .include "../../src/state.ap"
+        .include "../../src/ui.ap"
+        .include "video.ap"
+        .include "util.ap"

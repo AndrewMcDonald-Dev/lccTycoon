@@ -33,67 +33,1228 @@
 ;; prt_free_slots   ()               -> r0=number of empty loadout slots 0..NUM_SLOTS
 ; ---------------------------------------------------------------------
 
-; WP0 stub: empty loadout, core and energy full, base derived stats.
+; ---- init -------------------------------------------------------------------
 prt_init:
         push r0
+        push r1
+        push r2
+        push lr
+        ; zero st_slots (NUM_SLOTS * SLOT_SIZE words)
+        lea r0, st_slots
+        mov r1, 0
+        mov r2, NUM_SLOTS*SLOT_SIZE
+prt_init_z1:
+        str r1, r0, 0
+        add r0, r0, 1
+        sub r2, r2, 1
+        brp prt_init_z1
+        ; zero st_inv (NUM_INV * SLOT_SIZE words)
+        lea r0, st_inv
+        mov r2, NUM_INV*SLOT_SIZE
+prt_init_z2:
+        str r1, r0, 0
+        add r0, r0, 1
+        sub r2, r2, 1
+        brp prt_init_z2
+        ; starting loadout at full integrity
+        mov r0, SLOT_PROP0
+        mov r1, PT_STUB_LEGS
+        bl prt_set_full
+        mov r0, SLOT_PROP0+1
+        mov r1, PT_STUB_LEGS
+        bl prt_set_full
+        mov r0, SLOT_POWER
+        mov r1, PT_CELL_PACK
+        bl prt_set_full
+        mov r0, SLOT_WEAP0
+        mov r1, PT_RIVET_GUN
+        bl prt_set_full
+        mov r0, SLOT_WEAP0+1
+        mov r1, PT_SPARK_PROD
+        bl prt_set_full
+        ; core, accumulators, derived stats, full energy
         mov r0, CORE_MAX
         st r0, st_core_hp
-        mov r0, CORE_ECAP
+        mov r0, 0
+        st r0, st_regen_acc
+        st r0, st_repair_acc
+        bl prt_recalc
+        ld r0, st_energy_max
         st r0, st_energy
+        pop lr
+        pop r2
+        pop r1
         pop r0
         ret
 
-prt_recalc:
+; internal: r0=slot, r1=part id -> writes S_PART and full P_MAXHP into st_slots[slot]
+prt_set_full:
+        push r0
+        push r2
+        push lr
+        sll r0, SLOT_SHIFT
+        lea r2, st_slots
+        add r2, r2, r0
+        str r1, r2, S_PART
+        mov r0, r1
+        bl prt_info
+        cmp r0, 0
+        brz prt_sf_done
+        ldr r0, r0, P_MAXHP
+        str r0, r2, S_HP
+prt_sf_done:
+        pop lr
+        pop r2
+        pop r0
         ret
 
-prt_info:
+; ---- recalc derived stats ---------------------------------------------------
+; Locals relative to fp:
+;   fp-1  prop_count
+;   fp-2  prop_sum
+;   fp-3  evade
+;   fp-4  regen
+;   fp-5  ecap
+;   fp-6  sight
+;   fp-7  acc_bonus
+;   fp-8  repair_turns
+prt_recalc:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        push fp
+        mov fp, sp
+        sub sp, sp, 8
         mov r0, 0
+        str r0, fp, -1          ; prop_count = 0
+        str r0, fp, -2          ; prop_sum = 0
+        str r0, fp, -3          ; evade = 0
+        mov r0, CORE_REGEN
+        str r0, fp, -4          ; regen = CORE_REGEN
+        mov r0, CORE_ECAP
+        str r0, fp, -5          ; ecap = CORE_ECAP
+        mov r0, SIGHT_BASE
+        str r0, fp, -6          ; sight = SIGHT_BASE
+        mov r0, 0
+        str r0, fp, -7          ; acc_bonus = 0
+        str r0, fp, -8          ; repair_turns = 0
+
+        lea r4, st_slots
+        mov r3, NUM_SLOTS
+prt_rc_lp:
+        ldr r0, r4, S_PART
+        cmp r0, PART_NONE
+        brz prt_rc_next
+        bl prt_info
+        cmp r0, 0
+        brz prt_rc_next
+        ldr r1, r0, P_KIND
+        cmp r1, PK_PROP
+        brz prt_rc_prop
+        cmp r1, PK_POWER
+        brz prt_rc_power
+        cmp r1, PK_UTIL
+        brz prt_rc_util
+        br prt_rc_next
+
+prt_rc_prop:
+        ldr r2, fp, -1
+        add r2, r2, 1
+        str r2, fp, -1
+        ldr r1, r0, P_M_COST
+        ldr r2, fp, -2
+        add r2, r2, r1
+        str r2, fp, -2
+        ldr r1, r0, P_M_EVADE
+        ldr r2, fp, -3
+        cmp r1, r2
+        brlt prt_rc_next
+        bre prt_rc_next
+        str r1, fp, -3
+        br prt_rc_next
+
+prt_rc_power:
+        ldr r1, r0, P_E_REGEN
+        ldr r2, fp, -4
+        add r2, r2, r1
+        str r2, fp, -4
+        ldr r1, r0, P_E_CAP
+        ldr r2, fp, -5
+        add r2, r2, r1
+        str r2, fp, -5
+        br prt_rc_next
+
+prt_rc_util:
+        ldr r1, r0, P_U_TYPE
+        cmp r1, UT_SENSOR
+        brz prt_rc_sensor
+        cmp r1, UT_TARGET
+        brz prt_rc_target
+        cmp r1, UT_REPAIR
+        brz prt_rc_repair
+        br prt_rc_next
+
+prt_rc_sensor:
+        ldr r1, r0, P_U_VALUE
+        ldr r2, fp, -6
+        add r2, r2, r1
+        str r2, fp, -6
+        br prt_rc_next
+
+prt_rc_target:
+        ldr r1, r0, P_U_VALUE
+        ldr r2, fp, -7
+        add r2, r2, r1
+        str r2, fp, -7
+        br prt_rc_next
+
+prt_rc_repair:
+        ldr r1, r0, P_U_VALUE
+        cmp r1, 0
+        brlt prt_rc_next
+        bre prt_rc_next
+        ldr r2, fp, -8
+        cmp r2, 0
+        brz prt_rc_rep_set
+        cmp r1, r2
+        brlt prt_rc_rep_set
+        br prt_rc_next
+prt_rc_rep_set:
+        str r1, fp, -8
+
+prt_rc_next:
+        add r4, r4, SLOT_SIZE
+        sub r3, r3, 1
+        brp prt_rc_lp
+
+        ; finalize st_move_cost
+        ldr r1, fp, -1          ; prop_count
+        cmp r1, 0
+        brz prt_rc_crawl
+        ldr r0, fp, -2          ; prop_sum
+        cmp r1, 1
+        brz prt_rc_limp
+        div r0, r1              ; average (r1 >= 2)
+        br prt_rc_mv_st
+prt_rc_limp:
+        mov r2, LIMP_EXTRA
+        add r0, r0, r2
+        br prt_rc_mv_st
+prt_rc_crawl:
+        mov r0, CRAWL_COST
+prt_rc_mv_st:
+        st r0, st_move_cost
+
+        ; st_evade, st_regen
+        ldr r0, fp, -3
+        st r0, st_evade
+        ldr r0, fp, -4
+        st r0, st_regen
+
+        ; st_energy_max and clamp st_energy
+        ldr r0, fp, -5
+        st r0, st_energy_max
+        ld r1, st_energy
+        cmp r1, r0
+        brlt prt_rc_e_chk0
+        bre prt_rc_e_chk0
+        st r0, st_energy
+        br prt_rc_e_ok
+prt_rc_e_chk0:
+        cmp r1, 0
+        brp prt_rc_e_ok
+        bre prt_rc_e_ok
+        mov r1, 0
+        st r1, st_energy
+prt_rc_e_ok:
+
+        ; st_sight (clamped <= SIGHT_MAX)
+        ldr r0, fp, -6
+        cmp r0, SIGHT_MAX
+        brlt prt_rc_s_ok
+        bre prt_rc_s_ok
+        mov r0, SIGHT_MAX
+prt_rc_s_ok:
+        st r0, st_sight
+
+        ; st_acc_bonus, st_repair_turns
+        ldr r0, fp, -7
+        st r0, st_acc_bonus
+        ldr r0, fp, -8
+        st r0, st_repair_turns
+        cmp r0, 0
+        brnz prt_rc_done
+        st r0, st_repair_acc
+prt_rc_done:
+        mov sp, fp
+        pop fp
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; ---- catalog queries --------------------------------------------------------
+prt_info:
+        push r1
+        cmp r0, 1
+        brlt prt_info_bad
+        mov r1, PART_COUNT
+        cmp r0, r1
+        brgt prt_info_bad
+        sub r0, r0, 1
+        sll r0, PART_SHIFT
+        lea r1, prt_catalog
+        add r0, r0, r1
+        pop r1
+        ret
+prt_info_bad:
+        mov r0, 0
+        pop r1
         ret
 
 prt_name:
+        push lr
+        bl prt_info
+        cmp r0, 0
+        brz prt_name_none
+        ldr r0, r0, P_NAME
+        pop lr
+        ret
+prt_name_none:
         lea r0, prt_s_none
+        pop lr
         ret
 
 prt_kind:
+        push lr
+        bl prt_info
+        cmp r0, 0
+        brz prt_kind_none
+        ldr r0, r0, P_KIND
+        pop lr
+        ret
+prt_kind_none:
         mov r0, PK_NONE
+        pop lr
         ret
 
 prt_slot_kind:
+        push r1
+        cmp r0, 0
+        brn prt_sk_bad
+        cmp r0, NUM_SLOTS
+        brlt prt_sk_ok
+prt_sk_bad:
         mov r0, PK_NONE
+        pop r1
+        ret
+prt_sk_ok:
+        lea r1, prt_slot_kinds
+        add r1, r1, r0
+        ldr r0, r1, 0
+        pop r1
         ret
 
+; ---- attach / detach / inventory --------------------------------------------
+; Locals relative to fp:
+;   fp-1  inv_ptr
+;   fp-2  part
+;   fp-3  hp
+;   fp-4  kind
+;   fp-5  first_slot
 prt_attach:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        push fp
+        mov fp, sp
+        sub sp, sp, 5
+
+        cmp r0, 0
+        brn prt_at_fail
+        cmp r0, NUM_INV
+        brlt prt_at_in
+        br prt_at_fail
+prt_at_in:
+        sll r0, SLOT_SHIFT
+        lea r1, st_inv
+        add r1, r1, r0
+        str r1, fp, -1          ; inv_ptr
+        ldr r0, r1, S_PART
+        cmp r0, PART_NONE
+        brz prt_at_fail
+        str r0, fp, -2          ; part
+        ldr r2, r1, S_HP
+        str r2, fp, -3          ; hp
+        bl prt_kind
+        cmp r0, PK_NONE
+        brz prt_at_fail
+        str r0, fp, -4          ; kind
         mov r0, -1
+        str r0, fp, -5          ; first_slot = -1
+
+        ; scan slots 0..NUM_SLOTS-1 for first free slot of matching kind
+        mov r3, 0
+        lea r4, st_slots
+prt_at_lp:
+        mov r0, r3
+        bl prt_slot_kind
+        ldr r1, fp, -4
+        cmp r0, r1
+        brnz prt_at_next
+        ; remember first matching slot
+        ldr r1, fp, -5
+        cmp r1, -1
+        brnz prt_at_chkfree
+        str r3, fp, -5
+prt_at_chkfree:
+        ldr r1, r4, S_PART
+        cmp r1, PART_NONE
+        brnz prt_at_next
+        ; free matching slot found at r3 (ptr r4)
+        ldr r0, fp, -2
+        ldr r1, fp, -3
+        str r0, r4, S_PART
+        str r1, r4, S_HP
+        ldr r2, fp, -1          ; clear inv entry
+        mov r0, PART_NONE
+        str r0, r2, S_PART
+        mov r0, 0
+        str r0, r2, S_HP
+        bl prt_recalc
+        mov r0, r3
+        br prt_at_out
+prt_at_next:
+        add r4, r4, SLOT_SIZE
+        add r3, r3, 1
+        cmp r3, NUM_SLOTS
+        brlt prt_at_lp
+
+        ; no free slot: swap with first_slot of matching kind
+        ldr r3, fp, -5
+        cmp r3, -1
+        brz prt_at_fail
+        mov r2, r3
+        sll r2, SLOT_SHIFT
+        lea r4, st_slots
+        add r4, r4, r2          ; slot_ptr = &st_slots[first_slot]
+        ldr r0, r4, S_PART      ; old_part
+        ldr r1, r4, S_HP        ; old_hp
+        ldr r2, fp, -1          ; inv_ptr
+        str r0, r2, S_PART
+        str r1, r2, S_HP
+        ldr r0, fp, -2          ; new part
+        ldr r1, fp, -3          ; new hp
+        str r0, r4, S_PART
+        str r1, r4, S_HP
+        bl prt_recalc
+        mov r0, r3
+        br prt_at_out
+
+prt_at_fail:
+        mov r0, -1
+prt_at_out:
+        mov sp, fp
+        pop fp
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
         ret
 
 prt_detach:
+        push r1
+        push r2
+        push r3
+        push lr
+        cmp r0, 0
+        brn prt_dt_empty
+        cmp r0, NUM_SLOTS
+        brlt prt_dt_in
+prt_dt_empty:
         mov r0, -1
+        br prt_dt_out
+prt_dt_in:
+        sll r0, SLOT_SHIFT
+        lea r2, st_slots
+        add r2, r2, r0
+        ldr r0, r2, S_PART
+        cmp r0, PART_NONE
+        brz prt_dt_empty
+        ldr r1, r2, S_HP
+        bl prt_inv_add          ; r0 = inv idx or -1
+        cmp r0, 0
+        brn prt_dt_full
+        mov r3, PART_NONE
+        str r3, r2, S_PART
+        mov r3, 0
+        str r3, r2, S_HP
+        bl prt_recalc
+        br prt_dt_out
+prt_dt_full:
+        mov r0, -2
+prt_dt_out:
+        pop lr
+        pop r3
+        pop r2
+        pop r1
         ret
 
 prt_inv_add:
+        push r1
+        push r2
+        push r3
+        push r4
+        cmp r0, PART_NONE
+        brz prt_ia_full
+        mov r2, 0
+        lea r3, st_inv
+prt_ia_lp:
+        ldr r4, r3, S_PART
+        cmp r4, PART_NONE
+        brz prt_ia_found
+        add r3, r3, SLOT_SIZE
+        add r2, r2, 1
+        cmp r2, NUM_INV
+        brlt prt_ia_lp
+prt_ia_full:
         mov r0, -1
+        br prt_ia_out
+prt_ia_found:
+        str r0, r3, S_PART
+        str r1, r3, S_HP
+        mov r0, r2
+prt_ia_out:
+        pop r4
+        pop r3
+        pop r2
+        pop r1
         ret
 
 prt_inv_clear:
+        push r0
+        push r1
+        push r2
+        cmp r0, 0
+        brn prt_ic_out
+        cmp r0, NUM_INV
+        brlt prt_ic_ok
+        br prt_ic_out
+prt_ic_ok:
+        sll r0, SLOT_SHIFT
+        lea r1, st_inv
+        add r1, r1, r0
+        mov r2, PART_NONE
+        str r2, r1, S_PART
+        mov r2, 0
+        str r2, r1, S_HP
+prt_ic_out:
+        pop r2
+        pop r1
+        pop r0
         ret
 
+; ---- damage spread over parts & core ----------------------------------------
+; Locals relative to fp:
+;   fp-1  dmg
 prt_damage:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        push fp
+        mov fp, sp
+        sub sp, sp, 1
+        str r0, fp, -1          ; save damage
+
+        ; check core hit chance: 100% if no parts attached
+        bl prt_free_slots
+        mov r1, r0
+        cmp r1, NUM_SLOTS
+        brz prt_dmg_core
+        mov r2, CORE_HIT_EMPTY
+        mul r1, r2
+        add r1, r1, CORE_HIT_PCT ; r1 = core_pct (10..66)
+        mov r0, 1
+        mov r2, 100
+        rand r0, r2             ; r0 in 1..100
+        cmp r0, r1
+        brlt prt_dmg_core
+        bre prt_dmg_core
+
+        ; pass 1: sum P_COVER of attached parts in r2
+        mov r2, 0
+        mov r3, NUM_SLOTS
+        lea r4, st_slots
+prt_dmg_c1:
+        ldr r0, r4, S_PART
+        cmp r0, PART_NONE
+        brz prt_dmg_c1n
+        bl prt_info
+        cmp r0, 0
+        brz prt_dmg_c1n
+        ldr r0, r0, P_COVER
+        add r2, r2, r0
+prt_dmg_c1n:
+        add r4, r4, SLOT_SIZE
+        sub r3, r3, 1
+        brp prt_dmg_c1
+
+        cmp r2, 0
+        brlt prt_dmg_core
+        brz prt_dmg_core
+
+        ; roll weighted pick in [1, total_cover]
+        mov r0, 1
+        rand r0, r2
+        mov r2, r0
+
+        ; pass 2: find slot where countdown drops <= 0
+        mov r3, 0
+        lea r4, st_slots
+prt_dmg_c2:
+        ldr r0, r4, S_PART
+        cmp r0, PART_NONE
+        brz prt_dmg_c2n
+        bl prt_info
+        cmp r0, 0
+        brz prt_dmg_c2n
+        ldr r1, r0, P_COVER
+        sub r2, r2, r1
+        brn prt_dmg_slot
+        brz prt_dmg_slot
+prt_dmg_c2n:
+        add r4, r4, SLOT_SIZE
+        add r3, r3, 1
+        cmp r3, NUM_SLOTS
+        brlt prt_dmg_c2
+        br prt_dmg_core
+
+prt_dmg_slot:
+        ; r3 = slot index, r4 = slot ptr, r0 = catalog record ptr
+        ldr r1, fp, -1          ; r1 = dmg
+        ; armor reduction for UT_ARMOR utility parts (min 1 when dmg > 0)
+        cmp r1, 0
+        brlt prt_dmg_apply
+        bre prt_dmg_apply
+        ldr r2, r0, P_KIND
+        cmp r2, PK_UTIL
+        brnz prt_dmg_apply
+        ldr r2, r0, P_U_TYPE
+        cmp r2, UT_ARMOR
+        brnz prt_dmg_apply
+        ldr r2, r0, P_U_VALUE
+        sub r1, r1, r2
+        cmp r1, 1
+        brgt prt_dmg_apply
+        bre prt_dmg_apply
+        mov r1, 1
+prt_dmg_apply:
+        ldr r2, r4, S_HP
+        sub r2, r2, r1
+        brp prt_dmg_survive
+        ; part destroyed: empty slot, post "<name> destroyed!" in A_BAD, recalc
+        ldr r1, r0, P_NAME
+        mov r2, PART_NONE
+        str r2, r4, S_PART
+        mov r2, 0
+        str r2, r4, S_HP
+        mov r0, r1
+        bl ui_msg
+        lea r0, prt_s_destroyed
+        bl ui_msg_add
+        ld r0, prt_a_bad
+        bl ui_msg_attr
+        bl prt_recalc
+        mov r0, r3
+        br prt_dmg_out
+prt_dmg_survive:
+        str r2, r4, S_HP
+        mov r0, r3
+        br prt_dmg_out
+
+prt_dmg_core:
+        ldr r1, fp, -1          ; dmg
+        ld r2, st_core_hp
+        sub r2, r2, r1
+        brp prt_dmg_core_ok
+        mov r2, 0
+        st r2, st_core_hp
+        mov r2, GAME_DEAD
+        st r2, st_game_state
         mov r0, -1
+        br prt_dmg_out
+prt_dmg_core_ok:
+        st r2, st_core_hp
+        mov r0, -1
+
+prt_dmg_out:
+        mov sp, fp
+        pop fp
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
         ret
 
+; ---- tick: energy regen & self-repair ---------------------------------------
 prt_tick:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        cmp r0, 0
+        brlt prt_tk_out
+        brz prt_tk_out
+        ld r1, st_regen_acc
+        add r1, r1, r0
+        st r1, st_regen_acc
+prt_tk_lp:
+        ld r1, st_regen_acc
+        mov r2, TIME_TURN
+        cmp r1, r2
+        brlt prt_tk_out
+        sub r1, r1, r2
+        st r1, st_regen_acc
+        ; energy regen (capped at st_energy_max)
+        ld r1, st_energy
+        ld r2, st_regen
+        add r1, r1, r2
+        ld r2, st_energy_max
+        cmp r1, r2
+        brlt prt_tk_est
+        mov r1, r2
+prt_tk_est:
+        st r1, st_energy
+        ; self-repair if st_repair_turns > 0
+        ld r1, st_repair_turns
+        cmp r1, 0
+        brlt prt_tk_lp
+        brz prt_tk_lp
+        ld r2, st_repair_acc
+        add r2, r2, 1
+        cmp r2, r1
+        brlt prt_tk_rst
+        sub r2, r2, r1
+        st r2, st_repair_acc
+        bl prt_do_repair
+        br prt_tk_lp
+prt_tk_rst:
+        st r2, st_repair_acc
+        br prt_tk_lp
+prt_tk_out:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
         ret
 
+; internal: repair 1 integrity on the most damaged attached part, or core if none damaged
+prt_do_repair:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        mov r1, 0               ; best_missing
+        mov r2, 0               ; best_slot_ptr
+        mov r3, NUM_SLOTS
+        lea r4, st_slots
+prt_dr_lp:
+        ldr r0, r4, S_PART
+        cmp r0, PART_NONE
+        brz prt_dr_next
+        bl prt_info
+        cmp r0, 0
+        brz prt_dr_next
+        ldr r0, r0, P_MAXHP
+        push r1
+        ldr r1, r4, S_HP
+        sub r0, r0, r1          ; missing = P_MAXHP - S_HP
+        pop r1
+        cmp r0, r1
+        brlt prt_dr_next
+        bre prt_dr_next
+        mov r1, r0
+        mov r2, r4
+prt_dr_next:
+        add r4, r4, SLOT_SIZE
+        sub r3, r3, 1
+        brp prt_dr_lp
+
+        cmp r2, 0
+        brz prt_dr_core
+        ldr r0, r2, S_HP
+        add r0, r0, 1
+        str r0, r2, S_HP
+        br prt_dr_out
+prt_dr_core:
+        ld r0, st_core_hp
+        mov r1, CORE_MAX
+        cmp r0, r1
+        brlt prt_dr_core_inc
+        br prt_dr_out
+prt_dr_core_inc:
+        add r0, r0, 1
+        st r0, st_core_hp
+prt_dr_out:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; ---- energy spend -----------------------------------------------------------
 prt_spend_energy:
+        push r1
+        cmp r0, 0
+        brlt prt_se_ok
+        brz prt_se_ok
+        ld r1, st_energy
+        cmp r1, r0
+        brlt prt_se_fail
+        sub r1, r1, r0
+        st r1, st_energy
+prt_se_ok:
+        mov r0, 1
+        pop r1
+        ret
+prt_se_fail:
         mov r0, 0
+        pop r1
         ret
 
+; ---- random part allowed at depth -------------------------------------------
 prt_random_part:
-        mov r0, PART_NONE
+        push r1
+        push r2
+        push r3
+        push r4
+        ; max_tier in r1: depth <= TIER3_DEPTH → 3; <= TIER2_DEPTH → 2; else 1
+        cmp r0, TIER3_DEPTH
+        brlt prt_rp_t3
+        bre prt_rp_t3
+        cmp r0, TIER2_DEPTH
+        brlt prt_rp_t2
+        bre prt_rp_t2
+        mov r1, 1
+        br prt_rp_count
+prt_rp_t3:
+        mov r1, 3
+        br prt_rp_count
+prt_rp_t2:
+        mov r1, 2
+prt_rp_count:
+        ; pass 1: count eligible parts (P_TIER <= r1)
+        mov r2, 0
+        mov r3, PART_COUNT
+        lea r4, prt_catalog
+prt_rp_lp1:
+        ldr r0, r4, P_TIER
+        cmp r0, r1
+        brgt prt_rp_n1
+        add r2, r2, 1
+prt_rp_n1:
+        mov r0, PART_SIZE
+        add r4, r4, r0
+        sub r3, r3, 1
+        brp prt_rp_lp1
+
+        ; pick k in [1, r2]
+        mov r0, 1
+        rand r0, r2
+        mov r2, r0
+
+        ; pass 2: find the k-th eligible part id (1..PART_COUNT)
+        mov r3, 1
+        lea r4, prt_catalog
+prt_rp_lp2:
+        ldr r0, r4, P_TIER
+        cmp r0, r1
+        brgt prt_rp_n2
+        sub r2, r2, 1
+        brz prt_rp_found
+prt_rp_n2:
+        mov r0, PART_SIZE
+        add r4, r4, r0
+        add r3, r3, 1
+        br prt_rp_lp2
+prt_rp_found:
+        mov r0, r3
+        pop r4
+        pop r3
+        pop r2
+        pop r1
         ret
 
+; ---- free loadout slots -----------------------------------------------------
 prt_free_slots:
-        mov r0, NUM_SLOTS
+        push r1
+        push r2
+        push r3
+        mov r0, 0
+        mov r1, NUM_SLOTS
+        lea r2, st_slots
+prt_fs_lp:
+        ldr r3, r2, S_PART
+        cmp r3, PART_NONE
+        brnz prt_fs_next
+        add r0, r0, 1
+prt_fs_next:
+        add r2, r2, SLOT_SIZE
+        sub r1, r1, 1
+        brp prt_fs_lp
+        pop r3
+        pop r2
+        pop r1
         ret
 
+; ---- tables & strings -------------------------------------------------------
+prt_a_bad:      .word A_BAD
 prt_s_none:     .string "-"
+prt_s_destroyed: .string " destroyed!"
+
+prt_slot_kinds:
+        .word PK_PROP           ; 0
+        .word PK_PROP           ; 1
+        .word PK_POWER          ; 2
+        .word PK_WEAPON         ; 3
+        .word PK_WEAPON         ; 4
+        .word PK_WEAPON         ; 5
+        .word PK_UTIL           ; 6
+        .word PK_UTIL           ; 7
+
+; Part names (all <= PART_NAME_MAX = 12 chars)
+prt_n_1:        .string "Stub Legs"
+prt_n_2:        .string "Strut Legs"
+prt_n_3:        .string "Caster Wheel"
+prt_n_4:        .string "Rim Wheels"
+prt_n_5:        .string "Grip Treads"
+prt_n_6:        .string "Siege Treads"
+prt_n_7:        .string "Lift Fan"
+prt_n_8:        .string "Grav Skimmer"
+prt_n_9:        .string "Cell Pack"
+prt_n_10:       .string "Arc Battery"
+prt_n_11:       .string "Fusion Knot"
+prt_n_12:       .string "Spark Prod"
+prt_n_13:       .string "Rivet Gun"
+prt_n_14:       .string "Scatter Tube"
+prt_n_15:       .string "Pulse Rifle"
+prt_n_16:       .string "Cutter Arm"
+prt_n_17:       .string "Coil Lance"
+prt_n_18:       .string "Ram Hammer"
+prt_n_19:       .string "Scrap Plate"
+prt_n_20:       .string "Hex Armor"
+prt_n_21:       .string "Optic Mast"
+prt_n_22:       .string "Patch Drone"
+prt_n_23:       .string "Aim Gyro"
+
+; ---- part catalog (PART_COUNT = 23 records × PART_SIZE = 16 words) ----------
+; Fields: P_KIND, P_NAME, P_CELL, P_MAXHP, P_TIER, P_COVER, P_S0..P_S5, 4 pad
+prt_catalog:
+        ; 1: PT_STUB_LEGS — prop (legs), tier 1, hp 20, cover 3, cost 100, evade 5
+        .word PK_PROP
+        .word prt_n_1
+        .word GL_PROP|A_TIER1
+        .word 20
+        .word 1
+        .word 3
+        .word 100
+        .word 5
+        .word MT_LEGS
+        .zero 7
+
+        ; 2: PT_STRUT_LEGS — prop (legs), tier 2, hp 32, cover 3, cost 90, evade 8
+        .word PK_PROP
+        .word prt_n_2
+        .word GL_PROP|A_TIER2
+        .word 32
+        .word 2
+        .word 3
+        .word 90
+        .word 8
+        .word MT_LEGS
+        .zero 7
+
+        ; 3: PT_CASTER — prop (wheels), tier 1, hp 12, cover 2, cost 70, evade 10
+        .word PK_PROP
+        .word prt_n_3
+        .word GL_PROP|A_TIER1
+        .word 12
+        .word 1
+        .word 2
+        .word 70
+        .word 10
+        .word MT_WHEELS
+        .zero 7
+
+        ; 4: PT_RIM_WHEELS — prop (wheels), tier 2, hp 18, cover 2, cost 60, evade 12
+        .word PK_PROP
+        .word prt_n_4
+        .word GL_PROP|A_TIER2
+        .word 18
+        .word 2
+        .word 2
+        .word 60
+        .word 12
+        .word MT_WHEELS
+        .zero 7
+
+        ; 5: PT_GRIP_TREADS — prop (treads), tier 1, hp 45, cover 5, cost 140, evade 0
+        .word PK_PROP
+        .word prt_n_5
+        .word GL_PROP|A_TIER1
+        .word 45
+        .word 1
+        .word 5
+        .word 140
+        .word 0
+        .word MT_TREADS
+        .zero 7
+
+        ; 6: PT_SIEGE_TREADS — prop (treads), tier 3, hp 70, cover 6, cost 130, evade 0
+        .word PK_PROP
+        .word prt_n_6
+        .word GL_PROP|A_TIER3
+        .word 70
+        .word 3
+        .word 6
+        .word 130
+        .word 0
+        .word MT_TREADS
+        .zero 7
+
+        ; 7: PT_LIFT_FAN — prop (hover), tier 2, hp 10, cover 1, cost 50, evade 15
+        .word PK_PROP
+        .word prt_n_7
+        .word GL_PROP|A_TIER2
+        .word 10
+        .word 2
+        .word 1
+        .word 50
+        .word 15
+        .word MT_HOVER
+        .zero 7
+
+        ; 8: PT_SKIMMER — prop (hover), tier 3, hp 16, cover 1, cost 40, evade 20
+        .word PK_PROP
+        .word prt_n_8
+        .word GL_PROP|A_TIER3
+        .word 16
+        .word 3
+        .word 1
+        .word 40
+        .word 20
+        .word MT_HOVER
+        .zero 7
+
+        ; 9: PT_CELL_PACK — power, tier 1, hp 15, cover 2, regen 2, cap +20
+        .word PK_POWER
+        .word prt_n_9
+        .word GL_POWER|A_TIER1
+        .word 15
+        .word 1
+        .word 2
+        .word 2
+        .word 20
+        .zero 8
+
+        ; 10: PT_ARC_BATTERY — power, tier 2, hp 22, cover 2, regen 3, cap +35
+        .word PK_POWER
+        .word prt_n_10
+        .word GL_POWER|A_TIER2
+        .word 22
+        .word 2
+        .word 2
+        .word 3
+        .word 35
+        .zero 8
+
+        ; 11: PT_FUSION_KNOT — power, tier 3, hp 30, cover 3, regen 5, cap +50
+        .word PK_POWER
+        .word prt_n_11
+        .word GL_POWER|A_TIER3
+        .word 30
+        .word 3
+        .word 3
+        .word 5
+        .word 50
+        .zero 8
+
+        ; 12: PT_SPARK_PROD — weapon melee, tier 1, hp 15, cover 3, 2-5, range 1, energy 0, acc 80, melee 1
+        .word PK_WEAPON
+        .word prt_n_12
+        .word GL_WEAPON|A_TIER1
+        .word 15
+        .word 1
+        .word 3
+        .word 2
+        .word 5
+        .word 1
+        .word 0
+        .word 80
+        .word 1
+        .zero 4
+
+        ; 13: PT_RIVET_GUN — weapon, tier 1, hp 12, cover 3, 2-4, range 6, energy 2, acc 70, melee 0
+        .word PK_WEAPON
+        .word prt_n_13
+        .word GL_WEAPON|A_TIER1
+        .word 12
+        .word 1
+        .word 3
+        .word 2
+        .word 4
+        .word 6
+        .word 2
+        .word 70
+        .word 0
+        .zero 4
+
+        ; 14: PT_SCATTER — weapon, tier 1, hp 14, cover 3, 1-6, range 4, energy 3, acc 75, melee 0
+        .word PK_WEAPON
+        .word prt_n_14
+        .word GL_WEAPON|A_TIER1
+        .word 14
+        .word 1
+        .word 3
+        .word 1
+        .word 6
+        .word 4
+        .word 3
+        .word 75
+        .word 0
+        .zero 4
+
+        ; 15: PT_PULSE_RIFLE — weapon, tier 2, hp 18, cover 3, 4-7, range 8, energy 4, acc 70, melee 0
+        .word PK_WEAPON
+        .word prt_n_15
+        .word GL_WEAPON|A_TIER2
+        .word 18
+        .word 2
+        .word 3
+        .word 4
+        .word 7
+        .word 8
+        .word 4
+        .word 70
+        .word 0
+        .zero 4
+
+        ; 16: PT_CUTTER_ARM — weapon melee, tier 2, hp 25, cover 4, 5-9, range 1, energy 1, acc 80, melee 1
+        .word PK_WEAPON
+        .word prt_n_16
+        .word GL_WEAPON|A_TIER2
+        .word 25
+        .word 2
+        .word 4
+        .word 5
+        .word 9
+        .word 1
+        .word 1
+        .word 80
+        .word 1
+        .zero 4
+
+        ; 17: PT_COIL_LANCE — weapon, tier 3, hp 22, cover 3, 7-12, range 9, energy 7, acc 65, melee 0
+        .word PK_WEAPON
+        .word prt_n_17
+        .word GL_WEAPON|A_TIER3
+        .word 22
+        .word 3
+        .word 3
+        .word 7
+        .word 12
+        .word 9
+        .word 7
+        .word 65
+        .word 0
+        .zero 4
+
+        ; 18: PT_RAM_HAMMER — weapon melee, tier 3, hp 35, cover 4, 8-14, range 1, energy 2, acc 75, melee 1
+        .word PK_WEAPON
+        .word prt_n_18
+        .word GL_WEAPON|A_TIER3
+        .word 35
+        .word 3
+        .word 4
+        .word 8
+        .word 14
+        .word 1
+        .word 2
+        .word 75
+        .word 1
+        .zero 4
+
+        ; 19: PT_SCRAP_PLATE — utility armor, tier 1, hp 30, cover 6, -1 dmg
+        .word PK_UTIL
+        .word prt_n_19
+        .word GL_UTIL|A_TIER1
+        .word 30
+        .word 1
+        .word 6
+        .word UT_ARMOR
+        .word 1
+        .zero 8
+
+        ; 20: PT_HEX_ARMOR — utility armor, tier 2, hp 50, cover 8, -2 dmg
+        .word PK_UTIL
+        .word prt_n_20
+        .word GL_UTIL|A_TIER2
+        .word 50
+        .word 2
+        .word 8
+        .word UT_ARMOR
+        .word 2
+        .zero 8
+
+        ; 21: PT_OPTIC_MAST — utility sensor, tier 1, hp 8, cover 1, +3 sight
+        .word PK_UTIL
+        .word prt_n_21
+        .word GL_UTIL|A_TIER1
+        .word 8
+        .word 1
+        .word 1
+        .word UT_SENSOR
+        .word 3
+        .zero 8
+
+        ; 22: PT_PATCH_DRONE — utility repair, tier 2, hp 10, cover 1, 1 hp / 3 turns
+        .word PK_UTIL
+        .word prt_n_22
+        .word GL_UTIL|A_TIER2
+        .word 10
+        .word 2
+        .word 1
+        .word UT_REPAIR
+        .word 3
+        .zero 8
+
+        ; 23: PT_AIM_GYRO — utility target, tier 2, hp 10, cover 1, +15% accuracy
+        .word PK_UTIL
+        .word prt_n_23
+        .word GL_UTIL|A_TIER2
+        .word 10
+        .word 2
+        .word 1
+        .word UT_TARGET
+        .word 15
+        .zero 8

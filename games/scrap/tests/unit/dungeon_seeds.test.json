@@ -1,0 +1,25 @@
+{
+  "game": "dungeon_seeds_driver.ap",
+  "scenarios": [
+    {
+      "name": "60 seeds across depths 1..10: rooms, player, stairs, full BFS reachability, random_floor, doors, rubble, perf",
+      "clock": 4242,
+      "frames": 70,
+      "expect": {
+        "status": "halted",
+        "maxStepsPerFrame": 400000,
+        "memory": {
+          "drv_seed_i": 60,
+          "drv_fail_rooms": 0,
+          "drv_fail_bounds": 0,
+          "drv_fail_ply": 0,
+          "drv_fail_stairs": 0,
+          "drv_fail_bfs": 0,
+          "drv_fail_rf": 0,
+          "drv_has_doors": 1,
+          "drv_has_rubble": 1
+        }
+      }
+    }
+  ]
+}

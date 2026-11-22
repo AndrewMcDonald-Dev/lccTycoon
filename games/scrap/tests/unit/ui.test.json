@@ -1,0 +1,253 @@
+{
+  "game": "ui_driver.ap",
+  "scenarios": [
+    {
+      "name": "panel layout: header, bars, stats, loadout, empty slots, carried, target, here, score",
+      "keys": "p",
+      "expect": {
+        "status": "halted",
+        "maxStepsPerFrame": 120000,
+        "memory": { "drv_score": 430 },
+        "screen": {
+          "contains": [
+            "SCRAPCORE  Depth 10  Turn 123",
+            "Core   ██████████ 40/40",
+            "Energy ██████░░░░ 12/20",
+            "Move 100  Sight 8  Kills 3",
+            "-- Loadout --",
+            "P Stub Legs    ████████ 20",
+            "E Cell Pack    ██████░░ 13",
+            "W Rivet Gun    ████████ 12",
+            "W Spark Prod   █████░░░ 11",
+            "W -",
+            "U -",
+            "-- Carried --",
+            "1 Pulse Rifle  ██████░░ 14",
+            "2 -",
+            "3 -",
+            "4 -",
+            "-- Target --",
+            "Rifler",
+            "██████░░░░ 9/14",
+            "Hit 58%  Dist 5",
+            "Here: Hex Armor",
+            "Older status message.",
+            "Newest status message."
+          ]
+        }
+      }
+    },
+    {
+      "name": "ui_bar fills and colors at 100%, 50%, 10%, 0% (w=10) and 10% (w=8)",
+      "keys": "b",
+      "expect": {
+        "status": "halted",
+        "screen": {
+          "lines": {
+            "0": "██████████",
+            "1": "█████░░░░░",
+            "2": "█░░░░░░░░░",
+            "3": "░░░░░░░░░░",
+            "4": "█░░░░░░░"
+          }
+        },
+        "colors": {
+          "lines": {
+            "0": "GGGGGGGGGG",
+            "1": "YYYYYKKKKK",
+            "2": "RKKKKKKKKK",
+            "3": "KKKKKKKKKK",
+            "4": "RKKKKKKK"
+          }
+        }
+      }
+    },
+    {
+      "name": "message ring: 63-char truncation, ui_msg_add/addn, wrap after 10 messages, older A_MSG_OLD, newest A_BAD",
+      "keys": "m",
+      "expect": {
+        "status": "halted",
+        "memory": { "drv_trunc_len": 63, "drv_trunc_nul": 0, "drv_add_len": 63 },
+        "screen": {
+          "lines": {
+            "24": " Msg 6",
+            "25": " Msg 7",
+            "26": " Msg 8",
+            "27": " Msg 9",
+            "28": " Msg 10: hit -7"
+          },
+          "notContains": [
+            "Msg 5",
+            "Msg 1 "
+          ]
+        },
+        "colors": {
+          "lines": {
+            "24": " KKKKK",
+            "25": " KKKKK",
+            "26": " KKKKK",
+            "27": " KKKKK",
+            "28": " RRRRRRRRRRRRRR"
+          }
+        }
+      }
+    },
+    {
+      "name": "MODE_MAP help row",
+      "keys": "0",
+      "expect": {
+        "status": "halted",
+        "screen": { "contains": ["hjkl/yubn/arrows move"] }
+      }
+    },
+    {
+      "name": "MODE_TARGET help row",
+      "keys": "1",
+      "expect": {
+        "status": "halted",
+        "screen": { "contains": ["TARGET: Tab / ] / [ cycle target"] }
+      }
+    },
+    {
+      "name": "MODE_EQUIP help row and inventory highlight",
+      "keys": "2",
+      "expect": {
+        "status": "halted",
+        "screen": { "contains": ["EQUIP: 1-4 attach carried part"] },
+        "bg": {
+          "lines": {
+            "14": "                                                                kC kkkkkkkkkkk  kkkkkkkk kk",
+            "15": "                                                                kC k"
+          }
+        }
+      }
+    },
+    {
+      "name": "MODE_REMOVE help row and 1-8 loadout digits",
+      "keys": "3",
+      "expect": {
+        "status": "halted",
+        "screen": {
+          "contains": [
+            "REMOVE: 1-8 detach loadout slot",
+            "1 Stub Legs",
+            "6 -",
+            "8 -"
+          ]
+        },
+        "bg": {
+          "lines": {
+            "5": "                                                                kC kkkkkkkkk    kkkkkkkk kk",
+            "10": "                                                                kC k",
+            "12": "                                                                kC k"
+          }
+        }
+      }
+    },
+    {
+      "name": "MODE_DROP help row and inventory highlight",
+      "keys": "4",
+      "expect": {
+        "status": "halted",
+        "screen": { "contains": ["DROP: 1-4 drop carried part on floor"] },
+        "bg": {
+          "lines": {
+            "14": "                                                                kC kkkkkkkkkkk  kkkkkkkk kk"
+          }
+        }
+      }
+    },
+    {
+      "name": "MODE_HELP overlay and help row",
+      "keys": "5",
+      "expect": {
+        "status": "halted",
+        "maxStepsPerFrame": 120000,
+        "screen": {
+          "contains": [
+            "HELP: press any key to close",
+            "SCRAPCORE - CONTROLS & GUIDE",
+            "MOVEMENT & WORLD",
+            "PARTS & SALVAGE",
+            "COMBAT & SYSTEM"
+          ]
+        }
+      }
+    },
+    {
+      "name": "MODE_QUIT help row",
+      "keys": "6",
+      "expect": {
+        "status": "halted",
+        "screen": { "contains": ["Quit? y = yes, any other key = no"] }
+      }
+    },
+    {
+      "name": "ui_title returns 0 on Q",
+      "keys": "t Q",
+      "expect": {
+        "status": "halted",
+        "memory": { "drv_ret": 0 },
+        "screen": { "contains": ["SCRAPCORE", "Press any key to start"] }
+      }
+    },
+    {
+      "name": "ui_title returns 1 on another key",
+      "keys": "t <enter>",
+      "expect": {
+        "status": "halted",
+        "memory": { "drv_ret": 1 }
+      }
+    },
+    {
+      "name": "ui_end_screen dead: killer name, depth, stats, score, returns 0 on Q",
+      "keys": "d Q",
+      "expect": {
+        "status": "halted",
+        "memory": { "drv_ret": 0, "drv_score": 450 },
+        "screen": {
+          "contains": [
+            "CORE DESTROYED",
+            "Destroyed by: Rifler at Depth 6",
+            "Shallowest Depth:",
+            "Robots Destroyed:",
+            "Turns Taken:",
+            "FINAL SCORE:",
+            "450"
+          ]
+        }
+      }
+    },
+    {
+      "name": "ui_end_screen dead: returns 1 on another key",
+      "keys": "d <space>",
+      "expect": {
+        "status": "halted",
+        "memory": { "drv_ret": 1 }
+      }
+    },
+    {
+      "name": "ui_end_screen won: victory text, score with SCORE_WIN, returns 0 on Q",
+      "keys": "w Q",
+      "expect": {
+        "status": "halted",
+        "memory": { "drv_ret": 0, "drv_score": 2120 },
+        "screen": {
+          "contains": [
+            "SURFACE REACHED!",
+            "VICTORY",
+            "2120"
+          ]
+        }
+      }
+    },
+    {
+      "name": "ui_end_screen won: returns 1 on another key",
+      "keys": "w <enter>",
+      "expect": {
+        "status": "halted",
+        "memory": { "drv_ret": 1 }
+      }
+    }
+  ]
+}

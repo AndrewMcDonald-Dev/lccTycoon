@@ -1,0 +1,726 @@
+; Unit driver for src/parts.ap (WP3).
+; Tests starting loadout, catalog queries, attach/detach/swap/wrong-kind,
+; recalc edge cases (limp, crawl, hover evade, sensors, gyro, repair, clamp),
+; energy spend, tick regen/repair, damage spread, armor reduction, destruction
+; messages via stubbed ui_msg*, core death, and prt_random_part tier bounds.
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        ; ---- 1. Starting loadout & derived stats ----------------------------
+        bl prt_init
+        ld r0, st_move_cost
+        st r0, drv_init_move
+        ld r0, st_energy_max
+        st r0, drv_init_emax
+        ld r0, st_regen
+        st r0, drv_init_regen
+        ld r0, st_sight
+        st r0, drv_init_sight
+        ld r0, st_evade
+        st r0, drv_init_evade
+        ld r0, st_energy
+        st r0, drv_init_energy
+        ld r0, st_core_hp
+        st r0, drv_init_core
+        bl prt_free_slots
+        st r0, drv_init_free
+
+        ; catalog query edge cases & name length check
+        mov r0, 0
+        bl prt_info
+        st r0, drv_info_0
+        mov r0, 24
+        bl prt_info
+        st r0, drv_info_24
+        mov r0, 0
+        bl prt_kind
+        st r0, drv_kind_0
+        mov r0, PT_COIL_LANCE
+        bl prt_kind
+        st r0, drv_kind_lance
+        mov r0, -1
+        bl prt_slot_kind
+        st r0, drv_sk_neg
+        mov r0, 6
+        bl prt_slot_kind
+        st r0, drv_sk_6
+        mov r0, 8
+        bl prt_slot_kind
+        st r0, drv_sk_8
+        mov r0, 0
+        bl prt_name
+        ldr r0, r0, 0
+        st r0, drv_name_none_ch ; '-' = 45
+
+        ; verify all 23 catalog entries: valid info, name len <= PART_NAME_MAX
+        mov r1, 1
+        mov r2, 1               ; drv_cat_ok = 1
+drv_cat_lp:
+        mov r0, r1
+        bl prt_info
+        cmp r0, 0
+        brz drv_cat_fail
+        ldr r3, r0, P_NAME
+        ; strlen(r3) in r4
+        mov r4, 0
+drv_cat_sl:
+        ldr r0, r3, 0
+        cmp r0, 0
+        brz drv_cat_sldone
+        add r4, r4, 1
+        add r3, r3, 1
+        br drv_cat_sl
+drv_cat_sldone:
+        cmp r4, 1
+        brlt drv_cat_fail
+        cmp r4, PART_NAME_MAX
+        brgt drv_cat_fail
+        add r1, r1, 1
+        mov r0, PART_COUNT
+        cmp r1, r0
+        brlt drv_cat_lp
+        bre drv_cat_lp
+        br drv_cat_done
+drv_cat_fail:
+        mov r2, 0
+drv_cat_done:
+        st r2, drv_cat_ok
+
+        ; ---- 2. Attach to free slot, swap when full, wrong-kind, detach -----
+        ; inv_add Pulse Rifle (weapon) -> attach into free weapon slot 5
+        mov r0, PT_PULSE_RIFLE
+        mov r1, 14
+        bl prt_inv_add
+        st r0, drv_add0
+        bl prt_attach
+        st r0, drv_att_free     ; expect 5
+        lea r1, st_slots
+        ldr r0, r1, 5*SLOT_SIZE+S_PART
+        st r0, drv_slot5_part   ; expect PT_PULSE_RIFLE (15)
+        ldr r0, r1, 5*SLOT_SIZE+S_HP
+        st r0, drv_slot5_hp     ; expect 14
+
+        ; all 3 weapon slots full (3,4,5); attach Coil Lance -> swaps with slot 3
+        ; (must NOT go into free utility slots 6 or 7)
+        mov r0, PT_COIL_LANCE
+        mov r1, 20
+        bl prt_inv_add
+        mov r2, r0              ; inv idx (0)
+        bl prt_attach
+        st r0, drv_att_swap     ; expect 3
+        lea r1, st_slots
+        ldr r0, r1, 3*SLOT_SIZE+S_PART
+        st r0, drv_slot3_part   ; expect PT_COIL_LANCE (17)
+        ldr r0, r1, 6*SLOT_SIZE+S_PART
+        st r0, drv_slot6_still0 ; expect 0 (wrong kind did not enter util slot)
+        lea r1, st_inv
+        ldr r0, r1, S_PART      ; inv[0] should now hold old Rivet Gun (13)
+        st r0, drv_swap_inv_p
+        ldr r0, r1, S_HP        ; old Rivet Gun hp (12)
+        st r0, drv_swap_inv_hp
+
+        ; wrong-kind: power slot (2) full while utility slots free -> swaps slot 2
+        mov r0, PT_ARC_BATTERY
+        mov r1, 22
+        bl prt_inv_add          ; idx 1
+        bl prt_attach
+        st r0, drv_att_pow      ; expect 2
+        ld r0, st_energy_max
+        st r0, drv_pow_emax     ; expect 55 (20+35)
+        ld r0, st_regen
+        st r0, drv_pow_regen    ; expect 4 (1+3)
+
+        ; wrong-kind: empty inv slot -> -1
+        mov r0, 2
+        bl prt_attach
+        st r0, drv_att_empty    ; expect -1
+
+        ; wrong-kind: invalid part id (99) placed in inv[2] -> -1, unchanged
+        lea r1, st_inv
+        mov r0, 99
+        str r0, r1, 2*SLOT_SIZE+S_PART
+        mov r0, 10
+        str r0, r1, 2*SLOT_SIZE+S_HP
+        mov r0, 2
+        bl prt_attach
+        st r0, drv_att_badkind  ; expect -1
+        mov r0, 2
+        bl prt_inv_clear
+
+        ; fill inventory (entries 0,1 already occupied from swaps; add 2 more)
+        mov r0, PT_OPTIC_MAST
+        mov r1, 8
+        bl prt_inv_add          ; idx 2
+        mov r0, PT_AIM_GYRO
+        mov r1, 10
+        bl prt_inv_add          ; idx 3
+        mov r0, PT_PATCH_DRONE
+        mov r1, 10
+        bl prt_inv_add          ; full -> -1
+        st r0, drv_inv_full_add
+
+        ; detach into full inventory -> -2, slot 0 unchanged
+        mov r0, 0
+        bl prt_detach
+        st r0, drv_det_full     ; expect -2
+        lea r1, st_slots
+        ldr r0, r1, S_PART
+        st r0, drv_det_full_p   ; expect PT_STUB_LEGS (1)
+
+        ; ---- 3. Recalc: one leg (+LIMP_EXTRA), zero legs (CRAWL_COST), hover -
+        mov r0, 0
+        bl prt_inv_clear
+        mov r0, 1
+        bl prt_inv_clear
+        ; detach slot 1 -> only one Stub Legs left
+        mov r0, 1
+        bl prt_detach
+        st r0, drv_det_ok       ; expect 0
+        ld r0, st_move_cost
+        st r0, drv_limp_cost    ; expect 130 (100 + 30)
+        ; detach slot 0 -> zero legs (crawl)
+        mov r0, 0
+        bl prt_detach
+        ld r0, st_move_cost
+        st r0, drv_crawl_cost   ; expect 250
+        ld r0, st_evade
+        st r0, drv_crawl_evade  ; expect 0
+        ; attach Lift Fan (cost 50, evade 15) + Stub Legs (cost 100, evade 5)
+        mov r0, 1
+        bl prt_inv_clear
+        mov r0, PT_LIFT_FAN
+        mov r1, 10
+        bl prt_inv_add          ; idx 1
+        bl prt_attach           ; slot 0
+        mov r0, 0               ; Stub Legs in inv[0]
+        bl prt_attach           ; slot 1
+        ld r0, st_move_cost
+        st r0, drv_hover_cost   ; expect 75 ((50+100)/2)
+        ld r0, st_evade
+        st r0, drv_hover_evade  ; expect 15
+
+        ; utility recalc: Aim Gyro (+15 acc) & Optic Mast (+3 sight -> 11)
+        mov r0, 2               ; Optic Mast in inv[2]
+        bl prt_attach
+        mov r0, 3               ; Aim Gyro in inv[3]
+        bl prt_attach
+        ld r0, st_sight
+        st r0, drv_util_sight   ; expect 11
+        ld r0, st_acc_bonus
+        st r0, drv_util_acc     ; expect 15
+
+        ; energy clamping when detaching power part
+        mov r0, 55
+        st r0, st_energy
+        mov r0, SLOT_POWER
+        bl prt_detach
+        ld r0, st_energy_max
+        st r0, drv_clamp_emax   ; expect 20
+        ld r0, st_energy
+        st r0, drv_clamp_e      ; expect 20
+
+        ; ---- 4. Energy spend & tick (regen + repair) ------------------------
+        bl prt_init
+        mov r0, 50              ; too much (have 40) -> 0
+        bl prt_spend_energy
+        st r0, drv_spend_fail
+        ld r0, st_energy
+        st r0, drv_spend_fail_e ; still 40
+        mov r0, 35              ; have 40 -> 1, leaves 5
+        bl prt_spend_energy
+        st r0, drv_spend_ok
+        ld r0, st_energy
+        st r0, drv_spend_ok_e   ; 5
+        mov r0, 5               ; leaves 0
+        bl prt_spend_energy
+        mov r0, 0               ; 0 cost always succeeds
+        bl prt_spend_energy
+        st r0, drv_spend_zero   ; 1
+
+        ; tick regen: 50 TU -> no regen yet; +50 TU -> +3 regen; +2000 TU -> caps at 40
+        mov r0, 50
+        bl prt_tick
+        ld r0, st_energy
+        st r0, drv_tick_half    ; expect 0
+        mov r0, 50
+        bl prt_tick
+        ld r0, st_energy
+        st r0, drv_tick_one     ; expect 3
+        mov r0, 200             ; 20 * 100 = 2000 TU via 10 calls of 200
+        mov r1, 10
+drv_tk_cap:
+        bl prt_tick
+        sub r1, r1, 1
+        brp drv_tk_cap
+        ld r0, st_energy
+        st r0, drv_tick_cap     ; expect 40 (st_energy_max)
+
+        ; tick repair over N turns with Patch Drone (3 turns/hp)
+        bl prt_init
+        mov r0, PT_PATCH_DRONE
+        mov r1, 10
+        bl prt_inv_add
+        bl prt_attach
+        ld r0, st_repair_turns
+        st r0, drv_rep_turns    ; expect 3
+        ; damage slot 0 (20 -> 14, missing 6) and slot 2 (15 -> 13, missing 2) and core (40 -> 35)
+        lea r1, st_slots
+        mov r0, 14
+        str r0, r1, 0*SLOT_SIZE+S_HP
+        mov r0, 13
+        str r0, r1, 2*SLOT_SIZE+S_HP
+        mov r0, 35
+        st r0, st_core_hp
+        ; 2 turns (200 TU): not yet repaired
+        mov r0, 200
+        bl prt_tick
+        ldr r0, r1, 0*SLOT_SIZE+S_HP
+        st r0, drv_rep_t2       ; expect 14
+        ; 1 more turn (100 TU -> 3rd turn): most damaged part (slot 0) +1 -> 15
+        mov r0, 100
+        bl prt_tick
+        ldr r0, r1, 0*SLOT_SIZE+S_HP
+        st r0, drv_rep_t3       ; expect 15
+        ; restore all parts to full hp; next 3 turns (300 TU) should repair core 35 -> 36
+        mov r0, 20
+        str r0, r1, 0*SLOT_SIZE+S_HP
+        mov r0, 15
+        str r0, r1, 2*SLOT_SIZE+S_HP
+        mov r0, 150
+        bl prt_tick
+        mov r0, 150
+        bl prt_tick
+        ld r0, st_core_hp
+        st r0, drv_rep_core     ; expect 36
+
+        ; ---- 5. Damage spread, armor reduction, destruction, core death -----
+        ; fixed seed: 40 hits of 1 dmg on starting loadout -> hits both parts and core
+        mov r0, 42
+        srand r0
+        bl prt_init
+        mov r0, GAME_PLAY
+        st r0, st_game_state
+        mov r1, 40              ; iterations
+        mov r2, 0               ; part hits
+        mov r3, 0               ; core hits
+drv_dmg_spread:
+        mov r0, 1
+        bl prt_damage
+        cmp r0, -1
+        brz drv_ds_core
+        add r2, r2, 1
+        br drv_ds_next
+drv_ds_core:
+        add r3, r3, 1
+drv_ds_next:
+        sub r1, r1, 1
+        brp drv_dmg_spread
+        mov r0, 0
+        cmp r2, 0
+        brp drv_ds_p_ok
+        br drv_ds_chk
+drv_ds_p_ok:
+        cmp r3, 0
+        brp drv_ds_both
+        br drv_ds_chk
+drv_ds_both:
+        mov r0, 1
+drv_ds_chk:
+        st r0, drv_spread_both  ; expect 1 (both parts and core hit)
+
+        ; armor reduction: attach ONLY Hex Armor (hp 50, -2) in slot 6
+        bl prt_init
+        mov r1, 0
+drv_clr_all1:
+        mov r0, r1
+        bl prt_detach
+        mov r0, 0
+        bl prt_inv_clear
+        add r1, r1, 1
+        cmp r1, NUM_SLOTS
+        brlt drv_clr_all1
+        mov r0, PT_HEX_ARMOR
+        mov r1, 50
+        bl prt_inv_add
+        bl prt_attach           ; slot 6
+        mov r0, 40
+        st r0, st_core_hp
+        ; hit with damage 5 until slot 6 is struck
+drv_arm_lp1:
+        mov r0, 40
+        st r0, st_core_hp
+        mov r0, 5
+        bl prt_damage
+        cmp r0, 6
+        brnz drv_arm_lp1
+        lea r1, st_slots
+        ldr r0, r1, 6*SLOT_SIZE+S_HP
+        st r0, drv_armor_hp1    ; expect 47 (50 - (5-2))
+        ; hit with damage 1 until slot 6 is struck (min 1 dmg!)
+drv_arm_lp2:
+        mov r0, 40
+        st r0, st_core_hp
+        mov r0, 1
+        bl prt_damage
+        cmp r0, 6
+        brnz drv_arm_lp2
+        lea r1, st_slots
+        ldr r0, r1, 6*SLOT_SIZE+S_HP
+        st r0, drv_armor_hp2    ; expect 46 (47 - 1)
+
+        ; destruction message + empty slot + recalc: ONLY Optic Mast (hp 2) in slot 6
+        mov r0, 6
+        bl prt_detach
+        mov r0, 0
+        bl prt_inv_clear
+        mov r0, PT_OPTIC_MAST
+        mov r1, 2
+        bl prt_inv_add
+        bl prt_attach           ; slot 6 -> st_sight = 11
+        mov r0, 0
+        st r0, drv_msg_count
+        st r0, drv_msg_attr
+drv_dest_lp:
+        mov r0, 40
+        st r0, st_core_hp
+        mov r0, 5
+        bl prt_damage
+        cmp r0, 6
+        brnz drv_dest_lp
+        lea r1, st_slots
+        ldr r0, r1, 6*SLOT_SIZE+S_PART
+        st r0, drv_dest_slot    ; expect 0 (emptied)
+        ld r0, st_sight
+        st r0, drv_dest_sight   ; expect 8 (recalculated)
+
+        ; core death: 0 parts attached -> guaranteed core hit; core 5 - 10 -> 0, GAME_DEAD
+        mov r0, 5
+        st r0, st_core_hp
+        mov r0, GAME_PLAY
+        st r0, st_game_state
+        mov r0, 10
+        bl prt_damage
+        st r0, drv_dead_ret     ; expect -1
+        ld r0, st_core_hp
+        st r0, drv_dead_hp      ; expect 0
+        ld r0, st_game_state
+        st r0, drv_dead_state   ; expect GAME_DEAD (2)
+
+        ; ---- 6. prt_random_part tier bounds (200 calls each) ----------------
+        mov r0, 123
+        srand r0
+        ; depth 10 -> tier <= 1
+        mov r0, 10
+        mov r1, 1
+        bl drv_sample_depth
+        st r0, drv_rnd_d10_ok   ; expect 1
+        ; depth 8 -> tier <= 1
+        mov r0, 8
+        mov r1, 1
+        bl drv_sample_depth
+        st r0, drv_rnd_d8_ok    ; expect 1
+        ; depth 7 -> tier <= 2 (and sees tier 2)
+        mov r0, 7
+        mov r1, 2
+        bl drv_sample_depth
+        st r0, drv_rnd_d7_ok    ; expect 1
+        ; depth 4 -> tier <= 2
+        mov r0, 4
+        mov r1, 2
+        bl drv_sample_depth
+        st r0, drv_rnd_d4_ok    ; expect 1
+        ; depth 3 -> tier <= 3 (and sees tier 3)
+        mov r0, 3
+        mov r1, 3
+        bl drv_sample_depth
+        st r0, drv_rnd_d3_ok    ; expect 1
+        ; depth 1 -> tier <= 3
+        mov r0, 1
+        mov r1, 3
+        bl drv_sample_depth
+        st r0, drv_rnd_d1_ok    ; expect 1
+
+        ; ---- 7. Extra edge cases: exact-0 death, Scrap Plate, reg preserve --
+        ; Scrap Plate (-1): dmg 3 -> takes 2 (30 -> 28)
+        bl prt_init
+        mov r1, 0
+drv_clr_all2:
+        mov r0, r1
+        bl prt_detach
+        mov r0, 0
+        bl prt_inv_clear
+        add r1, r1, 1
+        cmp r1, NUM_SLOTS
+        brlt drv_clr_all2
+        mov r0, PT_SCRAP_PLATE
+        mov r1, 30
+        bl prt_inv_add
+        bl prt_attach           ; slot 6
+drv_sp_lp:
+        mov r0, 40
+        st r0, st_core_hp
+        mov r0, 3
+        bl prt_damage
+        cmp r0, 6
+        brnz drv_sp_lp
+        lea r1, st_slots
+        ldr r0, r1, 6*SLOT_SIZE+S_HP
+        st r0, drv_scrap_hp     ; expect 28
+
+        ; exact-0 core death (core 5 - 5 -> 0, GAME_DEAD)
+        mov r0, 6
+        bl prt_detach
+        mov r0, 0
+        bl prt_inv_clear
+        mov r0, 5
+        st r0, st_core_hp
+        mov r0, GAME_PLAY
+        st r0, st_game_state
+        mov r0, 5
+        bl prt_damage
+        ld r0, st_core_hp
+        st r0, drv_exact0_hp    ; expect 0
+        ld r0, st_game_state
+        st r0, drv_exact0_st    ; expect GAME_DEAD (2)
+
+        ; out-of-range detach/attach
+        mov r0, -1
+        bl prt_detach
+        st r0, drv_det_neg      ; -1
+        mov r0, 8
+        bl prt_detach
+        st r0, drv_det_oob      ; -1
+        mov r0, 0
+        bl prt_detach
+        st r0, drv_det_empty    ; -1 (slot 0 is empty now)
+        mov r0, -1
+        bl prt_attach
+        st r0, drv_att_neg      ; -1
+        mov r0, 4
+        bl prt_attach
+        st r0, drv_att_oob      ; -1
+
+        ; register preservation across prt_* calls (r1..r4 sentinels)
+        mov r1, 111
+        mov r2, 222
+        mov r3, 33
+        mov r4, 44
+        bl prt_init
+        bl prt_recalc
+        mov r0, 10
+        bl prt_info
+        mov r0, 10
+        bl prt_name
+        mov r0, 10
+        bl prt_kind
+        mov r0, 2
+        bl prt_slot_kind
+        bl prt_free_slots
+        mov r0, 5
+        bl prt_spend_energy
+        mov r0, 100
+        bl prt_tick
+        mov r0, 5
+        bl prt_random_part
+        mov r0, 1
+        bl prt_damage
+        mov r0, 111
+        cmp r1, r0
+        brnz drv_reg_bad
+        mov r0, 222
+        cmp r2, r0
+        brnz drv_reg_bad
+        mov r0, 33
+        cmp r3, r0
+        brnz drv_reg_bad
+        mov r0, 44
+        cmp r4, r0
+        brnz drv_reg_bad
+        mov r0, 1
+        br drv_reg_done
+drv_reg_bad:
+        mov r0, 0
+drv_reg_done:
+        st r0, drv_regs_ok      ; expect 1
+
+        halt
+
+; helper: r0=depth, r1=expected max tier -> r0=1 if all 200 calls valid,
+;         tier <= r1, and max tier seen == r1 (for 200 samples)
+drv_sample_depth:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        mov r2, r0              ; depth
+        mov r3, 200             ; count
+        mov r4, 0               ; max_seen
+drv_sd_lp:
+        mov r0, r2
+        bl prt_random_part
+        bl prt_info
+        cmp r0, 0
+        brz drv_sd_fail
+        ldr r0, r0, P_TIER
+        cmp r0, r1
+        brgt drv_sd_fail
+        cmp r4, r0
+        brgt drv_sd_next
+        bre drv_sd_next
+        mov r4, r0
+drv_sd_next:
+        sub r3, r3, 1
+        brp drv_sd_lp
+        cmp r4, r1
+        brnz drv_sd_fail
+        mov r0, 1
+        br drv_sd_out
+drv_sd_fail:
+        mov r0, 0
+drv_sd_out:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; ---- stub ui_msg / ui_msg_add / ui_msg_attr ---------------------------------
+ui_msg:
+        push r0
+        push r1
+        push r2
+        ld r1, drv_msg_count
+        add r1, r1, 1
+        st r1, drv_msg_count
+        lea r1, drv_msg_buf
+drv_um_cp:
+        ldr r2, r0, 0
+        str r2, r1, 0
+        cmp r2, 0
+        brz drv_um_done
+        add r0, r0, 1
+        add r1, r1, 1
+        br drv_um_cp
+drv_um_done:
+        st r1, drv_msg_end
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+ui_msg_add:
+        push r0
+        push r1
+        push r2
+        ld r1, drv_msg_end
+drv_ua_cp:
+        ldr r2, r0, 0
+        str r2, r1, 0
+        cmp r2, 0
+        brz drv_ua_done
+        add r0, r0, 1
+        add r1, r1, 1
+        br drv_ua_cp
+drv_ua_done:
+        st r1, drv_msg_end
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+ui_msg_attr:
+        st r0, drv_msg_attr
+        ret
+
+; ---- result cells -----------------------------------------------------------
+drv_init_move:      .word 99
+drv_init_emax:      .word 99
+drv_init_regen:     .word 99
+drv_init_sight:     .word 99
+drv_init_evade:     .word 99
+drv_init_energy:    .word 99
+drv_init_core:      .word 99
+drv_init_free:      .word 99
+drv_info_0:         .word 99
+drv_info_24:        .word 99
+drv_kind_0:         .word 99
+drv_kind_lance:     .word 99
+drv_sk_neg:         .word 99
+drv_sk_6:           .word 99
+drv_sk_8:           .word 99
+drv_name_none_ch:   .word 99
+drv_cat_ok:         .word 99
+drv_add0:           .word 99
+drv_att_free:       .word 99
+drv_slot5_part:     .word 99
+drv_slot5_hp:       .word 99
+drv_att_swap:       .word 99
+drv_slot3_part:     .word 99
+drv_slot6_still0:   .word 99
+drv_swap_inv_p:     .word 99
+drv_swap_inv_hp:    .word 99
+drv_att_pow:        .word 99
+drv_pow_emax:       .word 99
+drv_pow_regen:      .word 99
+drv_att_empty:      .word 99
+drv_att_badkind:    .word 99
+drv_inv_full_add:   .word 99
+drv_det_full:       .word 99
+drv_det_full_p:     .word 99
+drv_det_ok:         .word 99
+drv_limp_cost:      .word 99
+drv_crawl_cost:     .word 99
+drv_crawl_evade:    .word 99
+drv_hover_cost:     .word 99
+drv_hover_evade:    .word 99
+drv_util_sight:     .word 99
+drv_util_acc:       .word 99
+drv_clamp_emax:     .word 99
+drv_clamp_e:        .word 99
+drv_spend_fail:     .word 99
+drv_spend_fail_e:   .word 99
+drv_spend_ok:       .word 99
+drv_spend_ok_e:     .word 99
+drv_spend_zero:     .word 99
+drv_tick_half:      .word 99
+drv_tick_one:       .word 99
+drv_tick_cap:       .word 99
+drv_rep_turns:      .word 99
+drv_rep_t2:         .word 99
+drv_rep_t3:         .word 99
+drv_rep_core:       .word 99
+drv_spread_both:    .word 99
+drv_armor_hp1:      .word 99
+drv_armor_hp2:      .word 99
+drv_dest_slot:      .word 99
+drv_dest_sight:     .word 99
+drv_dead_ret:       .word 99
+drv_dead_hp:        .word 99
+drv_dead_state:     .word 99
+drv_rnd_d10_ok:     .word 99
+drv_rnd_d8_ok:      .word 99
+drv_rnd_d7_ok:      .word 99
+drv_rnd_d4_ok:      .word 99
+drv_rnd_d3_ok:      .word 99
+drv_rnd_d1_ok:      .word 99
+drv_scrap_hp:       .word 99
+drv_exact0_hp:      .word 99
+drv_exact0_st:      .word 99
+drv_det_neg:        .word 99
+drv_det_oob:        .word 99
+drv_det_empty:      .word 99
+drv_att_neg:        .word 99
+drv_att_oob:        .word 99
+drv_regs_ok:        .word 99
+drv_msg_count:      .word 0
+drv_msg_attr:       .word 0
+drv_msg_end:        .word drv_msg_buf
+drv_msg_buf:        .zero 64
+
+        .include "../../src/state.ap"
+        .include "../../src/parts.ap"

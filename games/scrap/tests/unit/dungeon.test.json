@@ -1,9 +1,67 @@
 {
   "game": "dungeon_driver.ap",
   "scenarios": [
-    { "name": "outside the map: T_OUT, not walkable, opaque, no room; start inside the map",
-      "expect": { "status": "halted",
-        "memory": { "drv_get_left": -1, "drv_walk_right": 0, "drv_opaque_bottom": 1, "drv_room_top": -1,
-                    "drv_start_in": 1 } } }
+    {
+      "name": "outside the map: T_OUT, not walkable, opaque, no room; start inside the map",
+      "clock": 1000,
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_get_left": -1,
+          "drv_get_right": -1,
+          "drv_get_top": -1,
+          "drv_get_bottom": -1,
+          "drv_walk_right": 0,
+          "drv_walk_left": 0,
+          "drv_opaque_bottom": 1,
+          "drv_opaque_top": 1,
+          "drv_room_top": -1,
+          "drv_room_right": -1,
+          "drv_start_in": 1
+        }
+      }
+    },
+    {
+      "name": "get/set round trip, walkable/opaque per kind, corners, dun_dist, register preservation",
+      "clock": 1234,
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_rt_get": [0, 1, 2, 3, 4, 5, 6],
+          "drv_rt_walk": [0, 1, 0, 1, 1, 1, 1],
+          "drv_rt_opaq": [1, 0, 1, 1, 0, 0, 0],
+          "drv_corner_tl": 4,
+          "drv_corner_br": 6,
+          "drv_dist_same": 0,
+          "drv_dist_horiz": 7,
+          "drv_dist_vert": 10,
+          "drv_dist_diag": 5,
+          "drv_dist_asym": 7,
+          "drv_dist_neg": 7,
+          "drv_regs_ok": 1
+        }
+      }
+    },
+    {
+      "name": "generated floor invariants: rooms, player, stairs, BFS reachability, random_floor, determinism",
+      "clock": 777,
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_rooms_ok": 1,
+          "drv_ply_tile": 1,
+          "drv_ply_in_start": 1,
+          "drv_stairs_tile": 5,
+          "drv_stairs_room_ok": 1,
+          "drv_stairs_count": 1,
+          "drv_rm0_in": 0,
+          "drv_rm0_wall": -1,
+          "drv_rf_bad_cnt": 0,
+          "drv_stairs_reached": 1,
+          "drv_unreachable": 0,
+          "drv_deterministic": 1
+        }
+      }
+    }
   ]
 }

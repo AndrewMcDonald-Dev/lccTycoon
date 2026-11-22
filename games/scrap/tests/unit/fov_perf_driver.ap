@@ -1,0 +1,78 @@
+; Performance & visual-check unit driver for src/fov.ap (WP2).
+; Runs a single fov_update at radius 8 on a completely open 64x24 map (worst
+; case: 289 visible tiles) inside its own frame, so maxStepsPerFrame enforces
+; the <= 60K instruction budget.
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        ; Frame 0: open map setup + fov_reset
+        lea r1, st_map
+        ld r2, drv_c_map_size
+        mov r0, T_FLOOR
+drv_fm_lp:
+        str r0, r1, 0
+        add r1, r1, 1
+        sub r2, r2, 1
+        brp drv_fm_lp
+        mov r0, 32
+        st r0, st_px
+        mov r0, 12
+        st r0, st_py
+        mov r0, 8
+        st r0, st_sight
+        bl fov_reset
+        mov r0, 1
+        sleep r0
+
+        ; Frame 1: single fov_update at radius 8 (open room, worst case)
+        bl fov_update
+        mov r0, 1
+        sleep r0
+        halt
+
+; Local dun_opaque stub matching src/dungeon.ap contract
+dun_opaque:
+        push r1
+        push r2
+        cmp r0, 0
+        brn drv_op_yes
+        mov r2, MAP_W
+        cmp r0, r2
+        brlt drv_op_xok
+        br drv_op_yes
+drv_op_xok:
+        cmp r1, 0
+        brn drv_op_yes
+        mov r2, MAP_H
+        cmp r1, r2
+        brlt drv_op_in
+        br drv_op_yes
+drv_op_in:
+        sll r1, MAP_SHIFT
+        add r1, r1, r0
+        lea r2, st_map
+        add r2, r2, r1
+        ldr r0, r2, 0
+        cmp r0, T_ROCK
+        bre drv_op_yes
+        cmp r0, T_WALL
+        bre drv_op_yes
+        cmp r0, T_DOOR
+        bre drv_op_yes
+        mov r0, 0
+        pop r2
+        pop r1
+        ret
+drv_op_yes:
+        mov r0, 1
+        pop r2
+        pop r1
+        ret
+
+drv_c_map_size: .word MAP_SIZE
+
+        .include "../../src/state.ap"
+        .include "../../src/fov.ap"
