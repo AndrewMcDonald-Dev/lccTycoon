@@ -1,0 +1,17 @@
+{
+  "game": "ui_bar_exact_driver.ap",
+  "scenarios": [
+    {
+      "name": "ui_bar matches main exactly for max > 255 when the arithmetic fits (180/301 -> 5 warn cells, 181/301 -> 6 good cells)",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_r0_c4": 3035,
+          "drv_r0_c5": 2224,
+          "drv_r1_c5": 2779,
+          "drv_r1_c6": 2224
+        }
+      }
+    }
+  ]
+}

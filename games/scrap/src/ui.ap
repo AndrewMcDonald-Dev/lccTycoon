@@ -272,9 +272,14 @@ ui_bp_vpos:
         brlt ui_bp_vok
         mov r2, r3
 ui_bp_vok:
-        ; Scale (value, max) down if max > 255 so value*width (<=255*100) and
-        ; value*10 (<=2550) never overflow signed 16-bit arithmetic.
-        mov r0, 255
+        ; Exact like main whenever value*width, value*10 and max*3 fit in 16 bits
+        ; (max <= min(32767/width, 3276)); only larger inputs halve value and max.
+        ld r0, ui_k_bar_lim1
+        div r0, r4              ; 32767 / width
+        ld r1, ui_k_bar_lim2
+        cmp r0, r1
+        brlt ui_bp_scale
+        mov r0, r1
 ui_bp_scale:
         cmp r3, r0
         brlt ui_bp_sc_ok
@@ -342,6 +347,8 @@ ui_bp_done:
         pop r1
         pop r0
         ret
+ui_k_bar_lim1:  .word 32767
+ui_k_bar_lim2:  .word 3276      ; 32767/10: value*10 and max*3 stay in range
 
 ; =====================================================================
 ; Main in-game UI draw: ui_draw ()
@@ -356,13 +363,11 @@ ui_draw:
         push lr
         push fp
         mov fp, sp
-        sub sp, sp, 3
+        sub sp, sp, 2
         ; fp-1 = &st_cells[PANEL_COL] (row 0, col 64)
         ; fp-2 = &st_game_state
-        ; fp-3 = &st_cells[0]
 
         lea r0, st_cells
-        str r0, fp, -3
         mov r1, PANEL_COL
         add r0, r0, r1
         str r0, fp, -1
@@ -484,33 +489,33 @@ ui_draw_turn:
         ; Pass r1 = st_game_state and r0 = precomputed row cell pointer
         ldr r1, fp, -2          ; st_game_state
         ldr r0, fp, -1          ; row 0, col 64
-        mov r2, 125
-        sll r2, 2               ; 500 = PR_LOAD * 100
+        mov r2, (PR_LOAD*SCR_COLS)>>2
+        sll r2, 2               ; PR_LOAD rows
         add r0, r0, r2
         bl ui_draw_loadout      ; r0 = &st_cells[PR_LOAD*100 + 64]
 
-        mov r2, 225
-        sll r2, 2               ; 900 = (PR_INV - PR_LOAD) * 100
+        mov r2, ((PR_INV-PR_LOAD)*SCR_COLS)>>2
+        sll r2, 2
         add r0, r0, r2
         bl ui_draw_inv          ; r0 = &st_cells[PR_INV*100 + 64]
 
-        mov r2, 125
-        sll r2, 2               ; 500 = (PR_TGT - PR_INV) * 100
+        mov r2, ((PR_TGT-PR_INV)*SCR_COLS)>>2
+        sll r2, 2
         add r0, r0, r2
         bl ui_draw_target       ; r0 = &st_cells[PR_TGT*100 + 64]
 
-        mov r2, 100
-        sll r2, 2               ; 400 = (PR_HERE - PR_TGT) * 100
+        mov r2, ((PR_HERE-PR_TGT)*SCR_COLS)>>2
+        sll r2, 2
         add r0, r0, r2
         bl ui_draw_here         ; r0 = &st_cells[PR_HERE*100 + 64]
 
-        ; Messages start at &st_cells[MSG_ROW*100] = (PR_HERE*100+64) + 36
-        mov r2, SCR_COLS-PANEL_COL
+        ; Messages start at &st_cells[MSG_ROW*SCR_COLS], col 0
+        mov r2, (MSG_ROW-PR_HERE)*SCR_COLS-PANEL_COL
         add r0, r0, r2
         bl ui_draw_messages     ; r0 = &st_cells[2400]
 
-        ; Help row at &st_cells[HELP_ROW*100] = 2400 + 500
-        mov r2, 125
+        ; Help row at &st_cells[HELP_ROW*SCR_COLS]
+        mov r2, ((HELP_ROW-MSG_ROW)*SCR_COLS)>>2
         sll r2, 2
         add r0, r0, r2
         bl ui_draw_help_row     ; r0 = &st_cells[2900], r1 = st_game_state
@@ -1251,9 +1256,9 @@ ui_draw_messages:
         mov fp, sp
         sub sp, sp, 4
 
-        ; Clear all 5x100 = 500 contiguous cells in one ui_fill_run
-        mov r1, 125
-        sll r1, 2               ; 500
+        ; Clear all MSG_ROWS x SCR_COLS contiguous cells in one ui_fill_run
+        mov r1, (MSG_ROWS*SCR_COLS)>>2
+        sll r1, 2
         mov r4, G_SPACE
         bl ui_fill_run          ; r0 now points to &st_cells[2900]
         ; row 28 col 1 = 2900 - 99
