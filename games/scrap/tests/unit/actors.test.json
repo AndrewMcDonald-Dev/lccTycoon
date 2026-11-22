@@ -17,9 +17,14 @@
           "drv_flit_dhi": 10,
           "drv_flit_dcnt": 4,
           "drv_flit_d0": 7,
+          "drv_wat_dmin": 2,
+          "drv_wat_dmax": 5,
+          "drv_wat_acc": 55,
           "drv_bul_hp": 40,
           "drv_bul_spd": 150,
           "drv_bul_atk": 120,
+          "drv_bul_dmin": 4,
+          "drv_bul_dmax": 8,
           "drv_bul_dpct": 70,
           "drv_stk_hp": 22,
           "drv_stk_rng": 7,
@@ -85,6 +90,9 @@
           "drv_nv_fwd2": 0,
           "drv_nv_bwd1": 3,
           "drv_nv_bwd2": 0,
+          "drv_nv_hostile": 1,
+          "drv_nv_cyc_tnk": 0,
+          "drv_nv_only_tnk": 0,
           "drv_regs_ok": 1
         }
       }

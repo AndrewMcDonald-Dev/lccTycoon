@@ -83,9 +83,9 @@ drv_main:
         st r0, drv_hc_lo2       ; expect 10 (HIT_MIN)
 
         ; =====================================================================
-        ; 2. cbt_player_fire: ranged-only, range, energy, LOS, stop-on-kill
+        ; 2. cbt_player_fire: ranged-only, range, energy, FOV visibility, stop-on-kill
         ; =====================================================================
-        bl prt_init             ; slot 3 = Rivet Gun (rng 6, e 2), slot 4 = Spark Prod (melee)
+        bl prt_init             ; slot 3 = Rivet Gun (rng 7, e 2), slot 4 = Spark Prod (melee)
         bl act_clear
         bl itm_clear
         mov r0, 10
@@ -94,6 +94,8 @@ drv_main:
         st r0, st_py
         mov r0, 40
         st r0, st_energy
+        bl fov_reset
+        bl fov_update
 
         ; 2a. Starting loadout vs Bulwark at dist 5 (x=15, y=10):
         ; Only Rivet Gun fires (Spark Prod is melee -> skipped), costs 2 energy -> 38
@@ -145,12 +147,22 @@ drv_pf_hit_got:
         mov r1, PT_RIVET_GUN
         bl drv_set_slot
 
-        ; 2b. Out of range: enemy at dist 10 (x=20, y=10), Rivet Gun range 6 -> returns 0, energy unchanged
+        ; 2b. Range 7 check: Rivet Gun (range 7) fires at dist 7 (x=17, y=10) and refuses dist 8 (x=18, y=10, still visible)
         mov r0, EN_BULWARK
-        mov r1, 20
+        mov r1, 17
         mov r2, 10
-        bl act_spawn            ; idx 1
+        bl act_spawn            ; idx 1 at dist 7
         st r0, drv_e1
+        bl cbt_player_fire
+        st r0, drv_pf_r7_n      ; expect 1 (Rivet Gun range 7)
+        mov r0, 38
+        st r0, st_energy        ; restore energy for 2b2 expectation
+
+        ; Out of range on a visible target: dist 8 (x=18, y=10, st_sight=8), Rivet Gun range 7 -> returns 0, energy unchanged
+        mov r0, EN_BULWARK
+        mov r1, 18
+        mov r2, 10
+        bl act_spawn            ; idx 2
         bl cbt_player_fire
         st r0, drv_pf_oor_n     ; expect 0
         ld r0, st_energy
@@ -205,23 +217,43 @@ drv_pf_hit_got:
         ld r0, st_energy
         st r0, drv_pf_e1_e      ; expect 1
 
-        ; 2e. Blocked LOS: put T_WALL at (11,10) between player (10,10) and enemy 2 (13,10)
+        ; 2e. Blocked visibility + doorway FOV-vs-LOS fix:
+        ; Put T_WALL at (11,10) between player (10,10) and enemy 2 (13,10) and recompute FOV
         mov r0, 40
         st r0, st_energy
         mov r0, 11
         mov r1, 10
         mov r2, T_WALL
         bl dun_set
+        bl fov_update
         ld r0, drv_e2
         bl cbt_player_fire
-        st r0, drv_pf_los_n     ; expect 0
+        st r0, drv_pf_los_n     ; expect 0 (not visible behind wall)
         ld r0, st_energy
         st r0, drv_pf_los_e     ; expect 40
-        ; Restore floor tile
+        ; 2e2. Doorway target at (12,9) with wall at (11,10): fov_los==0 but fov_visible==1 -> MUST fire!
+        mov r0, 10
+        mov r1, 10
+        mov r2, 12
+        mov r3, 9
+        bl fov_los
+        st r0, drv_pf_door_los  ; expect 0 (Bresenham hits wall at 11,10)
+        mov r0, 12
+        mov r1, 9
+        bl fov_visible
+        st r0, drv_pf_door_vis  ; expect 1 (shadowcasting sees around doorway)
+        mov r0, EN_BULWARK
+        mov r1, 12
+        mov r2, 9
+        bl act_spawn
+        bl cbt_player_fire
+        st r0, drv_pf_door_n    ; expect 3 (all 3 ranged weapons fire!)
+        ; Restore floor tile & FOV
         mov r0, 11
         mov r1, 10
         mov r2, T_FLOOR
         bl dun_set
+        bl fov_update
 
         ; 2f. Stops firing once target is destroyed (second weapon must NOT spend energy)
         ; Put 2 Rivet Guns (e2 each), Aim Gyro (+15% acc -> 85% at dist 1), enemy with 1 HP at (11,10).
@@ -557,11 +589,17 @@ drv_pdest_lp:
         brp drv_pdest_lp
         br drv_pdest_done
 drv_pdest_hit:
-        ; Copy newest message (should be "Scuttler hits Optic Mast for N." with A_BAD)
+        ; Hit message comes BEFORE destroyed message:
+        ;   prev msg: "Scuttler hits Optic Mast for N." (A_BAD)
+        ;   head msg: "Optic Mast destroyed!" (A_BAD)
         lea r0, drv_pdest_msg
+        bl drv_copy_prev_msg
+        bl drv_get_prev_attr
+        st r0, drv_pdest_attr   ; expect A_BAD (2304)
+        lea r0, drv_pdest_msg2
         bl drv_copy_head_msg
         bl drv_get_head_attr
-        st r0, drv_pdest_attr   ; expect A_BAD (2304)
+        st r0, drv_pdest_attr2  ; expect A_BAD (2304)
         mov r4, 1
 drv_pdest_done:
         st r4, drv_pdest_ok     ; expect 1
@@ -765,6 +803,53 @@ drv_drop_chk_done:
         ld r0, st_core_hp
         st r0, drv_tnk_hp       ; expect 40
 
+        ; 5e. Surviving part hit posts ONLY hit message (no "destroyed!")
+        bl act_clear
+        bl drv_clear_all_slots
+        mov r0, 0
+        st r0, st_evade
+        mov r0, SLOT_UTIL0
+        mov r1, PT_HEX_ARMOR
+        bl drv_set_slot         ; Hex Armor at 50 HP
+        mov r0, EN_FLIT
+        mov r1, 11
+        mov r2, 10
+        bl act_spawn            ; idx 0
+        mov r3, 40
+        mov r4, 0
+drv_psurv_lp:
+        mov r0, CORE_MAX
+        st r0, st_core_hp
+        mov r0, 0
+        bl cbt_enemy_attack
+        lea r1, st_slots
+        ldr r0, r1, SLOT_UTIL0*SLOT_SIZE+S_HP
+        mov r2, 50
+        cmp r0, r2
+        brlt drv_psurv_hit
+        sub r3, r3, 1
+        brp drv_psurv_lp
+        br drv_psurv_done
+drv_psurv_hit:
+        lea r0, drv_psurv_msg
+        bl drv_copy_head_msg
+        ; Verify head msg ends with '.' (46), NOT '!' (33)
+        lea r1, drv_psurv_msg
+drv_psurv_end:
+        ldr r0, r1, 0
+        cmp r0, 0
+        brz drv_psurv_chk
+        add r1, r1, 1
+        br drv_psurv_end
+drv_psurv_chk:
+        ldr r0, r1, -1
+        mov r2, '.'
+        cmp r0, r2
+        brne drv_psurv_done
+        mov r4, 1
+drv_psurv_done:
+        st r4, drv_psurv_ok     ; expect 1
+
         ; =====================================================================
         ; 6. Register preservation across all 5 cbt_* routines
         ; =====================================================================
@@ -778,6 +863,7 @@ drv_drop_chk_done:
         st r0, st_game_state
         mov r0, 40
         st r0, st_core_hp
+        bl fov_update
 
         ; Check cbt_hit_chance preserves r1..r4
         mov r0, 70
@@ -1055,6 +1141,45 @@ drv_get_head_attr:
         pop r1
         ret
 
+; Copy previous message from st_msg_text[(st_msg_head - 1) & (MSG_COUNT-1)] into buffer at r0
+drv_copy_prev_msg:
+        push r0
+        push r1
+        push r2
+        push r3
+        ld r1, st_msg_head
+        sub r1, r1, 1
+        and r1, r1, MSG_COUNT-1
+        sll r1, MSG_SHIFT
+        lea r2, st_msg_text
+        add r2, r2, r1
+drv_cpm_lp:
+        ldr r3, r2, 0
+        str r3, r0, 0
+        cmp r3, 0
+        brz drv_cpm_done
+        add r2, r2, 1
+        add r0, r0, 1
+        br drv_cpm_lp
+drv_cpm_done:
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; -> r0 = st_msg_attr[(st_msg_head - 1) & (MSG_COUNT-1)]
+drv_get_prev_attr:
+        push r1
+        ld r0, st_msg_head
+        sub r0, r0, 1
+        and r0, r0, MSG_COUNT-1
+        lea r1, st_msg_attr
+        add r1, r1, r0
+        ldr r0, r1, 0
+        pop r1
+        ret
+
 ; ---- driver data & outputs --------------------------------------------------
 drv_k333:         .word 333
 drv_k444:         .word 444
@@ -1077,6 +1202,7 @@ drv_hc_lo2:       .word 0
 ; 2. player fire
 drv_pf_start_n:   .word 0
 drv_pf_start_e:   .word 0
+drv_pf_r7_n:      .word 0
 drv_pf_oor_n:     .word 0
 drv_pf_oor_e:     .word 0
 drv_pf_d5_n:      .word 0
@@ -1089,6 +1215,9 @@ drv_pf_e1_n:      .word 0
 drv_pf_e1_e:      .word 0
 drv_pf_los_n:     .word 0
 drv_pf_los_e:     .word 0
+drv_pf_door_los:  .word -1
+drv_pf_door_vis:  .word -1
+drv_pf_door_n:    .word 0
 drv_pf_stop_ok:   .word 0
 drv_pf_norng_n:   .word 0
 drv_pf_norng_e:   .word 0
@@ -1113,6 +1242,8 @@ drv_evmin_ok_f:   .word 0
 drv_pdest_ok:     .word 0
 drv_pdest_attr:   .word 0
 drv_pdest_msg:    .zero MSG_LEN
+drv_pdest_attr2:  .word 0
+drv_pdest_msg2:   .zero MSG_LEN
 drv_killp_hp:     .word 0
 drv_killp_state:  .word 0
 drv_killp_cause:  .word 0
@@ -1145,6 +1276,8 @@ drv_inv_pf_oob:   .word -1
 drv_inv_de_neg:   .word -1
 drv_inv_de_dead:  .word -1
 drv_tnk_hp:       .word 0
+drv_psurv_ok:     .word 0
+drv_psurv_msg:    .zero MSG_LEN
 
 ; 6. register preservation
 drv_regs_ok:      .word 0

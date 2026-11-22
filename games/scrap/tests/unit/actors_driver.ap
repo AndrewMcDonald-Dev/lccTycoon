@@ -42,6 +42,15 @@ drv_main:
         ldr r2, r1, 1           ; first drop = 7 (PT_LIFT_FAN)
         st r2, drv_flit_d0
 
+        mov r0, EN_WATCHER
+        bl act_type_info
+        ldr r1, r0, ET_DMIN
+        st r1, drv_wat_dmin     ; 2
+        ldr r1, r0, ET_DMAX
+        st r1, drv_wat_dmax     ; 5
+        ldr r1, r0, ET_ACC
+        st r1, drv_wat_acc      ; 55
+
         mov r0, EN_BULWARK
         bl act_type_info
         ldr r1, r0, ET_HP
@@ -50,6 +59,10 @@ drv_main:
         st r1, drv_bul_spd      ; 150
         ldr r1, r0, ET_ATK_TIME
         st r1, drv_bul_atk      ; 120
+        ldr r1, r0, ET_DMIN
+        st r1, drv_bul_dmin     ; 4
+        ldr r1, r0, ET_DMAX
+        st r1, drv_bul_dmax     ; 8
         ldr r1, r0, ET_DROP_PCT
         st r1, drv_bul_dpct     ; 70
 
@@ -869,6 +882,38 @@ drv_dec_wall:
         bl act_next_visible
         st r0, drv_nv_bwd2      ; expect 0 (skipped invisible slot 1!)
 
+        ; Hostile preference over Tinker (AI_WORKER) on initial target pick (from=-1)
+        bl act_clear
+        mov r0, EN_TINKER
+        mov r1, 12              ; dist 2 (closer!)
+        mov r2, 10
+        bl act_spawn            ; slot 0
+        mov r0, EN_SCUTTLER
+        mov r1, 15              ; dist 5 (farther, but hostile!)
+        mov r2, 10
+        bl act_spawn            ; slot 1
+        mov r0, -1
+        mov r1, 1
+        bl act_next_visible
+        st r0, drv_nv_hostile   ; expect 1 (Scuttler preferred over closer Tinker)
+        mov r0, 1
+        mov r1, 1
+        bl act_next_visible
+        st r0, drv_nv_cyc_tnk   ; expect 0 (cycling still reaches Tinker)
+        ; Only Tinker visible -> falls back to Tinker
+        mov r0, 1
+        bl act_kill
+        mov r0, -1
+        mov r1, 1
+        bl act_next_visible
+        st r0, drv_nv_only_tnk  ; expect 0 (Tinker when no hostile visible)
+        ; Respawn slot 0 at (12, 10) for section 10 act_at check
+        bl act_clear
+        mov r0, EN_SCUTTLER
+        mov r1, 12
+        mov r2, 10
+        bl act_spawn
+
         ; ============================================================
         ; 10. Register preservation across public act_* routines
         ; ============================================================
@@ -1051,9 +1096,14 @@ drv_flit_dlo:       .word 99
 drv_flit_dhi:       .word 99
 drv_flit_dcnt:      .word 99
 drv_flit_d0:        .word 99
+drv_wat_dmin:       .word 99
+drv_wat_dmax:       .word 99
+drv_wat_acc:        .word 99
 drv_bul_hp:         .word 99
 drv_bul_spd:        .word 99
 drv_bul_atk:        .word 99
+drv_bul_dmin:       .word 99
+drv_bul_dmax:       .word 99
 drv_bul_dpct:       .word 99
 drv_stk_hp:         .word 99
 drv_stk_rng:        .word 99
@@ -1121,6 +1171,9 @@ drv_nv_fwd1:        .word 99
 drv_nv_fwd2:        .word 99
 drv_nv_bwd1:        .word 99
 drv_nv_bwd2:        .word 99
+drv_nv_hostile:     .word 99
+drv_nv_cyc_tnk:     .word 99
+drv_nv_only_tnk:    .word 99
 drv_regs_ok:        .word 99
 
         .include "../../src/state.ap"

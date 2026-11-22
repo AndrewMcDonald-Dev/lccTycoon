@@ -10,12 +10,12 @@
 ; All routines: args r0..r4, result r0, all other registers preserved.
 ;
 ;; ui_init        ()                -> -       new game: clear the message ring
-;; ui_title       ()                -> r0=1 start, 0 quit   title screen with its own frames (draw, video_present, sleep FRAME_MS, nbain): "SCRAPCORE", short pitch, "any key to start, Q to quit"
-;; ui_draw        ()                -> -       draw panel (title + depth + turn, core and energy bars via ui_bar, move cost/sight/kills, 8 loadout rows "<kind letter> <name>
-;;                   <bar>", 4 inventory rows, target name + hp bar + hit chance, item under the player), message rows, help row; menu highlights and help overlay by st_mode; MODE_QUIT help
+;; ui_title       ()                -> r0=1 start, 0 quit   title screen with its own frames (draw, video_present, drain pending input when st_frame != 0, sleep FRAME_MS, nbain): "SCRAPCORE", short pitch, "any key to start, Q to quit"
+;; ui_draw        ()                -> -       draw panel (title + depth/Surface + turn, core and energy bars via ui_bar, move cost/sight/kills, 8 loadout rows "<kind letter> <name>
+;;                   <bar>", 4 inventory rows "<digit> <kind> <name> <stat> <hp>/<max>", target name + hp bar + hit chance, item under player "Here: <name> [<kind> <stat>]"), message rows, help row; menu highlights and help overlay by st_mode; MODE_QUIT help
 ;;                   row reads "Quit? y = yes, any other key = no"
-;; ui_end_screen  ()                -> r0=1 play again, 0 quit   death (cause = st_death_cause type name, depth) or win screen with st_kills, st_turn, st_depth_best and
-;;                   ui_score; own frames until a key (Q quits, any other key plays again)
+;; ui_end_screen  ()                -> r0=1 play again, 0 quit   death (cause = st_death_cause type name, depth) or win screen ("Surface" for depth 0) with st_kills, st_turn, st_depth_best and
+;;                   ui_score; drains pending input, ignores keys for END_GRACE_FRAMES (10) frames, then waits for a key (Q quits, any other key plays again)
 ;; ui_msg         r0=str            -> -       start a new message: copy the string (truncated to MSG_LEN-1) into the next ring slot, attr A_MSG, make it st_msg_head
 ;; ui_msg_add     r0=str            -> -       append a string to the newest message (truncated)
 ;; ui_msg_addn    r0=n              -> -       append signed decimal n to the newest message
@@ -334,12 +334,22 @@ ui_draw:
         ld r4, ui_c_divider
         bl ui_fast_fill
 
-        ; 2. Row PR_TITLE (0): "SCRAPCORE  Depth 10  Turn 123"
+        ; 2. Row PR_TITLE (0): "SCRAPCORE  Depth 10  Turn 123" (or "Surface" when depth <= 0)
         mov r0, PR_TITLE
         mov r1, PANEL_COL+1
         lea r2, ui_s_title
         ld r3, ui_a_title
         bl ui_fast_text
+        ld r2, st_depth
+        cmp r2, 0
+        brp ui_draw_depth_n
+        mov r0, PR_TITLE
+        mov r1, PANEL_COL+12
+        lea r2, ui_s_surface
+        ld r3, ui_a_good
+        bl ui_fast_text
+        br ui_draw_turn
+ui_draw_depth_n:
         mov r0, PR_TITLE
         mov r1, PANEL_COL+12
         lea r2, ui_s_depth
@@ -349,9 +359,11 @@ ui_draw:
         mov r0, PR_TITLE
         ld r2, st_depth
         bl ui_fast_num
+ui_draw_turn:
         mov r0, PR_TITLE
         mov r1, PANEL_COL+22
         lea r2, ui_s_turn
+        ld r3, ui_a_text
         bl ui_fast_text
         mov r1, r0
         mov r0, PR_TITLE
@@ -597,15 +609,261 @@ ui_di_puttag:
         ld r0, ui_tmp_row
         mov r1, PANEL_COL+1
         bl video_put
-        ; body
+        ; body: "<kind> <name> <stat> <hp>/<max>" (or "-")
         ld r0, ui_tmp_row
         ld r1, ui_tmp_part
         ld r2, ui_tmp_hp
-        bl ui_draw_slot_body
+        bl ui_draw_inv_body
         ld r0, ui_tmp_i
         add r0, r0, 1
         cmp r0, NUM_INV
         brlt ui_di_lp
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; ---- helper: ui_kind_char (r0=PK_*) -> r0='P'|'E'|'W'|'U'|'?' -------
+ui_kind_char:
+        push r1
+        cmp r0, PK_PROP
+        brlt ui_kc_unk
+        cmp r0, PK_UTIL
+        brgt ui_kc_unk
+        lea r1, ui_kind_chars
+        add r1, r1, r0
+        ldr r0, r1, 0
+        pop r1
+        ret
+ui_kc_unk:
+        mov r0, '?'
+        pop r1
+        ret
+
+; ---- helper: ui_draw_part_stat (r0=row, r1=col, r2=rec, r3=attr) -> r0=next_col
+; Compact key stat per kind: weapon "<dmin>-<dmax> r<range>" / "mel",
+; propulsion "m<cost>", power "+<regen>", util "a<v>"/"s+<v>"/"rep<v>"/"+<v>%"
+ui_draw_part_stat:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        st r0, ui_tmp_psrow
+        st r1, ui_tmp_pscol
+        st r3, ui_tmp_psattr
+        mov r4, r2              ; r4 = catalog record
+        ldr r0, r4, P_KIND
+        cmp r0, PK_WEAPON
+        brz ui_dps_weap
+        cmp r0, PK_PROP
+        brz ui_dps_prop
+        cmp r0, PK_POWER
+        brz ui_dps_pow
+        cmp r0, PK_UTIL
+        brz ui_dps_util
+        ld r0, ui_tmp_pscol
+        br ui_dps_done
+ui_dps_weap:
+        ld r0, ui_tmp_psrow
+        ld r1, ui_tmp_pscol
+        ldr r2, r4, P_W_DMIN
+        ld r3, ui_tmp_psattr
+        bl ui_fast_num
+        mov r1, r0
+        ld r0, ui_tmp_psrow
+        lea r2, ui_s_dash
+        bl ui_fast_text
+        mov r1, r0
+        ld r0, ui_tmp_psrow
+        ldr r2, r4, P_W_DMAX
+        bl ui_fast_num
+        mov r1, r0
+        ldr r2, r4, P_W_MELEE
+        cmp r2, 0
+        brnz ui_dps_wmel
+        ld r0, ui_tmp_psrow
+        lea r2, ui_s_sp_r
+        bl ui_fast_text
+        mov r1, r0
+        ld r0, ui_tmp_psrow
+        ldr r2, r4, P_W_RANGE
+        bl ui_fast_num
+        br ui_dps_done
+ui_dps_wmel:
+        ld r0, ui_tmp_psrow
+        lea r2, ui_s_sp_mel
+        bl ui_fast_text
+        br ui_dps_done
+ui_dps_prop:
+        ld r0, ui_tmp_psrow
+        ld r1, ui_tmp_pscol
+        lea r2, ui_s_m
+        ld r3, ui_tmp_psattr
+        bl ui_fast_text
+        mov r1, r0
+        ld r0, ui_tmp_psrow
+        ldr r2, r4, P_M_COST
+        bl ui_fast_num
+        br ui_dps_done
+ui_dps_pow:
+        ld r0, ui_tmp_psrow
+        ld r1, ui_tmp_pscol
+        lea r2, ui_s_plus
+        ld r3, ui_tmp_psattr
+        bl ui_fast_text
+        mov r1, r0
+        ld r0, ui_tmp_psrow
+        ldr r2, r4, P_E_REGEN
+        bl ui_fast_num
+        br ui_dps_done
+ui_dps_util:
+        ldr r0, r4, P_U_TYPE
+        cmp r0, UT_ARMOR
+        brz ui_dps_uarm
+        cmp r0, UT_SENSOR
+        brz ui_dps_usen
+        cmp r0, UT_REPAIR
+        brz ui_dps_urep
+        cmp r0, UT_TARGET
+        brz ui_dps_utgt
+        ld r0, ui_tmp_pscol
+        br ui_dps_done
+ui_dps_uarm:
+        ld r0, ui_tmp_psrow
+        ld r1, ui_tmp_pscol
+        lea r2, ui_s_a
+        ld r3, ui_tmp_psattr
+        bl ui_fast_text
+        mov r1, r0
+        ld r0, ui_tmp_psrow
+        ldr r2, r4, P_U_VALUE
+        bl ui_fast_num
+        br ui_dps_done
+ui_dps_usen:
+        ld r0, ui_tmp_psrow
+        ld r1, ui_tmp_pscol
+        lea r2, ui_s_splus
+        ld r3, ui_tmp_psattr
+        bl ui_fast_text
+        mov r1, r0
+        ld r0, ui_tmp_psrow
+        ldr r2, r4, P_U_VALUE
+        bl ui_fast_num
+        br ui_dps_done
+ui_dps_urep:
+        ld r0, ui_tmp_psrow
+        ld r1, ui_tmp_pscol
+        lea r2, ui_s_rep
+        ld r3, ui_tmp_psattr
+        bl ui_fast_text
+        mov r1, r0
+        ld r0, ui_tmp_psrow
+        ldr r2, r4, P_U_VALUE
+        bl ui_fast_num
+        br ui_dps_done
+ui_dps_utgt:
+        ld r0, ui_tmp_psrow
+        ld r1, ui_tmp_pscol
+        lea r2, ui_s_plus
+        ld r3, ui_tmp_psattr
+        bl ui_fast_text
+        mov r1, r0
+        ld r0, ui_tmp_psrow
+        ldr r2, r4, P_U_VALUE
+        bl ui_fast_num
+        mov r1, r0
+        ld r0, ui_tmp_psrow
+        lea r2, ui_s_pct
+        bl ui_fast_text
+ui_dps_done:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; ---- helper: ui_draw_inv_body (r0=row, r1=part_id, r2=hp) -----------
+; Format: "<K> <Name(<=12)> <stat(<=8)> <hp>/<max>" (fits inside 35-col panel)
+ui_draw_inv_body:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        st r0, ui_tmp_srow
+        st r2, ui_tmp_shp
+        cmp r1, PART_NONE
+        brz ui_dib_empty
+        mov r0, r1
+        bl prt_info             ; r0 = catalog record or 0
+        cmp r0, 0
+        brz ui_dib_fallback
+        st r0, ui_tmp_ptr
+        ldr r3, r0, P_MAXHP
+        st r3, ui_tmp_smax
+        ; kind letter at PANEL_COL+3
+        ldr r0, r0, P_KIND
+        bl ui_kind_char
+        ld r3, ui_a_label
+        or r0, r3
+        mov r2, r0
+        ld r0, ui_tmp_srow
+        mov r1, PANEL_COL+3
+        bl video_put
+        ; part name at PANEL_COL+5 (clipped to PART_NAME_MAX)
+        ld r4, ui_tmp_ptr
+        ldr r2, r4, P_NAME
+        ld r0, ui_tmp_srow
+        mov r1, PANEL_COL+5
+        ld r3, ui_a_text
+        mov r4, PART_NAME_MAX
+        bl ui_fast_text_n
+        ; key stat at PANEL_COL+18
+        ld r0, ui_tmp_srow
+        mov r1, PANEL_COL+18
+        ld r2, ui_tmp_ptr
+        ld r3, ui_a_dim
+        bl ui_draw_part_stat
+        ; integrity hp/max at PANEL_COL+27
+        ld r0, ui_tmp_srow
+        mov r1, PANEL_COL+27
+        ld r2, ui_tmp_shp
+        ld r3, ui_a_text
+        bl ui_fast_num
+        mov r1, r0
+        ld r0, ui_tmp_srow
+        lea r2, ui_s_slash
+        ld r3, ui_a_dim
+        bl ui_fast_text
+        mov r1, r0
+        ld r0, ui_tmp_srow
+        ld r2, ui_tmp_smax
+        ld r3, ui_a_dim
+        bl ui_fast_num
+        br ui_dib_done
+ui_dib_fallback:
+        mov r0, r1
+        bl prt_name
+        mov r2, r0
+        ld r0, ui_tmp_srow
+        mov r1, PANEL_COL+3
+        ld r3, ui_a_dim
+        mov r4, PART_NAME_MAX
+        bl ui_fast_text_n
+        br ui_dib_done
+ui_dib_empty:
+        ld r0, ui_tmp_srow
+        mov r1, PANEL_COL+3
+        lea r2, ui_s_dash
+        ld r3, ui_a_dim
+        bl ui_fast_text
+ui_dib_done:
         pop lr
         pop r4
         pop r3
@@ -861,6 +1119,7 @@ ui_draw_here:
         push r1
         push r2
         push r3
+        push r4
         push lr
         ld r0, st_px
         ld r1, st_py
@@ -873,21 +1132,64 @@ ui_draw_here:
         ldr r0, r1, I_PART
         cmp r0, PART_NONE
         brz ui_dh_done
-        bl prt_name             ; r0 = part name string
-        mov r2, r0
-        st r2, ui_tmp_ptr
+        st r0, ui_tmp_part
+        bl prt_info             ; r0 = catalog record or 0
+        st r0, ui_tmp_ptr
         mov r0, PR_HERE
         mov r1, PANEL_COL+1
         lea r2, ui_s_here
         ld r3, ui_a_label
         bl ui_fast_text
         mov r1, r0
+        ld r4, ui_tmp_ptr
+        cmp r4, 0
+        brz ui_dh_fallback
+        ; "<Name> [<K> <stat>]"
         mov r0, PR_HERE
-        ld r2, ui_tmp_ptr
+        ldr r2, r4, P_NAME
+        ld r3, ui_a_text
+        bl ui_fast_text
+        mov r1, r0
+        mov r0, PR_HERE
+        lea r2, ui_s_lbr
+        ld r3, ui_a_dim
+        bl ui_fast_text
+        mov r1, r0
+        ldr r0, r4, P_KIND
+        bl ui_kind_char
+        ld r3, ui_a_label
+        or r0, r3
+        mov r2, r0
+        mov r0, PR_HERE
+        bl video_put
+        add r1, r1, 1
+        mov r0, PR_HERE
+        lea r2, ui_s_sp
+        ld r3, ui_a_dim
+        bl ui_fast_text
+        mov r1, r0
+        mov r0, PR_HERE
+        mov r2, r4
+        ld r3, ui_a_text
+        bl ui_draw_part_stat
+        mov r1, r0
+        mov r0, PR_HERE
+        lea r2, ui_s_rbr
+        ld r3, ui_a_dim
+        bl ui_fast_text
+        br ui_dh_done
+ui_dh_fallback:
+        st r1, ui_tmp_col
+        ld r0, ui_tmp_part
+        bl prt_name
+        mov r2, r0
+        mov r0, PR_HERE
+        ld r1, ui_tmp_col
         ld r3, ui_a_text
         bl ui_fast_text
 ui_dh_done:
         pop lr
+        pop r4
         pop r3
         pop r2
         pop r1
@@ -1284,6 +1586,14 @@ ui_tit_art_go:
         bl ui_fast_text
 
         bl video_present
+        ; Drain pending input when returning from a game (preserve frame-0 key on cold boot)
+        ld r0, st_frame
+        cmp r0, 0
+        brz ui_title_lp
+ui_title_drain:
+        nbain r0
+        cmp r0, 0
+        brnz ui_title_drain
 ui_title_lp:
         mov r0, FRAME_MS
         sleep r0
@@ -1408,20 +1718,32 @@ ui_end_summary:
         lea r2, ui_se_sum_hdr
         ld r3, ui_a_label
         bl ui_fast_text
-        ; Shallowest depth reached
+        ; Shallowest depth reached ("Surface" when depth_best <= 0 / won)
         mov r0, 14
         mov r1, 28
         lea r2, ui_se_best
         ld r3, ui_a_text
         bl ui_fast_text
+        ld r2, st_depth_best
+        cmp r2, 0
+        brp ui_end_best_n
         mov r0, 14
         mov r1, 52
-        ld r2, st_depth_best
+        lea r2, ui_s_surface
+        ld r3, ui_a_good
+        bl ui_fast_text
+        br ui_end_kills
+ui_end_best_n:
+        mov r0, 14
+        mov r1, 52
+        ld r3, ui_a_text
         bl ui_fast_num
+ui_end_kills:
         ; Robots destroyed
         mov r0, 15
         mov r1, 28
         lea r2, ui_se_kills
+        ld r3, ui_a_text
         bl ui_fast_text
         mov r0, 15
         mov r1, 52
@@ -1464,9 +1786,25 @@ ui_end_summary:
         bl ui_fast_text
 
         bl video_present
+        ; Drain any leftover keys from the fatal/win frame
+ui_end_drain:
+        nbain r0
+        cmp r0, 0
+        brnz ui_end_drain
+        ; Ignore keys during the first END_GRACE_FRAMES (~10) frames so the player sees the screen
+        mov r4, END_GRACE_FRAMES
 ui_end_lp:
         mov r0, FRAME_MS
         sleep r0
+        cmp r4, 0
+        brz ui_end_read
+        sub r4, r4, 1
+ui_end_ign:
+        nbain r0
+        cmp r0, 0
+        brnz ui_end_ign
+        br ui_end_lp
+ui_end_read:
         nbain r0
         cmp r0, 0
         brz ui_end_lp
@@ -1833,6 +2171,9 @@ ui_tmp_col:     .word 0
 ui_tmp_nrow:    .word 0
 ui_tmp_artl:    .word 0
 ui_tmp_artr:    .word 0
+ui_tmp_psrow:   .word 0
+ui_tmp_pscol:   .word 0
+ui_tmp_psattr:  .word 0
 ui_numbuf:      .zero 7
 ui_numend:      .word 0
 
@@ -1883,6 +2224,14 @@ ui_slot_letters:
         .word 'U'
         .word 'U'
 
+; kind letter indexed by PK_NONE..PK_UTIL
+ui_kind_chars:
+        .word '?'
+        .word 'P'
+        .word 'E'
+        .word 'W'
+        .word 'U'
+
 ; help row strings indexed by st_mode (MODE_MAP..MODE_QUIT)
 ui_help_tbl:
         .word ui_s_help_map
@@ -1904,6 +2253,7 @@ ui_s_help_quit:   .string "Quit? y = yes, any other key = no"
 ; panel strings
 ui_s_title:     .string "SCRAPCORE"
 ui_s_depth:     .string "Depth "
+ui_s_surface:   .string "Surface"
 ui_s_turn:      .string "Turn "
 ui_s_core:      .string "Core"
 ui_s_energy:    .string "Energy"
@@ -1920,6 +2270,17 @@ ui_s_pct_dist:  .string "%  Dist "
 ui_s_oor:       .string "Out of range  Dist "
 ui_s_norng:     .string "No ranged  Dist "
 ui_s_here:      .string "Here: "
+ui_s_lbr:       .string " ["
+ui_s_rbr:       .string "]"
+ui_s_sp:        .string " "
+ui_s_sp_r:      .string " r"
+ui_s_sp_mel:    .string " mel"
+ui_s_m:         .string "m"
+ui_s_plus:      .string "+"
+ui_s_a:         .string "a"
+ui_s_splus:     .string "s+"
+ui_s_rep:       .string "rep"
+ui_s_pct:       .string "%"
 ui_s_min_i16:   .string "-32768"
 
 ; help overlay table: (row, attr, str_ptr) as 3 words each, terminated by row=0

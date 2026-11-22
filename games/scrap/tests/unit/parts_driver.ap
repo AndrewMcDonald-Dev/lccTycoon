@@ -89,6 +89,12 @@ drv_cat_fail:
 drv_cat_done:
         st r2, drv_cat_ok
 
+        ; Rivet Gun range == 7
+        mov r0, PT_RIVET_GUN
+        bl prt_info
+        ldr r0, r0, P_W_RANGE
+        st r0, drv_rivet_range  ; expect 7
+
         ; ---- 2. Attach to free slot, swap when full, wrong-kind, detach -----
         ; inv_add Pulse Rifle (weapon) -> attach into free weapon slot 5
         mov r0, PT_PULSE_RIFLE
@@ -103,23 +109,25 @@ drv_cat_done:
         ldr r0, r1, 5*SLOT_SIZE+S_HP
         st r0, drv_slot5_hp     ; expect 14
 
-        ; all 3 weapon slots full (3,4,5); attach Coil Lance -> swaps with slot 3
-        ; (must NOT go into free utility slots 6 or 7)
+        ; all 3 weapon slots full (3: 12/12, 4: 15/15, 5: 14/18); attach Coil Lance ->
+        ; swaps with slot 5 (lowest integrity ratio 14/18 = 77.8%; must NOT go into free utility slots 6 or 7)
         mov r0, PT_COIL_LANCE
         mov r1, 20
         bl prt_inv_add
         mov r2, r0              ; inv idx (0)
         bl prt_attach
-        st r0, drv_att_swap     ; expect 3
+        st r0, drv_att_swap     ; expect 5
         lea r1, st_slots
         ldr r0, r1, 3*SLOT_SIZE+S_PART
-        st r0, drv_slot3_part   ; expect PT_COIL_LANCE (17)
+        st r0, drv_slot3_part   ; expect PT_RIVET_GUN (13, preserved!)
+        ldr r0, r1, 5*SLOT_SIZE+S_PART
+        st r0, drv_slot5_swap   ; expect PT_COIL_LANCE (17)
         ldr r0, r1, 6*SLOT_SIZE+S_PART
         st r0, drv_slot6_still0 ; expect 0 (wrong kind did not enter util slot)
         lea r1, st_inv
-        ldr r0, r1, S_PART      ; inv[0] should now hold old Rivet Gun (13)
+        ldr r0, r1, S_PART      ; inv[0] should now hold old Pulse Rifle (15)
         st r0, drv_swap_inv_p
-        ldr r0, r1, S_HP        ; old Rivet Gun hp (12)
+        ldr r0, r1, S_HP        ; old Pulse Rifle hp (14)
         st r0, drv_swap_inv_hp
 
         ; wrong-kind: power slot (2) full while utility slots free -> swaps slot 2
@@ -296,6 +304,34 @@ drv_tk_cap:
         ld r0, st_core_hp
         st r0, drv_rep_core     ; expect 36
 
+        ; fractional repair: core 20/40 (50% missing) vs Stub Legs 18/20 (10% missing) -> repairs core!
+        mov r0, 18
+        str r0, r1, 0*SLOT_SIZE+S_HP
+        mov r0, 20
+        st r0, st_core_hp
+        mov r0, 150
+        bl prt_tick
+        mov r0, 150
+        bl prt_tick
+        ld r0, st_core_hp
+        st r0, drv_rep_core_frac ; expect 21
+        ldr r0, r1, 0*SLOT_SIZE+S_HP
+        st r0, drv_rep_part_stay ; expect 18
+
+        ; fractional tie: core 20/40 (50%) vs Stub Legs 10/20 (50%) -> prefers core!
+        mov r0, 10
+        str r0, r1, 0*SLOT_SIZE+S_HP
+        mov r0, 20
+        st r0, st_core_hp
+        mov r0, 150
+        bl prt_tick
+        mov r0, 150
+        bl prt_tick
+        ld r0, st_core_hp
+        st r0, drv_rep_tie_core ; expect 21
+        ldr r0, r1, 0*SLOT_SIZE+S_HP
+        st r0, drv_rep_tie_part ; expect 10
+
         ; ---- 5. Damage spread, armor reduction, destruction, core death -----
         ; fixed seed: 40 hits of 1 dmg on starting loadout -> hits both parts and core
         mov r0, 42
@@ -308,7 +344,10 @@ drv_tk_cap:
         mov r3, 0               ; core hits
 drv_dmg_spread:
         mov r0, 1
+        mov r4, r1
+        mov r1, 0
         bl prt_damage
+        mov r1, r4
         cmp r0, -1
         brz drv_ds_core
         add r2, r2, 1
@@ -353,9 +392,12 @@ drv_arm_lp1:
         mov r0, 40
         st r0, st_core_hp
         mov r0, 5
+        lea r1, drv_dest_out
         bl prt_damage
         cmp r0, 6
         brnz drv_arm_lp1
+        ld r0, drv_dest_out
+        st r0, drv_surv_dest    ; expect -1 (part survived)
         lea r1, st_slots
         ldr r0, r1, 6*SLOT_SIZE+S_HP
         st r0, drv_armor_hp1    ; expect 47 (50 - (5-2))
@@ -364,6 +406,7 @@ drv_arm_lp2:
         mov r0, 40
         st r0, st_core_hp
         mov r0, 1
+        mov r1, 0
         bl prt_damage
         cmp r0, 6
         brnz drv_arm_lp2
@@ -371,7 +414,7 @@ drv_arm_lp2:
         ldr r0, r1, 6*SLOT_SIZE+S_HP
         st r0, drv_armor_hp2    ; expect 46 (47 - 1)
 
-        ; destruction message + empty slot + recalc: ONLY Optic Mast (hp 2) in slot 6
+        ; destruction out-param + empty slot + recalc (no ui_msg): ONLY Optic Mast (hp 2) in slot 6
         mov r0, 6
         bl prt_detach
         mov r0, 0
@@ -387,23 +430,29 @@ drv_dest_lp:
         mov r0, 40
         st r0, st_core_hp
         mov r0, 5
+        lea r1, drv_dest_out
         bl prt_damage
         cmp r0, 6
         brnz drv_dest_lp
+        ld r0, drv_dest_out
+        st r0, drv_dest_pid     ; expect PT_OPTIC_MAST (21)
         lea r1, st_slots
         ldr r0, r1, 6*SLOT_SIZE+S_PART
         st r0, drv_dest_slot    ; expect 0 (emptied)
         ld r0, st_sight
         st r0, drv_dest_sight   ; expect 8 (recalculated)
 
-        ; core death: 0 parts attached -> guaranteed core hit; core 5 - 10 -> 0, GAME_DEAD
+        ; core death: 0 parts attached -> guaranteed core hit; core 5 - 10 -> 0, GAME_DEAD, out_destroyed=-1
         mov r0, 5
         st r0, st_core_hp
         mov r0, GAME_PLAY
         st r0, st_game_state
         mov r0, 10
+        lea r1, drv_dest_out
         bl prt_damage
         st r0, drv_dead_ret     ; expect -1
+        ld r0, drv_dest_out
+        st r0, drv_dead_dest    ; expect -1
         ld r0, st_core_hp
         st r0, drv_dead_hp      ; expect 0
         ld r0, st_game_state
@@ -463,6 +512,7 @@ drv_sp_lp:
         mov r0, 40
         st r0, st_core_hp
         mov r0, 3
+        mov r1, 0
         bl prt_damage
         cmp r0, 6
         brnz drv_sp_lp
@@ -480,6 +530,7 @@ drv_sp_lp:
         mov r0, GAME_PLAY
         st r0, st_game_state
         mov r0, 5
+        mov r1, 0
         bl prt_damage
         ld r0, st_core_hp
         st r0, drv_exact0_hp    ; expect 0
@@ -503,6 +554,78 @@ drv_sp_lp:
         bl prt_attach
         st r0, drv_att_oob      ; -1
 
+        ; ---- 8. prt_attach full-slot swap: lowest integrity ratio & ties -> last slot
+        ; 8a. All 3 weapon slots at 100% -> ties go to last slot (slot 5)
+        bl prt_init
+        mov r0, PT_PULSE_RIFLE
+        mov r1, 18
+        bl prt_inv_add
+        bl prt_attach           ; slot 5 (now 3=12/12, 4=15/15, 5=18/18)
+        mov r0, PT_COIL_LANCE
+        mov r1, 22
+        bl prt_inv_add
+        bl prt_attach
+        st r0, drv_sw_tie_all   ; expect 5 (last weapon slot)
+
+        ; 8b. Middle slot damaged (3=12/12, 4=5/15=33%, 5=20/22=91%) -> swaps slot 4
+        lea r1, st_slots
+        mov r0, 5
+        str r0, r1, 4*SLOT_SIZE+S_HP
+        mov r0, 20
+        str r0, r1, 5*SLOT_SIZE+S_HP
+        mov r0, 0
+        bl prt_inv_clear
+        mov r0, PT_SCATTER
+        mov r1, 14
+        bl prt_inv_add
+        bl prt_attach
+        st r0, drv_sw_mid       ; expect 4
+
+        ; 8c. Ratio beats raw missing HP: 3=Rivet Gun 6/12 (50%, miss 6),
+        ;     4=Ram Hammer 25/35 (71%, miss 10), 5=Coil Lance 22/22 (100%) -> swaps slot 3
+        lea r1, st_slots
+        mov r0, PT_RIVET_GUN
+        str r0, r1, 3*SLOT_SIZE+S_PART
+        mov r0, 6
+        str r0, r1, 3*SLOT_SIZE+S_HP
+        mov r0, PT_RAM_HAMMER
+        str r0, r1, 4*SLOT_SIZE+S_PART
+        mov r0, 25
+        str r0, r1, 4*SLOT_SIZE+S_HP
+        mov r0, PT_COIL_LANCE
+        str r0, r1, 5*SLOT_SIZE+S_PART
+        mov r0, 22
+        str r0, r1, 5*SLOT_SIZE+S_HP
+        mov r0, 0
+        bl prt_inv_clear
+        mov r0, PT_PULSE_RIFLE
+        mov r1, 18
+        bl prt_inv_add
+        bl prt_attach
+        st r0, drv_sw_ratio     ; expect 3
+
+        ; 8d. Two slots tied at lowest ratio 50% (3=6/12, 4=9/18, 5=22/22) -> swaps later (slot 4)
+        lea r1, st_slots
+        mov r0, PT_RIVET_GUN
+        str r0, r1, 3*SLOT_SIZE+S_PART
+        mov r0, 6
+        str r0, r1, 3*SLOT_SIZE+S_HP
+        mov r0, PT_PULSE_RIFLE
+        str r0, r1, 4*SLOT_SIZE+S_PART
+        mov r0, 9
+        str r0, r1, 4*SLOT_SIZE+S_HP
+        mov r0, PT_COIL_LANCE
+        str r0, r1, 5*SLOT_SIZE+S_PART
+        mov r0, 22
+        str r0, r1, 5*SLOT_SIZE+S_HP
+        mov r0, 0
+        bl prt_inv_clear
+        mov r0, PT_SCATTER
+        mov r1, 14
+        bl prt_inv_add
+        bl prt_attach
+        st r0, drv_sw_tie_lo    ; expect 4
+
         ; register preservation across prt_* calls (r1..r4 sentinels)
         mov r1, 111
         mov r2, 222
@@ -525,10 +648,38 @@ drv_sp_lp:
         bl prt_tick
         mov r0, 5
         bl prt_random_part
-        mov r0, 1
-        bl prt_damage
         mov r0, 111
         cmp r1, r0
+        brnz drv_reg_bad
+        mov r0, 222
+        cmp r2, r0
+        brnz drv_reg_bad
+        mov r0, 33
+        cmp r3, r0
+        brnz drv_reg_bad
+        mov r0, 44
+        cmp r4, r0
+        brnz drv_reg_bad
+        ; prt_damage preserves r1..r4 (both with out_destroyed ptr and with r1=0)
+        mov r0, 1
+        lea r1, drv_dest_out
+        bl prt_damage
+        lea r0, drv_dest_out
+        cmp r1, r0
+        brnz drv_reg_bad
+        mov r0, 222
+        cmp r2, r0
+        brnz drv_reg_bad
+        mov r0, 33
+        cmp r3, r0
+        brnz drv_reg_bad
+        mov r0, 44
+        cmp r4, r0
+        brnz drv_reg_bad
+        mov r0, 1
+        mov r1, 0
+        bl prt_damage
+        cmp r1, 0
         brnz drv_reg_bad
         mov r0, 222
         cmp r2, r0
@@ -717,6 +868,20 @@ drv_det_empty:      .word 99
 drv_att_neg:        .word 99
 drv_att_oob:        .word 99
 drv_regs_ok:        .word 99
+drv_rivet_range:    .word 99
+drv_slot5_swap:     .word 99
+drv_rep_core_frac:  .word 99
+drv_rep_part_stay:  .word 99
+drv_rep_tie_core:   .word 99
+drv_rep_tie_part:   .word 99
+drv_dest_out:       .word 99
+drv_surv_dest:      .word 99
+drv_dest_pid:       .word 99
+drv_dead_dest:      .word 99
+drv_sw_tie_all:     .word 99
+drv_sw_mid:         .word 99
+drv_sw_ratio:       .word 99
+drv_sw_tie_lo:      .word 99
 drv_msg_count:      .word 0
 drv_msg_attr:       .word 0
 drv_msg_end:        .word drv_msg_buf

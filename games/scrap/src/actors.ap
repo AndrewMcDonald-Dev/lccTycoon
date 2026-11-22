@@ -25,7 +25,7 @@
 ;; act_name         r0=index            -> r0=name string of that enemy's type
 ;; act_kill         r0=index            -> -        free the record (combat calls it after drops)
 ;; act_next_visible r0=from r1=dir      -> r0=index of the next enemy (any type) on a fov_visible tile after index `from` in pool order (r1 = +1 / -1, wrapping); from = -1 →
-;;                   the nearest visible enemy; -1 if none visible
+;;                   the nearest visible enemy (preferring hostile over AI_WORKER); -1 if none visible
 ; ---------------------------------------------------------------------
 
 ; =====================================================================
@@ -1590,7 +1590,7 @@ act_nv_wrap_ok:
         ld r0, act_nv_cur
         br act_nv_ret
 
-        ; from < 0: pick nearest visible enemy (ties -> lower index)
+        ; from < 0: pick nearest visible enemy, preferring hostile over AI_WORKER (ties -> lower index)
 act_nv_nearest:
         mov r0, -1
         st r0, act_nv_best
@@ -1622,6 +1622,21 @@ act_nv_near_chk:
         ld r2, st_px
         ld r3, st_py
         bl dun_dist
+        st r0, act_nv_cdist
+        ; Penalize non-hostile AI_WORKER so any visible hostile is preferred first
+        ldr r0, r4, E_TYPE
+        bl act_type_info
+        cmp r0, 0
+        brz act_nv_near_cmp
+        ldr r1, r0, ET_AI
+        cmp r1, AI_WORKER
+        brne act_nv_near_cmp
+        ld r0, act_nv_cdist
+        ld r1, act_c_worker_pen
+        add r0, r0, r1
+        st r0, act_nv_cdist
+act_nv_near_cmp:
+        ld r0, act_nv_cdist
         ld r1, act_nv_bdist
         cmp r0, r1
         brlt act_nv_near_take
@@ -1714,10 +1729,10 @@ act_types:
         .word 20
         .word 0
         .word 100
-        .word 3
-        .word 6
+        .word 2
+        .word 5
         .word 8
-        .word 65
+        .word 55
         .word AI_TURRET
         .word 1
         .word 8
@@ -1732,8 +1747,8 @@ act_types:
         .word 40
         .word 150
         .word 120
-        .word 5
-        .word 10
+        .word 4
+        .word 8
         .word 1
         .word 70
         .word AI_MELEE
@@ -1868,6 +1883,7 @@ act_c_mapsize:    .word MAP_SIZE
 act_c_south_lim:  .word MAP_SIZE-MAP_W
 act_c_rebase:     .word TIME_REBASE
 act_c_inf:        .word 9999
+act_c_worker_pen: .word 1000
 
 ; Spawn scratch
 act_sp_type:    .word 0
@@ -1929,6 +1945,7 @@ act_nv_cur:     .word 0
 act_nv_left:    .word 0
 act_nv_best:    .word 0
 act_nv_bdist:   .word 0
+act_nv_cdist:   .word 0
 
 ; Private BFS arrays (3072 words, budgeted in DESIGN.md)
 act_dist:       .zero MAP_SIZE

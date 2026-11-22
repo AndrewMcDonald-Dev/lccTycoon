@@ -19,9 +19,9 @@ DESIGN.md.
 | WP7 | Robots: types, spawning, scheduler, AI | src/actors.ap, tests/unit/actors_* | WP1, WP2 | lcc-simulation | 2 | done |
 | WP8 | Combat | src/combat.ap, tests/unit/combat_* | WP3, WP6, WP7 | lcc-simulation | 3 | done |
 | WP9 | Player input + actions + integration | src/player.ap, main.ap (integration fixes only), tests/play.test.json | WP3, WP4, WP6, WP7 | lcc-game-dev | 3 | done |
-| QA-1 | Review + scripted playthroughs | tests/qa1.test.json (+ findings report) | wave 3 | lcc-qa | 4 | active |
-| WP10 | Balance + polish (QA-1 fixes, tuning) | per finding: defs tuning (ARCH), catalog in parts.ap, act_types in actors.ap, ui text | QA-1 | lcc-qa + domain | 5 | active |
-| QA-2 | Final playtest: win path, death path, perf | tests/qa2.test.json | WP10 | lcc-qa | 5 | todo |
+| QA-1 | Review + scripted playthroughs | tests/qa1.test.json (+ findings report) | wave 3 | lcc-qa | 4 | done |
+| WP10 | Balance + polish (QA-1 fixes, tuning) | per finding: defs tuning (ARCH), catalog in parts.ap, act_types in actors.ap, ui text | QA-1 | lcc-qa + domain | 5 | done |
+| QA-2 | Final playtest: win path, death path, perf | tests/qa2.test.json | WP10 | lcc-qa | 5 | done |
 
 Waves (files are disjoint within a wave):
 - **Wave 1:** WP1, WP2, WP3, WP4. WP2's drivers write st_map directly. WP4 uses fake
@@ -156,6 +156,7 @@ by reading st_stairs_x/y and scripting a path, or a debug-free scenario seed); E
 cancels every menu; arrows move. Look at the frames for every behavior.
 
 ## QA-1 — Review + scripted playthroughs
+**Log:** 2026-11-21 QA-1 (Opus): ~60 bot playthroughs, no crash/hang; 3 bugs (fire vs FOV mismatch, death screen skipped by typed-ahead key, message order), UX gaps, core attrition balance. Fixed in WP10a/WP10b (Neon); qa1 replays re-recorded; check 291/291.
 **Goal:** code review of every module against its contract (lcc-qa checklist), plus
 scripted playthroughs over several seeds: survive/die, climb at least two floors, part
 loss and re-equip. Findings as replayable BUG scenarios in tests/qa1.test.json.

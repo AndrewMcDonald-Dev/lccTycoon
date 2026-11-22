@@ -324,7 +324,7 @@
     {
       "name": "play again from death screen returns to title and starts a clean new game",
       "clock": 1000,
-      "keys": "<enter> h h y y y k y h*15 .*54 <space> <enter>",
+      "keys": "<enter> h h y y y k y h*15 .*54 _10 <space> <enter>",
       "expect": {
         "status": "frames-complete",
         "maxStepsPerFrame": 2000000,

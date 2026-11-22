@@ -19,15 +19,15 @@
 ;; prt_kind         r0=part id       -> r0=PK_* (PK_NONE for invalid)
 ;; prt_slot_kind    r0=slot          -> r0=PK_* that slot 0..NUM_SLOTS-1 accepts
 ;; prt_attach       r0=inv index     -> r0=slot attached to, or -1 (empty inventory entry). Uses the first free slot of the part's kind; if all are full, swaps with the
-;;                   first slot of that kind (old part goes to the vacated inventory entry). prt_recalc.
+;;                   attached part of that kind with the lowest integrity ratio (ties → last slot; old part goes to the vacated inventory entry). prt_recalc.
 ;; prt_detach       r0=slot          -> r0=inventory index it went to, -1 slot empty, -2 inventory full (nothing changed). prt_recalc.
 ;; prt_inv_add      r0=part r1=hp    -> r0=inventory index used, -1 inventory full
 ;; prt_inv_clear    r0=inv index     -> -        empty an inventory entry (callers read S_PART/S_HP first, e.g. to drop it)
-;; prt_damage       r0=damage        -> r0=slot hit 0..NUM_SLOTS-1, or -1 = the core. Core chance CORE_HIT_PCT + CORE_HIT_EMPTY × empty slots, else a random attached part
-;;                   weighted by P_COVER; armor parts reduce damage to themselves by P_U_VALUE (min 1). Part at 0 → slot emptied, message "<name> destroyed!" (ui_msg, A_BAD), prt_recalc. Core
-;;                   at 0 → st_core_hp=0 and st_game_state=GAME_DEAD (caller sets st_death_cause).
-;; prt_tick         r0=elapsed TU    -> -        per TIME_TURN accumulated: st_energy += st_regen (<= max); every st_repair_turns turns repair 1 point on the most damaged
-;;                   attached part (core if none damaged)
+;; prt_damage       r0=damage r1=out_destroyed -> r0=slot hit 0..NUM_SLOTS-1, or -1 = the core. If r1 != 0, stores destroyed part id (1..PART_COUNT) or -1 (none) to [r1]. Core
+;;                   chance CORE_HIT_PCT + CORE_HIT_EMPTY × empty slots, else a random attached part weighted by P_COVER; armor parts reduce damage to themselves by P_U_VALUE
+;;                   (min 1). Part at 0 → slot emptied, prt_recalc (caller posts "<name> destroyed!"). Core at 0 → st_core_hp=0 and st_game_state=GAME_DEAD (caller sets st_death_cause).
+;; prt_tick         r0=elapsed TU    -> -        per TIME_TURN accumulated: st_energy += st_regen (<= max); every st_repair_turns turns repair 1 point on whichever of the core or
+;;                   attached parts is missing the largest fraction of its max integrity (ties prefer core, then earlier slot)
 ;; prt_spend_energy r0=amount        -> r0=1 deducted, 0 not enough energy (nothing deducted)
 ;; prt_random_part  r0=depth         -> r0=random part id with P_TIER allowed at that depth (TIER2_DEPTH/TIER3_DEPTH)
 ;; prt_free_slots   ()               -> r0=number of empty loadout slots 0..NUM_SLOTS
@@ -367,7 +367,11 @@ prt_sk_ok:
 ;   fp-2  part
 ;   fp-3  hp
 ;   fp-4  kind
-;   fp-5  first_slot
+;   fp-5  swap_slot (-1 if none yet)
+;   fp-6  swap_hp
+;   fp-7  swap_max
+;   fp-8  cur_hp
+;   fp-9  cur_max
 prt_attach:
         push r1
         push r2
@@ -376,7 +380,7 @@ prt_attach:
         push lr
         push fp
         mov fp, sp
-        sub sp, sp, 5
+        sub sp, sp, 9
 
         cmp r0, 0
         brn prt_at_fail
@@ -399,9 +403,10 @@ prt_at_in:
         brz prt_at_fail
         str r0, fp, -4          ; kind
         mov r0, -1
-        str r0, fp, -5          ; first_slot = -1
+        str r0, fp, -5          ; swap_slot = -1
 
-        ; scan slots 0..NUM_SLOTS-1 for first free slot of matching kind
+        ; scan slots 0..NUM_SLOTS-1 for first free slot of matching kind;
+        ; meanwhile track occupied matching slot with lowest hp/max ratio (ties -> last slot)
         mov r3, 0
         lea r4, st_slots
 prt_at_lp:
@@ -410,15 +415,9 @@ prt_at_lp:
         ldr r1, fp, -4
         cmp r0, r1
         brnz prt_at_next
-        ; remember first matching slot
-        ldr r1, fp, -5
-        cmp r1, -1
-        brnz prt_at_chkfree
-        str r3, fp, -5
-prt_at_chkfree:
-        ldr r1, r4, S_PART
-        cmp r1, PART_NONE
-        brnz prt_at_next
+        ldr r0, r4, S_PART
+        cmp r0, PART_NONE
+        brnz prt_at_occ
         ; free matching slot found at r3 (ptr r4)
         ldr r0, fp, -2
         ldr r1, fp, -3
@@ -432,20 +431,50 @@ prt_at_chkfree:
         bl prt_recalc
         mov r0, r3
         br prt_at_out
+prt_at_occ:
+        ; occupied matching slot at r3: get cur_hp (r0) and cur_max (r1)
+        bl prt_info
+        cmp r0, 0
+        brz prt_at_occ_defmax
+        ldr r1, r0, P_MAXHP
+        cmp r1, 0
+        brp prt_at_occ_hp
+prt_at_occ_defmax:
+        mov r1, 1
+prt_at_occ_hp:
+        ldr r0, r4, S_HP
+        ldr r2, fp, -5          ; swap_slot
+        cmp r2, -1
+        bre prt_at_setswap
+        ; compare cur_hp / cur_max <= swap_hp / swap_max  <=>  cur_hp * swap_max <= swap_hp * cur_max
+        str r0, fp, -8          ; cur_hp
+        str r1, fp, -9          ; cur_max
+        ldr r2, fp, -7          ; swap_max
+        mul r0, r2              ; r0 = cur_hp * swap_max
+        ldr r2, fp, -6          ; swap_hp
+        mul r1, r2              ; r1 = cur_max * swap_hp
+        cmp r0, r1
+        brgt prt_at_next        ; cur ratio strictly higher -> keep current swap candidate
+        ldr r0, fp, -8
+        ldr r1, fp, -9
+prt_at_setswap:
+        str r3, fp, -5          ; swap_slot = r3
+        str r0, fp, -6          ; swap_hp = cur_hp
+        str r1, fp, -7          ; swap_max = cur_max
 prt_at_next:
         add r4, r4, SLOT_SIZE
         add r3, r3, 1
         cmp r3, NUM_SLOTS
         brlt prt_at_lp
 
-        ; no free slot: swap with first_slot of matching kind
+        ; no free slot: swap with swap_slot (lowest integrity ratio; ties -> last slot)
         ldr r3, fp, -5
         cmp r3, -1
-        brz prt_at_fail
+        bre prt_at_fail
         mov r2, r3
         sll r2, SLOT_SHIFT
         lea r4, st_slots
-        add r4, r4, r2          ; slot_ptr = &st_slots[first_slot]
+        add r4, r4, r2          ; slot_ptr = &st_slots[swap_slot]
         ldr r0, r4, S_PART      ; old_part
         ldr r1, r4, S_HP        ; old_hp
         ldr r2, fp, -1          ; inv_ptr
@@ -564,8 +593,10 @@ prt_ic_out:
         ret
 
 ; ---- damage spread over parts & core ----------------------------------------
+; r0 = damage, r1 = out_destroyed ptr (0 to ignore) -> r0 = slot hit or -1 (core)
 ; Locals relative to fp:
 ;   fp-1  dmg
+;   fp-2  out_destroyed ptr
 prt_damage:
         push r1
         push r2
@@ -574,8 +605,14 @@ prt_damage:
         push lr
         push fp
         mov fp, sp
-        sub sp, sp, 1
+        sub sp, sp, 2
         str r0, fp, -1          ; save damage
+        str r1, fp, -2          ; save out_destroyed ptr
+        cmp r1, 0
+        brz prt_dmg_noout
+        mov r2, -1
+        str r2, r1, 0           ; default: nothing destroyed
+prt_dmg_noout:
 
         ; check core hit chance: 100% if no parts attached
         bl prt_free_slots
@@ -663,18 +700,17 @@ prt_dmg_apply:
         ldr r2, r4, S_HP
         sub r2, r2, r1
         brp prt_dmg_survive
-        ; part destroyed: empty slot, post "<name> destroyed!" in A_BAD, recalc
-        ldr r1, r0, P_NAME
+        ; part destroyed: report destroyed part id, empty slot, recalc (caller posts message)
+        ldr r1, r4, S_PART      ; destroyed part id
+        ldr r2, fp, -2          ; out_destroyed ptr
+        cmp r2, 0
+        brz prt_dmg_d_clr
+        str r1, r2, 0
+prt_dmg_d_clr:
         mov r2, PART_NONE
         str r2, r4, S_PART
         mov r2, 0
         str r2, r4, S_HP
-        mov r0, r1
-        bl ui_msg
-        lea r0, prt_s_destroyed
-        bl ui_msg_add
-        ld r0, prt_a_bad
-        bl ui_msg_attr
         bl prt_recalc
         mov r0, r3
         br prt_dmg_out
@@ -764,7 +800,15 @@ prt_tk_out:
         pop r0
         ret
 
-; internal: repair 1 integrity on the most damaged attached part, or core if none damaged
+; internal: repair 1 integrity on whichever of the core or attached parts is
+; missing the largest fraction of its max integrity (ties prefer core, then
+; earlier slot).
+; Locals relative to fp:
+;   fp-1  best_miss
+;   fp-2  best_max
+;   fp-3  best_ptr (0 = core, else &st_slots[i])
+;   fp-4  cur_miss
+;   fp-5  cur_max
 prt_do_repair:
         push r0
         push r1
@@ -772,8 +816,23 @@ prt_do_repair:
         push r3
         push r4
         push lr
-        mov r1, 0               ; best_missing
-        mov r2, 0               ; best_slot_ptr
+        push fp
+        mov fp, sp
+        sub sp, sp, 5
+
+        ; Start with core as initial candidate
+        mov r0, CORE_MAX
+        ld r1, st_core_hp
+        sub r0, r0, r1          ; core missing = CORE_MAX - st_core_hp
+        brp prt_dr_core_init
+        mov r0, 0
+prt_dr_core_init:
+        str r0, fp, -1          ; best_miss
+        mov r0, CORE_MAX
+        str r0, fp, -2          ; best_max
+        mov r0, 0
+        str r0, fp, -3          ; best_ptr = 0 (core)
+
         mov r3, NUM_SLOTS
         lea r4, st_slots
 prt_dr_lp:
@@ -783,21 +842,39 @@ prt_dr_lp:
         bl prt_info
         cmp r0, 0
         brz prt_dr_next
-        ldr r0, r0, P_MAXHP
-        push r1
-        ldr r1, r4, S_HP
-        sub r0, r0, r1          ; missing = P_MAXHP - S_HP
-        pop r1
+        ldr r1, r0, P_MAXHP     ; r1 = max
+        cmp r1, 0
+        brlt prt_dr_next
+        brz prt_dr_next
+        ldr r2, r4, S_HP
+        sub r0, r1, r2          ; r0 = miss = max - S_HP
+        brlt prt_dr_next
+        brz prt_dr_next
+        ; Compare miss / max > best_miss / best_max  <=>  miss * best_max > best_miss * max
+        str r0, fp, -4          ; cur_miss
+        str r1, fp, -5          ; cur_max
+        ldr r2, fp, -2          ; best_max
+        mul r0, r2              ; r0 = miss * best_max
+        ldr r2, fp, -1          ; best_miss
+        mul r1, r2              ; r1 = max * best_miss
         cmp r0, r1
         brlt prt_dr_next
         bre prt_dr_next
-        mov r1, r0
-        mov r2, r4
+        ldr r0, fp, -4
+        ldr r1, fp, -5
+        str r0, fp, -1          ; best_miss = cur_miss
+        str r1, fp, -2          ; best_max = cur_max
+        str r4, fp, -3          ; best_ptr = slot ptr
 prt_dr_next:
         add r4, r4, SLOT_SIZE
         sub r3, r3, 1
         brp prt_dr_lp
 
+        ldr r0, fp, -1          ; best_miss
+        cmp r0, 0
+        brlt prt_dr_out
+        brz prt_dr_out
+        ldr r2, fp, -3          ; best_ptr
         cmp r2, 0
         brz prt_dr_core
         ldr r0, r2, S_HP
@@ -806,14 +883,11 @@ prt_dr_next:
         br prt_dr_out
 prt_dr_core:
         ld r0, st_core_hp
-        mov r1, CORE_MAX
-        cmp r0, r1
-        brlt prt_dr_core_inc
-        br prt_dr_out
-prt_dr_core_inc:
         add r0, r0, 1
         st r0, st_core_hp
 prt_dr_out:
+        mov sp, fp
+        pop fp
         pop lr
         pop r4
         pop r3
@@ -928,9 +1002,7 @@ prt_fs_next:
         ret
 
 ; ---- tables & strings -------------------------------------------------------
-prt_a_bad:      .word A_BAD
 prt_s_none:     .string "-"
-prt_s_destroyed: .string " destroyed!"
 
 prt_slot_kinds:
         .word PK_PROP           ; 0
@@ -1114,7 +1186,7 @@ prt_catalog:
         .word 1
         .zero 4
 
-        ; 13: PT_RIVET_GUN — weapon, tier 1, hp 12, cover 3, 2-4, range 6, energy 2, acc 70, melee 0
+        ; 13: PT_RIVET_GUN — weapon, tier 1, hp 12, cover 3, 2-4, range 7, energy 2, acc 70, melee 0
         .word PK_WEAPON
         .word prt_n_13
         .word GL_WEAPON|A_TIER1
@@ -1123,7 +1195,7 @@ prt_catalog:
         .word 3
         .word 2
         .word 4
-        .word 6
+        .word 7
         .word 2
         .word 70
         .word 0

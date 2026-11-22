@@ -62,13 +62,13 @@ cols 0-63                                                         cols 64-99
 |                                                                | 11 U -                             |
 |                                                                | 12 U -                             |
 |                                                                | 13 -- Carried --                   |
-|                                                                | 14 1 Pulse Rifle  ██████░░ 14      |
+|                                                                | 14 1 W Pulse Rifle  4-7 r8   14/18 |
 |                                                                | 15 2 -   (16: 3 -, 17: 4 -)        |
 |                                                                | 18 -- Target --                    |
 |                                                                | 19 Rifler                          |
 |                                                                | 20 ██████░░░░ 9/14                 |
 |                                                                | 21 Hit 64%  Dist 5                 |
-|                                                                | 23 Here: Hex Armor                 |
+|                                                                | 23 Here: Hex Armor [U a2]          |
 +----------------------------------------------------------------+------------------------------------+
 | rows 24-28 MESSAGES: 5 newest of an 8-slot ring, oldest at top, newest at row 28, colored per msg   |
 | row 29 HELP: key help for the current st_mode (A_HELP, black on white)                              |
@@ -76,11 +76,14 @@ cols 0-63                                                         cols 64-99
 ```
 
 Region rectangles are defines: `VIEW_*`, `PANEL_*`, `MSG_ROW/MSG_ROWS`, `HELP_ROW`, and the
-panel rows `PR_*`. Slot rows: kind letter at panel col 1 (`P` propulsion, `E` power, `W`
+panel rows `PR_*`. Loadout rows: kind letter at panel col 1 (`P` propulsion, `E` power, `W`
 weapon, `U` utility), name at col 3 (≤ 12 chars), integrity bar (width 8) at col 16,
-number at col 25. In MODE_EQUIP/DROP the inventory rows show their digit highlighted
-`A_SELECT`; in MODE_REMOVE the loadout rows show digits 1-8. MODE_HELP draws a key list
-box over the viewport.
+number at col 25. Carried rows show digit `1`-`4`, kind letter, name, compact key stat
+(weapon damage/range, propulsion move cost, power regen, utility effect), and `hp/max`;
+`Here:` shows the floor part name with `[<kind> <stat>]`. In MODE_EQUIP/DROP the inventory
+rows show their digit highlighted `A_SELECT`; in MODE_REMOVE the loadout rows show digits
+1-8. MODE_HELP draws a key list box over the viewport. On reaching the surface, the panel
+and win screen display `Surface` instead of `Depth 0`.
 
 ## Controls
 
@@ -97,7 +100,7 @@ Every key can be written in the harness key script (`tools/lib/keys.js`): letter
 | `e` then `1`-`4` | map → equip | attach that inventory part (swaps if its slots are full) |
 | `r` then `1`-`8` | map → remove | detach that slot into the inventory |
 | `x` then `1`-`4` | map → drop | drop that inventory part on the floor |
-| `f` | map → target | targeting: nearest visible robot selected |
+| `f` | map → target | targeting: nearest visible hostile robot selected (Tinkers only if no hostiles visible) |
 | `<tab>` or `]` / `[` | target | next / previous visible robot |
 | `f` or `<enter>` | target | fire every ranged weapon that reaches and has energy |
 | `<esc>` | any menu | cancel back to map mode |
@@ -174,7 +177,7 @@ Color by tier: white, bright cyan, bright magenta. Names are ≤ 12 chars.
 | 10 | Arc Battery | power | 2 | 22 | 2 | regen 3, cap +35 |
 | 11 | Fusion Knot | power | 3 | 30 | 3 | regen 5, cap +50 |
 | 12 | Spark Prod | weapon melee | 1 | 15 | 3 | 2-5, range 1, energy 0, acc 80 |
-| 13 | Rivet Gun | weapon | 1 | 12 | 3 | 2-4, range 6, energy 2, acc 70 |
+| 13 | Rivet Gun | weapon | 1 | 12 | 3 | 2-4, range 7, energy 2, acc 70 |
 | 14 | Scatter Tube | weapon | 1 | 14 | 3 | 1-6, range 4, energy 3, acc 75 |
 | 15 | Pulse Rifle | weapon | 2 | 18 | 3 | 4-7, range 8, energy 4, acc 70 |
 | 16 | Cutter Arm | weapon melee | 2 | 25 | 4 | 5-9, range 1, energy 1, acc 80 |
@@ -187,7 +190,7 @@ Color by tier: white, bright cyan, bright magenta. Names are ≤ 12 chars.
 | 23 | Aim Gyro | utility target | 2 | 10 | 1 | +15% accuracy |
 
 Starting loadout: 2× Stub Legs, Cell Pack, Rivet Gun, Spark Prod. That gives move 100,
-energy 40, regen 3. Five slots filled, so the core-hit chance is 10 + 3×8 = 34%.
+energy 40, regen 3. Five slots filled, so the core-hit chance is 6 + 3×6 = 24%.
 
 ## Enemy table
 
@@ -198,8 +201,8 @@ Depth range: a type spawns on depths ET_DHI down to ET_DLO (10 = deepest, start)
 | 1 | Flit | `f` bright cyan | 6 | 50 | 60 | 1-3 | 1 | 60 | melee | 10-5 | 7 | 40 | 7, 3, 13, 21 |
 | 2 | Scuttler | `s` yellow | 12 | 100 | 100 | 2-5 | 1 | 70 | melee | 10-4 | 6 | 50 | 1, 12, 19, 9 |
 | 3 | Rifler | `r` bright red | 14 | 100 | 100 | 2-5 | 6 | 60 | ranged | 9-1 | 8 | 50 | 13, 14, 15, 9, 2 |
-| 4 | Watcher | `W` magenta | 20 | — | 100 | 3-6 | 8 | 65 | turret | 8-1 | 8 | 60 | 15, 23, 10, 21 |
-| 5 | Bulwark | `B` bright white | 40 | 150 | 120 | 5-10 | 1 | 70 | melee | 6-1 | 6 | 70 | 5, 6, 20, 18, 16 |
+| 4 | Watcher | `W` magenta | 20 | — | 100 | 2-5 | 8 | 55 | turret | 8-1 | 8 | 60 | 15, 23, 10, 21 |
+| 5 | Bulwark | `B` bright white | 40 | 150 | 120 | 4-8 | 1 | 70 | melee | 6-1 | 6 | 70 | 5, 6, 20, 18, 16 |
 | 6 | Stalker | `k` bright magenta | 22 | 60 | 80 | 4-8 | 7 | 70 | ranged | 4-1 | 10 | 60 | 8, 17, 11, 4, 22 |
 | 7 | Tinker | `t` green | 8 | 80 | — | — | 0 | — | worker | 10-1 | 6 | 80 | 19, 21, 22, 23, 9 |
 
@@ -213,7 +216,7 @@ SPAWN_SAFE 6 tiles of the player.
   player acts when `st_ply_next ≤ E_NEXT` of every enemy (ties go to the player).
 - A player action adds its cost to `st_ply_next` (`ply_spend`). Costs:
   - move = `st_move_cost`
-  - melee TIME_MELEE 100, fire TIME_FIRE 100, wait 100, pick up 100, stairs 100
+  - melee TIME_MELEE 100, fire TIME_FIRE 100, wait 100, pick up 100, stairs 100 (climbing a floor reinforces the core by +10 HP, capped at CORE_MAX)
   - attach/detach TIME_SWAP 150, drop 50
   - menus, targeting, help and blocked moves cost nothing
 - Move cost is the average P_M_COST of the attached propulsion parts, +LIMP_EXTRA 30
@@ -224,7 +227,8 @@ SPAWN_SAFE 6 tiles of the player.
   subtracts it from every time cell, so 16-bit math never overflows.
 - `prt_tick(elapsed)`: each full TIME_TURN elapsed gives `st_energy += st_regen`
   (capped). With a repair part, every `st_repair_turns` turns it repairs 1 integrity on
-  the most damaged attached part, or the core if no part is damaged.
+  whichever of the core or attached parts is missing the largest fraction of its max
+  integrity (ties prefer the core, then the earlier slot).
 - The player does at most one action per frame. Remaining keys wait for the next frame.
   Idle frames only redraw.
 
@@ -258,16 +262,18 @@ player action (private to actors, 1536 words + queue).
 - **Hit chance:** `cbt_hit_chance(acc, dist)` = acc − 3×(dist−1), clamped 10..95.
   - Player weapons: acc = P_W_ACC + st_acc_bonus.
   - Enemies: ET_ACC, then − st_evade, floored at HIT_MIN.
-- **Fire** (`f` … `f`): every weapon slot with P_W_MELEE 0, P_W_RANGE ≥ distance, LOS,
-  and P_W_ENERGY available fires in slot order. Each shot spends energy, rolls to hit
-  and does rand(DMIN..DMAX). If nothing can fire, no time passes ("Nothing can fire.").
+- **Fire** (`f` … `f`): every weapon slot with P_W_MELEE 0, P_W_RANGE ≥ distance, target
+  visible (`fov_visible`), and P_W_ENERGY available fires in slot order. Each shot spends
+  energy, rolls to hit and does rand(DMIN..DMAX). If nothing can fire, no time passes
+  ("Nothing can fire.").
 - **Melee** (bump into a robot): every melee weapon slot swings (each spends its energy
   if available, else is skipped). With none, the core rams for 1-3 at 70%.
-- **Damage to the player** (`prt_damage`): the core is hit with chance CORE_HIT_PCT 10
-  + CORE_HIT_EMPTY 8 × empty slots. Otherwise one attached part is picked, weighted by
+- **Damage to the player** (`prt_damage`): the core is hit with chance CORE_HIT_PCT 6
+  + CORE_HIT_EMPTY 6 × empty slots. Otherwise one attached part is picked, weighted by
   P_COVER. Armor parts reduce damage to themselves by P_U_VALUE (min 1). A part at 0
-  integrity is destroyed: slot emptied, "<Part> destroyed!" in A_BAD, derived stats
-  recomputed. Core at 0 means GAME_DEAD, with st_death_cause = attacker type.
+  integrity is destroyed: slot emptied, derived stats recomputed, and the destroyed part
+  id is reported to the caller (`cbt_enemy_attack` posts "<Part> destroyed!" in A_BAD
+  after the hit message). Core at 0 means GAME_DEAD, with st_death_cause = attacker type.
 - **Robots:** have plain hp. At 0: "<Name> destroyed.", st_kills++, ET_DROP_PCT chance
   to drop one random part from ET_DROP at 50–100% integrity on its tile (or nearby),
   record freed.
@@ -313,7 +319,7 @@ preserved.
 
 Dependency direction (who calls whom): main → everything. player → dungeon, items,
 parts, actors, combat, ui. actors → dungeon, fov, combat, ui. combat → parts, items,
-actors, dungeon, fov, ui. parts → ui (destroyed messages). items → dungeon, parts.
+actors, dungeon, fov, ui. parts calls nothing outside itself. items → dungeon, parts.
 render → dungeon, fov, items, actors, parts. ui → parts, actors (names), combat (hit
 chance for the target panel). dungeon and fov call nothing but each other (fov →
 dun_opaque).

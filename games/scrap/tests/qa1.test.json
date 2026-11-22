@@ -1,0 +1,191 @@
+{
+  "scenarios": [
+    {
+      "name": "regression: a visible target that shows a hit chance can be fired at",
+      "clock": 2,
+      "keys": "a*2 u*2 k*3 y h*6 b y g e1 j b*4 h*8 y k y k y h*11 b h*6 b j*4 ff n ff j*2 b*3 h g e1 u*3 n g e1 b*3 h y*3 h*2 b h g b j*2 n j*2 b*2 g k*2 u <lt> n b g l n j*4 n ff n ff j*4 b y*2 g u k*4 y h*3 y h*6 b j*2 b h*27 b h*3 b j*8 b*3 h y <lt> h y h*4 ff y*2 ff h*3 y h*4 y h*3 b ff j ff j ff j ff b ff h ff",
+      "tail": 0,
+      "expect": {
+        "status": "frames-complete",
+        "memory": {
+          "st_depth": 8,
+          "st_mode": 0
+        },
+        "screen": {
+          "notContains": [
+            "Nothing can fire."
+          ]
+        }
+      }
+    },
+    {
+      "name": "regression: an enemy's hit message comes before the '<part> destroyed!' it caused",
+      "clock": 2,
+      "keys": "a*2 u*2 k*3 y h*6 b y g e1 j b*4 h*8 y k y k y h*11 b h*6 b j*4 ff n ff j*2 b*3 h g e1 u*3 n g e1 b*3 h y*3 h*2 b h g b j*2 n j*2 b*2 g k*2 u <lt> n b g l n j*4 n ff n ff j*4 b y*2 g u k*4 y h*3 y h*6 b j*2 b h*27 b h*3 b j*8 b*3 h y <lt> h y h*4 ff y*2 ff h*3 y h*4 y h*3 b ff j ff j ff",
+      "tail": 0,
+      "expect": {
+        "status": "frames-complete",
+        "memory": {
+          "st_depth": 8
+        },
+        "screen": {
+          "matches": [
+            "Rifler hits Rivet Gun for 3\\.\\s*\\n\\s*Rivet Gun destroyed!"
+          ]
+        }
+      }
+    },
+    {
+      "name": "regression: a key typed in the same frame as the fatal hit does not skip the death screen",
+      "clock": 1000,
+      "keys": "<enter> h h y y y k y h*15 .*53 .. _3",
+      "expect": {
+        "status": "frames-complete",
+        "memory": {
+          "st_game_state": 2,
+          "st_core_hp": 0
+        },
+        "screen": {
+          "contains": [
+            "CORE DESTROYED",
+            "Destroyed by: Flit at Depth 10"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scripted run (clock 123): fights and salvages its way from depth 10 to depth 4 alive",
+      "clock": 123,
+      "keys": "a*2 k g k g u*2 l*2 n l*3 u*2 l n*2 l*3 n j*3 n*2 b*2 n l*7 u*2 l n*2 g e3 k*2 g j*2 n l*5 u l*7 n*4 l*3 u*2 l*2 <lt> u*3 g e4 y*3 g l n*3 l*6 u*2 n*3 l*10 u*2 l*2 u k*5 u <lt> k u l*5 u*3 l*2 u k u l*9 ff u ff u ff l*6 n*2 l*2 u*2 ff u l n*2 b <lt> k*2 u*3 k*4 y h*3 y h*3 ff h ff h ff h ff b ff h ff h*4 b j*2 b h*4 b*2 h*5 b j*2 b*3 y h*4 b h*3 y*2 k*7 ff k u*3 e3 u*2 k y u b h*2 b u b y*2 h*2 b h y h y*2 u l*2 n l*2 u l*6 g b*4 y*3 h*2 b y*2 <lt> u*2 k*11 y b h*10 y h*3 b h*6 e3 h g h*3 y ff b j b j*4 ff n ff b ff b ff b ff h*2 ff y*3 ff b*3 y*3 h*2 y k*2 y*2 k y h <lt> u*2 l n l*3 u*2 ff l ff l ff l ff l ff l n*4 l u*2 l*3 n*2 u k u l*2 u l*8 n u k*4 ff k*2 ff k*2 u*2 k u*5 b*2 y*2 <lt> k u l*2 u l n*2 j*3",
+      "expect": {
+        "status": "frames-complete",
+        "maxStepsPerFrame": 500000,
+        "memory": {
+          "st_game_state": 1,
+          "st_depth": 4,
+          "st_depth_best": 4,
+          "st_kills": 15,
+          "st_turn": 458
+        }
+      }
+    },
+    {
+      "name": "play again after death (clock 1000): typed-ahead key is ignored, then end screen -> title -> clean new game",
+      "clock": 1000,
+      "keys": "<enter> h h y y y k y h*15 .*53 .. _12 a _ a _2",
+      "expect": {
+        "status": "frames-complete",
+        "memory": {
+          "st_game_state": 1,
+          "st_depth": 10,
+          "st_depth_best": 10,
+          "st_turn": 0,
+          "st_kills": 0,
+          "st_death_cause": 0,
+          "st_core_hp": 40,
+          "st_energy": 40,
+          "st_energy_max": 40,
+          "st_move_cost": 100,
+          "st_sight": 8,
+          "st_regen_acc": 0,
+          "st_repair_acc": 0,
+          "st_target": -1,
+          "st_mode": 0,
+          "st_slots": [
+            1,
+            20,
+            1,
+            20,
+            9,
+            15,
+            13,
+            12,
+            12,
+            15,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "st_inv": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "st_msg_head": 1
+        },
+        "screen": {
+          "contains": [
+            "Depth 10  Turn 0",
+            "Core online. Depth 10."
+          ],
+          "notContains": [
+            "Flit",
+            "destroyed"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scripted run (clock 123): a Watcher kill drops a part on the floor",
+      "clock": 123,
+      "keys": "a*2 k g k g u*2 l*2 n l*3 u*2 l n*2 l*3 n j*3 n*2 b*2 n l*7 u*2 l n*2 g e3 k*2 g j*2 n l*5 u l*7 n*4 l*3 u*2 l*2 <lt> u*3 g e4 y*3 g l n*3 l*6 u*2 n*3 l*10 u*2 l*2 u k*5 u <lt> k u l*5 u*3 l*2 u k u l*9 ff u ff u ff l*6 n",
+      "tail": 0,
+      "expect": {
+        "status": "frames-complete",
+        "memory": {
+          "st_depth": 8,
+          "st_kills": 1
+        },
+        "screen": {
+          "contains": [
+            "Watcher destroyed. Drops Optic Mast."
+          ]
+        }
+      }
+    },
+    {
+      "name": "scripted run (clock 123): attaching a salvaged Rivet Gun on depth 6 fills the third weapon slot",
+      "clock": 123,
+      "keys": "a*2 k g k g u*2 l*2 n l*3 u*2 l n*2 l*3 n j*3 n*2 b*2 n l*7 u*2 l n*2 g e3 k*2 g j*2 n l*5 u l*7 n*4 l*3 u*2 l*2 <lt> u*3 g e4 y*3 g l n*3 l*6 u*2 n*3 l*10 u*2 l*2 u k*5 u <lt> k u l*5 u*3 l*2 u k u l*9 ff u ff u ff l*6 n*2 l*2 u*2 ff u l n*2 b <lt> k*2 u*3 k*4 y h*3 y h*3 ff h ff h ff h ff b ff h ff h*4 b j*2 b h*4 b*2 h*5 b j*2 b*3 y h*4 b h*3 y*2 k*7 ff k u*3 e3 u*2 k y u b h*2 b u b y*2 h*2 b h y h y*2 u l*2 n l*2 u l*6 g b*4 y*3 h*2 b y*2 <lt> u*2 k*11 y b h*10 y h*3 b h*6 e3 h g",
+      "tail": 0,
+      "expect": {
+        "status": "frames-complete",
+        "maxStepsPerFrame": 500000,
+        "memory": {
+          "st_depth": 6,
+          "st_slots": [
+            1,
+            6,
+            1,
+            20,
+            9,
+            15,
+            12,
+            10,
+            12,
+            8,
+            13,
+            8,
+            19,
+            13,
+            0,
+            0
+          ]
+        },
+        "screen": {
+          "contains": [
+            "Attached Rivet Gun."
+          ]
+        }
+      }
+    }
+  ]
+}

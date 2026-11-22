@@ -20,6 +20,7 @@
 
 ; ---- frame / screen --------------------------------------------------
         .define FRAME_MS        50      ; 20 fps; a turn needs a key, so idle frames are cheap
+        .define END_GRACE_FRAMES 10     ; ignore keys for first ~10 frames of end screen
         .define SCR_COLS        100
         .define SCR_ROWS        30
         .define SCR_CELLS       SCR_COLS*SCR_ROWS
@@ -114,12 +115,13 @@
 
 ; ---- core & derived stats ------------------------------------------------
         .define CORE_MAX        40      ; core integrity; 0 = game over
+        .define CLIMB_CORE_HEAL 10      ; core HP restored on climbing a floor (capped at CORE_MAX)
         .define CORE_ECAP       20      ; energy capacity with no power part
         .define CORE_REGEN      1       ; energy per TIME_TURN with no power part
         .define SIGHT_BASE      8       ; FOV radius (tiles, Chebyshev) before sensors
         .define SIGHT_MAX       14
-        .define CORE_HIT_PCT    10      ; chance an incoming hit strikes the core...
-        .define CORE_HIT_EMPTY  8       ; ...plus this per empty slot (8 empty = 74%)
+        .define CORE_HIT_PCT    6       ; chance an incoming hit strikes the core...
+        .define CORE_HIT_EMPTY  6       ; ...plus this per empty slot (8 empty = 54%; 0 parts = 100%)
         .define RAM_DMIN        1       ; bump attack with no melee weapon
         .define RAM_DMAX        3
         .define RAM_ACC         70

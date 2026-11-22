@@ -6,8 +6,11 @@
 ;   'm'  message ring: 63-char truncation, ui_msg_add/addn, wrap after 10 msgs, A_BAD attr
 ;   '0'..'6'  ui_draw with st_mode = 0..6 (MODE_MAP..MODE_QUIT)
 ;   't'  ui_title (next frame key decides return value -> drv_ret)
-;   'd'  ui_end_screen in GAME_DEAD (next frame key -> drv_ret, score -> drv_score)
-;   'w'  ui_end_screen in GAME_WON  (next frame key -> drv_ret, score -> drv_score)
+;   'T'  ui_title after a game (st_frame=5): drains leftover same-frame keys
+;   'd'  ui_end_screen in GAME_DEAD (next frame key after grace -> drv_ret, score -> drv_score)
+;   'w'  ui_end_screen in GAME_WON  (next frame key after grace -> drv_ret, score -> drv_score)
+;   'i'  panel with st_depth=0 (Surface), all 4 part kinds in Carried, Rivet Gun on Here:
+;   'u'  panel with utility subtypes (sensor, repair, target) in Carried, Stub Legs on Here:
         .lccplus
         .start drv_main
         .include "video_defs.ap"
@@ -32,12 +35,21 @@ drv_main:
         mov r1, 't'
         cmp r0, r1
         brz drv_case_title
+        mov r1, 'T'
+        cmp r0, r1
+        brz drv_case_title_ret
         mov r1, 'd'
         cmp r0, r1
         brz drv_case_dead
         mov r1, 'w'
         cmp r0, r1
         brz drv_case_won
+        mov r1, 'i'
+        cmp r0, r1
+        brz drv_case_items
+        mov r1, 'u'
+        cmp r0, r1
+        brz drv_case_utils
         ; '0'..'6' -> st_mode
         mov r1, '0'
         sub r0, r0, r1
@@ -172,12 +184,86 @@ drv_msg_lp:
         sleep r0
         halt
 
-; ---- 't': title screen ----------------------------------------------
+; ---- 't': title screen (cold boot, st_frame=0) ----------------------
 drv_case_title:
+        mov r0, 0
+        st r0, st_frame
         mov r0, GAME_TITLE
         st r0, st_game_state
         bl ui_title
         st r0, drv_ret
+        halt
+
+; ---- 'T': title screen returning after a game (st_frame=5) ----------
+drv_case_title_ret:
+        mov r0, 5
+        st r0, st_frame
+        mov r0, GAME_TITLE
+        st r0, st_game_state
+        bl ui_title
+        st r0, drv_ret
+        halt
+
+; ---- 'i': Surface header (depth 0) + all 4 part kinds in Carried/Here
+drv_case_items:
+        mov r0, G_SPACE
+        bl video_clear
+        mov r0, 0
+        st r0, st_depth
+        lea r0, st_inv
+        mov r1, PT_STUB_LEGS
+        mov r2, 20
+        str r1, r0, 0
+        str r2, r0, 1
+        mov r1, PT_CELL_PACK
+        mov r2, 15
+        str r1, r0, 2
+        str r2, r0, 3
+        mov r1, PT_SPARK_PROD
+        mov r2, 11
+        str r1, r0, 4
+        str r2, r0, 5
+        mov r1, PT_HEX_ARMOR
+        mov r2, 50
+        str r1, r0, 6
+        str r2, r0, 7
+        lea r0, st_items
+        mov r1, PT_RIVET_GUN
+        str r1, r0, I_PART
+        bl ui_draw
+        bl video_present
+        mov r0, FRAME_MS
+        sleep r0
+        halt
+
+; ---- 'u': utility subtypes (sensor, repair, target) + prop Here: ----
+drv_case_utils:
+        mov r0, G_SPACE
+        bl video_clear
+        lea r0, st_inv
+        mov r1, PT_OPTIC_MAST
+        mov r2, 8
+        str r1, r0, 0
+        str r2, r0, 1
+        mov r1, PT_PATCH_DRONE
+        mov r2, 10
+        str r1, r0, 2
+        str r2, r0, 3
+        mov r1, PT_AIM_GYRO
+        mov r2, 10
+        str r1, r0, 4
+        str r2, r0, 5
+        mov r1, PART_NONE
+        mov r2, 0
+        str r1, r0, 6
+        str r2, r0, 7
+        lea r0, st_items
+        mov r1, PT_STUB_LEGS
+        str r1, r0, I_PART
+        bl ui_draw
+        bl video_present
+        mov r0, FRAME_MS
+        sleep r0
         halt
 
 ; ---- 'd': dead end screen -------------------------------------------
@@ -338,6 +424,15 @@ prt_info:
         mov r1, PT_HEX_ARMOR
         cmp r0, r1
         brz drv_pi_hex
+        mov r1, PT_OPTIC_MAST
+        cmp r0, r1
+        brz drv_pi_optic
+        mov r1, PT_PATCH_DRONE
+        cmp r0, r1
+        brz drv_pi_patch
+        mov r1, PT_AIM_GYRO
+        cmp r0, r1
+        brz drv_pi_gyro
         mov r0, 0
         ret
 drv_pi_legs:
@@ -357,6 +452,15 @@ drv_pi_pulse:
         ret
 drv_pi_hex:
         lea r0, drv_p_hex
+        ret
+drv_pi_optic:
+        lea r0, drv_p_optic
+        ret
+drv_pi_patch:
+        lea r0, drv_p_patch
+        ret
+drv_pi_gyro:
+        lea r0, drv_p_gyro
         ret
 
 prt_name:
@@ -517,6 +621,36 @@ drv_p_hex:
         .word UT_ARMOR
         .word 2
         .zero 8
+drv_p_optic:
+        .word PK_UTIL
+        .word drv_s_optic
+        .word GL_UTIL|A_TIER1
+        .word 8
+        .word 1
+        .word 1
+        .word UT_SENSOR
+        .word 3
+        .zero 8
+drv_p_patch:
+        .word PK_UTIL
+        .word drv_s_patch
+        .word GL_UTIL|A_TIER2
+        .word 10
+        .word 2
+        .word 1
+        .word UT_REPAIR
+        .word 3
+        .zero 8
+drv_p_gyro:
+        .word PK_UTIL
+        .word drv_s_gyro
+        .word GL_UTIL|A_TIER2
+        .word 10
+        .word 2
+        .word 1
+        .word UT_TARGET
+        .word 15
+        .zero 8
 
 ; fake enemy type record (16 words): Rifler, HP 14
 drv_et_rifler:
@@ -543,6 +677,9 @@ drv_s_rivet:    .string "Rivet Gun"
 drv_s_spark:    .string "Spark Prod"
 drv_s_pulse:    .string "Pulse Rifle"
 drv_s_hex:      .string "Hex Armor"
+drv_s_optic:    .string "Optic Mast"
+drv_s_patch:    .string "Patch Drone"
+drv_s_gyro:     .string "Aim Gyro"
 drv_s_rifler:   .string "Rifler"
 drv_s_dash:     .string "-"
 drv_s_m1:       .string "Older status message."

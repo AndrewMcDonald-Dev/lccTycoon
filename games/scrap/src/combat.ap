@@ -7,13 +7,14 @@
 ; All routines: args r0..r4, result r0, all other registers preserved.
 ;
 ;; cbt_hit_chance    r0=accuracy% r1=distance   -> r0=accuracy - HIT_DIST_PEN×(distance-1), clamped HIT_MIN..HIT_MAX
-;; cbt_player_fire   r0=enemy index             -> r0=number of weapons fired (0 = none had range >= distance and energy; caller spends no time). Fires every ranged weapon
-;;                   slot (P_W_MELEE 0) in slot order: spend P_W_ENERGY, roll hit (P_W_ACC + st_acc_bonus), damage rand(DMIN..DMAX) via cbt_damage_enemy; message per shot; stops once the
-;;                   target is destroyed.
+;; cbt_player_fire   r0=enemy index             -> r0=number of weapons fired (0 = target not visible, or none had range >= distance and energy; caller spends no time). Checks
+;;                   fov_visible(E_X, E_Y), then fires every ranged weapon slot (P_W_MELEE 0) in slot order: spend P_W_ENERGY, roll hit (P_W_ACC + st_acc_bonus), damage
+;;                   rand(DMIN..DMAX) via cbt_damage_enemy; message per shot; stops once the target is destroyed.
 ;; cbt_player_melee  r0=enemy index             -> -        bump attack with every melee weapon slot (each spends P_W_ENERGY if it can, else is skipped); with none usable, a
 ;;                   core ram RAM_DMIN..RAM_DMAX at RAM_ACC. Messages.
 ;; cbt_enemy_attack  r0=enemy index             -> -        that enemy attacks the player: hit = cbt_hit_chance(ET_ACC, dist) - st_evade (>= HIT_MIN); damage
-;;                   rand(ET_DMIN..ET_DMAX) → prt_damage; message "<name> hits <part|core> for N" / "<name> misses"; if the core dies sets st_death_cause = the enemy's type.
+;;                   rand(ET_DMIN..ET_DMAX) → prt_damage; message "<name> hits <part|core> for N." (A_BAD), followed by "<part> destroyed!" (A_BAD) if prt_damage destroyed a part,
+;;                   or "<name> misses." (A_DIM); if the core dies sets st_death_cause = the enemy's type.
 ;; cbt_damage_enemy  r0=enemy index r1=damage   -> r0=1 destroyed, 0 still alive. On destruction: message "<name> destroyed.", st_kills++, ET_DROP_PCT chance to itm_place
 ;;                   one random part from ET_DROP at rand(DROP_HP_MIN..100)% integrity on its tile, act_kill. Clears st_target if it was the target.
 ; ---------------------------------------------------------------------
@@ -91,12 +92,10 @@ cbt_pf_idxok:
         bl act_name
         str r0, fp, -3          ; ename
 
-        ; Require line of sight
-        ld r0, st_px
-        ld r1, st_py
-        ldr r2, r3, E_X
-        ldr r3, r3, E_Y
-        bl fov_los
+        ; Require target to be visible in player FOV (matches targeting)
+        ldr r0, r3, E_X
+        ldr r1, r3, E_Y
+        bl fov_visible
         cmp r0, 0
         brz cbt_pf_ret0
 
@@ -438,6 +437,7 @@ cbt_pm_out:
 ;   fp-4  slot hit (-1 = core, 0..NUM_SLOTS-1 = slot)
 ;   fp-5  shown dmg (after armor reduction)
 ;   fp-6  snapped part id of hit slot
+;   fp-7  destroyed part id (from prt_damage, or -1)
 cbt_enemy_attack:
         push r0
         push r1
@@ -447,7 +447,7 @@ cbt_enemy_attack:
         push lr
         push fp
         mov fp, sp
-        sub sp, sp, 6
+        sub sp, sp, 7
 
         ; Validate enemy index 0..MAX_ENEMIES-1
         cmp r0, 0
@@ -523,8 +523,9 @@ cbt_ea_snap:
         sub r3, r3, 1
         brp cbt_ea_snap
 
-        ; Apply damage through prt_damage
+        ; Apply damage through prt_damage (fp-7 receives destroyed part id, or -1)
         ldr r0, fp, -3
+        sub r1, fp, 7
         bl prt_damage
         str r0, fp, -4          ; slot (-1 = core)
 
@@ -592,6 +593,18 @@ cbt_ea_msg_dmg:
         ldr r0, fp, -5
         bl ui_msg_addn
         lea r0, cbt_s_dot
+        bl ui_msg_add
+        ld r0, cbt_a_bad
+        bl ui_msg_attr
+
+        ; If prt_damage destroyed a part, post "<part> destroyed!" AFTER the hit message
+        ldr r0, fp, -7
+        cmp r0, 0
+        brlt cbt_ea_out
+        brz cbt_ea_out
+        bl prt_name
+        bl ui_msg
+        lea r0, cbt_s_part_dest
         bl ui_msg_add
         ld r0, cbt_a_bad
         bl ui_msg_attr
@@ -795,4 +808,5 @@ cbt_s_core:      .string "core"
 cbt_s_core_rams: .string "Core rams "
 cbt_s_ram_miss:  .string "Core ram misses "
 cbt_s_destroyed: .string " destroyed."
+cbt_s_part_dest: .string " destroyed!"
 cbt_s_drops:     .string " Drops "

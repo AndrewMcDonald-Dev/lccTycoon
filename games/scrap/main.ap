@@ -10,7 +10,7 @@
 ;        → [PR_ACTED: main_turn] → ren_draw → ui_draw → video_present
 ;        → sleep FRAME_MS → [game over: end screen]
 ; main_turn (after each player action, DESIGN.md "Turn system"):
-;        stairs taken? climb (new floor or win)
+;        stairs taken? climb (new floor + core reinforce +CLIMB_CORE_HEAL, or win)
 ;        else act_run (enemies act until the player's next-act time)
 ;        → prt_tick (energy regen, self-repair) → st_turn++ → fov_update
 ;
@@ -48,6 +48,13 @@ main_loop:
         cmp r0, PR_ACTED
         brnz main_render
         bl main_turn
+        ld r0, st_game_state
+        cmp r0, GAME_WON
+        brnz main_render
+        ld r0, st_frame
+        add r0, r0, 1
+        st r0, st_frame
+        br main_end
 main_render:
         bl ren_draw
         bl ui_draw
@@ -60,6 +67,7 @@ main_render:
         ld r0, st_game_state
         cmp r0, GAME_PLAY
         brz main_loop
+main_end:
         bl ui_end_screen        ; dead or won: r0 = 1 play again, 0 quit
         cmp r0, 0
         brnz main_title
@@ -153,6 +161,29 @@ main_turn_gen:
         bl ui_msg
         ld r0, st_depth
         bl ui_msg_addn
+        ; Reinforce core by +CLIMB_CORE_HEAL (+10), capped at CORE_MAX
+        ld r0, st_core_hp
+        mov r1, CORE_MAX
+        cmp r0, r1
+        brlt main_turn_heal
+        br main_turn_climb_cnt
+main_turn_heal:
+        sub r2, r1, r0          ; missing = CORE_MAX - st_core_hp
+        mov r1, CLIMB_CORE_HEAL
+        cmp r2, r1
+        brlt main_turn_heal_do
+        mov r2, r1
+main_turn_heal_do:
+        add r0, r0, r2
+        st r0, st_core_hp
+        lea r0, main_s_reinf1
+        bl ui_msg
+        mov r0, r2
+        bl ui_msg_addn
+        lea r0, main_s_reinf2
+        bl ui_msg_add
+        ld r0, main_a_good
+        bl ui_msg_attr
 main_turn_climb_cnt:
         ld r0, st_turn          ; saturating turn counter (fov already updated by main_new_floor)
         add r0, r0, 1
@@ -210,6 +241,9 @@ main_turn_ret:
 
 main_s_welcome: .string "Core online. Depth 10. Climb to the surface."
 main_s_climb:   .string "You climb to depth "
+main_s_reinf1:  .string "Core reinforced (+"
+main_s_reinf2:  .string ")."
+main_a_good:    .word A_GOOD
 
 ; ---- modules (state first: it is used by everything) ---------------------------
         .include "src/state.ap"

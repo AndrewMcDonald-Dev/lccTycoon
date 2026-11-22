@@ -23,6 +23,7 @@
           "drv_pf_hit_msg": "Rivet Gun hits Bulwark for 4.",
           "drv_pf_norng_n": 0,
           "drv_pf_norng_e": 38,
+          "drv_pf_r7_n": 1,
           "drv_pf_oor_n": 0,
           "drv_pf_oor_e": 38,
           "drv_pf_d5_n": 2,
@@ -35,6 +36,9 @@
           "drv_pf_e1_e": 1,
           "drv_pf_los_n": 0,
           "drv_pf_los_e": 40,
+          "drv_pf_door_los": 0,
+          "drv_pf_door_vis": 1,
+          "drv_pf_door_n": 3,
           "drv_pf_stop_ok": 1,
           "drv_pm_e_after": 9,
           "drv_pm_ram_ok": 1,
@@ -48,11 +52,13 @@
           "drv_evmin_ok_f": 1,
           "drv_pdest_ok": 1,
           "drv_pdest_attr": 2304,
-          "drv_pdest_msg": "Scuttler hits Optic Mast for 2.",
+          "drv_pdest_msg": "Scuttler hits Optic Mast for 5.",
+          "drv_pdest_attr2": 2304,
+          "drv_pdest_msg2": "Optic Mast destroyed!",
           "drv_killp_hp": 0,
           "drv_killp_state": 2,
           "drv_killp_cause": 5,
-          "drv_killp_msg": "Bulwark hits core for 6.",
+          "drv_killp_msg": "Bulwark hits core for 7.",
           "drv_de_nl_ret": 0,
           "drv_de_nl_hp": 7,
           "drv_de_nl_kills": 0,
@@ -69,21 +75,20 @@
           "drv_de_k1_actat": -1,
           "drv_de_k1_itmat": 0,
           "drv_drop_ok": 1,
-          "drv_de_k1_msg": "Scuttler destroyed. Drops Cell Pack.",
+          "drv_de_k1_msg": "Scuttler destroyed. Drops Stub Legs.",
           "drv_inv_pf_neg": 0,
           "drv_inv_pf_oob": 0,
           "drv_inv_de_neg": 0,
           "drv_inv_de_dead": 0,
           "drv_tnk_hp": 40,
+          "drv_psurv_ok": 1,
           "drv_regs_ok": 1
         },
         "screen": {
           "contains": [
-            "Scuttler destroyed.",
-            "Scuttler destroyed. Drops Cell Pack.",
-            "Rivet Gun hits Bulwark for 3.",
-            "Spark Prod hits Bulwark for 2.",
-            "Bulwark hits Rivet Gun for 9."
+            "Flit hits Hex Armor for ",
+            "Rivet Gun ",
+            "Spark Prod "
           ]
         }
       }
