@@ -8,7 +8,7 @@
         "status": "frames-complete",
         "memory": { "st_wpn_off": 0, "st_mode": 0, "st_turn": 27, "st_time": 2700, "st_energy": 40 },
         "frames": [
-          { "frame": 29, "screen": { "contains": ["Rivet Gun holds fire.", "Nothing can fire."], "notContains": ["Rivet Gun hits Flit"] } }
+          { "frame": 29, "screen": { "contains": ["Rivet Gun on hold.", "Nothing can fire."], "notContains": ["Rivet Gun hits Flit"] } }
         ],
         "screen": { "contains": ["Rivet Gun ready.", "Rivet Gun hits Flit for 4."] }
       }
@@ -135,7 +135,7 @@
       "keys": "<enter> z",
       "expect": {
         "memory": { "st_auto": 0, "st_auto_steps": 0, "st_turn": 0, "st_energy": 40 },
-        "screen": { "contains": ["Already rested."] }
+        "screen": { "contains": ["Nothing to restore."] }
       }
     },
     {
@@ -144,7 +144,7 @@
       "keys": "<enter> t",
       "expect": {
         "memory": { "st_auto": 0, "st_auto_steps": 0, "st_turn": 0 },
-        "screen": { "contains": ["Stairs unknown."] }
+        "screen": { "contains": ["Stairs not found yet."] }
       }
     },
     {
@@ -183,7 +183,7 @@
       "keys": "<enter> l*2 u k*4 y h*8 b j .*8 H z t o",
       "expect": {
         "memory": { "st_px": 7, "st_py": 16, "st_auto": 0, "st_auto_steps": 0, "st_turn": 26 },
-        "screen": { "matches": ["(?:Enemies in view\\.[ \\t]*\\n[ \\t]*){3}Enemies in view\\."] }
+        "screen": { "matches": ["(?:Hostile in view\\.[ \\t]*\\n[ \\t]*){3}Hostile in view\\."] }
       }
     }
   ]

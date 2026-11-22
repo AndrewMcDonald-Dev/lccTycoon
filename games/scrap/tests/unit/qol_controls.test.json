@@ -40,7 +40,7 @@
       "keys": "i c l",
       "expect": {
         "memory": { "drv_tile": 4, "drv_sight": 1, "st_mode": 0, "st_turn": 0 },
-        "screen": { "contains": ["Door blocked."] }
+        "screen": { "contains": ["Doorway blocked."] }
       }
     },
     {
@@ -49,7 +49,7 @@
       "keys": "b c <right>",
       "expect": {
         "memory": { "drv_tile": 4, "drv_sight": 1, "st_mode": 0, "st_turn": 0 },
-        "screen": { "contains": ["Door blocked."] }
+        "screen": { "contains": ["Doorway blocked."] }
       }
     },
     {
@@ -66,7 +66,7 @@
       "keys": "t t",
       "expect": {
         "memory": { "st_px": 10, "st_py": 10, "st_auto": 0, "st_auto_steps": 0, "st_turn": 0 },
-        "screen": { "contains": ["No known path."] }
+        "screen": { "contains": ["No known path to stairs."] }
       }
     },
     {
@@ -75,7 +75,7 @@
       "keys": "d o _5",
       "expect": {
         "memory": { "st_auto": 0, "st_auto_steps": 0, "st_turn": 0 },
-        "screen": { "contains": ["Explored."] }
+        "screen": { "contains": ["Nothing left to explore."] }
       }
     },
     {
@@ -108,7 +108,7 @@
       "keys": "nL _5",
       "expect": {
         "memory": { "st_px": 10, "st_py": 10, "st_auto": 0, "st_auto_steps": 0, "st_turn": 0 },
-        "screen": { "notContains": ["Enemies in view.", "Spark Prod hits", "Spark Prod misses"] }
+        "screen": { "notContains": ["Hostile in view.", "Spark Prod hits", "Spark Prod misses"] }
       }
     },
     {
@@ -125,7 +125,7 @@
       "keys": "m F w 1 F",
       "expect": {
         "memory": { "st_wpn_off": 8, "st_energy": 0, "st_turn": 0 },
-        "screen": { "contains": ["Not enough energy.", "Rivet Gun holds fire.", "Nothing can fire."] }
+        "screen": { "contains": ["Not enough energy.", "Rivet Gun on hold.", "Nothing can fire."] }
       }
     },
     {
@@ -142,7 +142,7 @@
       "keys": "m w2 l",
       "expect": {
         "memory": { "st_wpn_off": 16, "st_px": 10, "st_turn": 1, "st_time": 100 },
-        "screen": { "contains": ["Spark Prod holds fire.", "Core ram"], "notContains": ["Spark Prod hits", "Spark Prod misses"] }
+        "screen": { "contains": ["Spark Prod on hold.", "Core ram"], "notContains": ["Spark Prod hits", "Spark Prod misses"] }
       }
     }
   ]
