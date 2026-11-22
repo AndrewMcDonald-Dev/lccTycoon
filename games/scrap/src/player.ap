@@ -174,7 +174,7 @@ ply_k_modes:
         ldr r1, r4, PLY_ST_MODE
         cmp r1, 0
         brn ply_k_cancel
-        cmp r1, MODE_QUIT+1
+        cmp r1, MODE_LAST+1
         brlt ply_k_mdisp
         br ply_k_cancel
 ply_k_mdisp:
@@ -670,6 +670,10 @@ ply_mode_jt:
         .word ply_k_drop
         .word ply_k_cancel
         .word ply_k_quit
+        .word ply_k_cancel      ; MODE_LOOK (stub)
+        .word ply_k_cancel      ; MODE_LOG (stub)
+        .word ply_k_cancel      ; MODE_TOGGLE (stub)
+        .word ply_k_cancel      ; MODE_CLOSE (stub)
 
 ply_arr_tbl:
         .word 0                 ; 65 KEY_ARR_UP

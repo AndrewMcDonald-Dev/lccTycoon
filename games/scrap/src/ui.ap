@@ -71,8 +71,8 @@ ui_init:
         bl util_memset
         lea r0, st_msg_text
         mov r1, 0
-        mov r2, (MSG_COUNT*MSG_LEN)>>2
-        sll r2, 2
+        mov r2, (MSG_COUNT*MSG_LEN)>>3
+        sll r2, 3
         bl util_memset
         pop lr
         pop r2
@@ -128,7 +128,7 @@ ui_msg_add:
         ldr r1, r2, UI_MSG_HEAD_OFF
         and r1, r1, MSG_COUNT-1
         sll r1, MSG_SHIFT
-        add r2, r2, UI_MSG_TEXT_OFF ; st_msg_text, from st_msg_head
+        lea r2, st_msg_text
         add r2, r2, r1
         mov r3, MSG_LEN-1
 ui_msg_add_scan:
@@ -1271,7 +1271,7 @@ ui_draw_messages:
         str r0, fp, -1
         add r1, r1, UI_MSG_ATTR_OFF
         str r1, fp, -3
-        add r1, r1, MSG_COUNT   ; st_msg_text = st_msg_attr + MSG_COUNT
+        lea r1, st_msg_text
         str r1, fp, -2
 
         mov r4, 0               ; k = 0..MSG_ROWS-1
@@ -1339,7 +1339,7 @@ ui_draw_help_row:
         ldr r1, r1, UI_ST_MODE
         cmp r1, 0
         brn ui_dhr_def
-        cmp r1, MODE_QUIT+1
+        cmp r1, MODE_LAST+1
         brlt ui_dhr_ok
 ui_dhr_def:
         mov r1, MODE_MAP
@@ -2251,6 +2251,10 @@ ui_help_tbl:
         .word ui_s_help_drop
         .word ui_s_help_help
         .word ui_s_help_quit
+        .word ui_s_help_help    ; MODE_LOOK (stub)
+        .word ui_s_help_help    ; MODE_LOG (stub)
+        .word ui_s_help_help    ; MODE_TOGGLE (stub)
+        .word ui_s_help_help    ; MODE_CLOSE (stub)
 
 ; Panel static header table: (row*SCR_COLS + col, attr, pstr)
 ui_panel_hdrs:
