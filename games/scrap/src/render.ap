@@ -16,7 +16,10 @@
 ;; ren_tile_cell  r0=kind r1=visible -> r0=cell for a tile kind (r1=1 visible colors, 0 remembered A_MEMORY); T_ROCK → blank
 ; ---------------------------------------------------------------------
 
-; WP0 stub: labeled placeholder box + the player glyph.
+; ---- ren_draw () -> - -----------------------------------------------
+; Stack locals:
+;   fp-1  row index y (0..VIEW_ROWS-1)
+;   fp-2  entity loop counter
 ren_draw:
         push r0
         push r1
@@ -24,25 +27,206 @@ ren_draw:
         push r3
         push r4
         push lr
-        mov r0, VIEW_ROW
-        mov r1, VIEW_COL
-        mov r2, VIEW_ROWS
-        mov r3, VIEW_COLS
-        mov r4, G_SPACE
-        bl video_fill
-        ld r4, ren_a_box
-        bl video_box
-        mov r0, VIEW_ROW+1
-        mov r1, VIEW_COL+2
-        lea r2, ren_s_label
-        ld r3, ren_a_box
-        bl video_text
-        ld r0, st_py            ; player
+        push fp
+        mov fp, sp
+        sub sp, sp, 2
+
+        ; ---- Layer 1: tiles (direct display-block writes) -----------
+        lea r1, st_fov          ; r1 = fov pointer
+        lea r2, st_map          ; r2 = map pointer
+        mov r0, 0
+        str r0, fp, -1          ; y = 0
+ren_row_lp:
+        ldr r0, fp, -1
+        mov r3, VIEW_ROWS
+        cmp r0, r3
+        brlt ren_row_body
+        br ren_items
+ren_row_body:
+        push r1
         add r0, r0, VIEW_ROW
+        mov r1, VIEW_COL
+        bl video_addr           ; r0 = cell addr for (VIEW_ROW+y, VIEW_COL)
+        pop r1
+        cmp r0, 0
+        brnz ren_row_ok
+        mov r0, MAP_W           ; row outside display block: skip row
+        add r1, r1, r0
+        add r2, r2, r0
+        br ren_row_next
+ren_row_ok:
+        mov r3, r0              ; r3 = dst cell pointer
+        mov r4, VIEW_COLS       ; r4 = remaining columns in row
+ren_col_lp:
+        ldr r0, r1, 0           ; fov word
+        cmp r0, 0
+        brnz ren_col_seen
+        mov r0, G_SPACE         ; unknown -> blank
+ren_col_put:
+        str r0, r3, 0
+        add r1, r1, 1
+        add r2, r2, 1
+        add r3, r3, 1
+        sub r4, r4, 1
+        brp ren_col_lp
+ren_row_next:
+        ldr r0, fp, -1
+        add r0, r0, 1
+        str r0, fp, -1
+        br ren_row_lp
+
+ren_col_seen:
+        and r0, r0, FOV_VISIBLE
+        brnz ren_col_vis
+        ldr r0, r1, 0
+        and r0, r0, FOV_KNOWN
+        brz ren_col_blank
+        ; remembered tile (FOV_KNOWN only)
+        push r4
+        ldr r0, r2, 0
+        and r0, r0, T_KIND_MASK
+        lea r4, ren_tbl_mem
+        add r4, r4, r0
+        ldr r0, r4, 0
+        pop r4
+        br ren_col_put
+ren_col_vis:
+        push r4
+        ldr r0, r2, 0
+        and r0, r0, T_KIND_MASK
+        lea r4, ren_tbl_vis
+        add r4, r4, r0
+        ldr r0, r4, 0
+        pop r4
+        br ren_col_put
+ren_col_blank:
+        mov r0, G_SPACE
+        br ren_col_put
+
+        ; ---- Layer 2: floor items on visible tiles ------------------
+ren_items:
+        lea r4, st_items
+        mov r0, MAX_ITEMS
+        str r0, fp, -2
+ren_itm_lp:
+        ldr r0, r4, I_PART
+        cmp r0, PART_NONE
+        brz ren_itm_next
+        ldr r0, r4, I_X
+        ldr r1, r4, I_Y
+        bl ren_is_visible
+        cmp r0, 0
+        brz ren_itm_next
+        ldr r0, r4, I_PART
+        bl prt_info
+        cmp r0, 0
+        brz ren_itm_next
+        ldr r2, r0, P_CELL
+        ldr r0, r4, I_Y
+        ldr r1, r4, I_X
+        bl ren_put_cell
+ren_itm_next:
+        add r4, r4, ITEM_SIZE
+        ldr r0, fp, -2
+        sub r0, r0, 1
+        str r0, fp, -2
+        brp ren_itm_lp
+
+        ; ---- Layer 3: enemies on visible tiles ----------------------
+ren_enemies:
+        lea r4, st_enemies
+        mov r0, MAX_ENEMIES
+        str r0, fp, -2
+ren_en_lp:
+        ldr r0, r4, E_TYPE
+        cmp r0, EN_NONE
+        brz ren_en_next
+        ldr r0, r4, E_X
+        ldr r1, r4, E_Y
+        bl ren_is_visible
+        cmp r0, 0
+        brz ren_en_next
+        ldr r0, r4, E_TYPE
+        bl act_type_info
+        cmp r0, 0
+        brz ren_en_next
+        ldr r2, r0, ET_CELL
+        ldr r0, r4, E_Y
+        ldr r1, r4, E_X
+        bl ren_put_cell
+ren_en_next:
+        mov r0, ENEMY_SIZE
+        add r4, r4, r0
+        ldr r0, fp, -2
+        sub r0, r0, 1
+        str r0, fp, -2
+        brp ren_en_lp
+
+        ; ---- Layer 4: player ----------------------------------------
+ren_player:
         ld r1, st_px
-        add r1, r1, VIEW_COL
+        cmp r1, 0
+        brn ren_target
+        mov r3, VIEW_COLS
+        cmp r1, r3
+        brlt ren_ply_xok
+        br ren_target
+ren_ply_xok:
+        ld r0, st_py
+        cmp r0, 0
+        brn ren_target
+        mov r3, VIEW_ROWS
+        cmp r0, r3
+        brlt ren_ply_yok
+        br ren_target
+ren_ply_yok:
         ld r2, ren_c_player
-        bl video_put
+        bl ren_put_cell
+
+        ; ---- Layer 5: target highlight in MODE_TARGET ---------------
+ren_target:
+        ld r0, st_mode
+        cmp r0, MODE_TARGET
+        brnz ren_done
+        ld r1, st_target
+        cmp r1, 0
+        brn ren_done
+        mov r3, MAX_ENEMIES
+        cmp r1, r3
+        brlt ren_tgt_ok
+        br ren_done
+ren_tgt_ok:
+        sll r1, ENEMY_SHIFT
+        lea r4, st_enemies
+        add r4, r4, r1
+        ldr r0, r4, E_TYPE
+        cmp r0, EN_NONE
+        brz ren_done
+        bl act_type_info
+        cmp r0, 0
+        brz ren_done
+        ldr r0, r4, E_X
+        ldr r1, r4, E_Y
+        bl ren_is_visible
+        cmp r0, 0
+        brz ren_done
+        ldr r0, r4, E_Y
+        add r0, r0, VIEW_ROW
+        ldr r1, r4, E_X
+        add r1, r1, VIEW_COL
+        bl video_addr
+        cmp r0, 0
+        brz ren_done
+        ldr r2, r0, 0
+        ld r3, ren_m_nobg
+        and r2, r2, r3
+        ld r3, ren_a_tgt_bg
+        or r2, r3
+        str r2, r0, 0
+
+ren_done:
+        mov sp, fp
+        pop fp
         pop lr
         pop r4
         pop r3
@@ -51,10 +235,121 @@ ren_draw:
         pop r0
         ret
 
+; ---- ren_tile_cell (r0=kind, r1=visible -> r0=cell) -----------------
 ren_tile_cell:
+        push r2
+        cmp r0, 0
+        brn ren_tc_blank
+        cmp r0, T_KIND_COUNT
+        brlt ren_tc_ok
+ren_tc_blank:
         mov r0, G_SPACE
+        pop r2
+        ret
+ren_tc_ok:
+        cmp r1, 0
+        brz ren_tc_mem
+        lea r2, ren_tbl_vis
+        add r2, r2, r0
+        ldr r0, r2, 0
+        pop r2
+        ret
+ren_tc_mem:
+        lea r2, ren_tbl_mem
+        add r2, r2, r0
+        ldr r0, r2, 0
+        pop r2
         ret
 
-ren_a_box:      .word A_DIM
+; ---- internal: ren_is_visible (r0=x, r1=y -> r0=1 if visible else 0) -
+ren_is_visible:
+        push r1
+        push r2
+        cmp r0, 0
+        brn ren_vis_no
+        mov r2, VIEW_COLS
+        cmp r0, r2
+        brlt ren_vis_xok
+        br ren_vis_no
+ren_vis_xok:
+        cmp r1, 0
+        brn ren_vis_no
+        mov r2, VIEW_ROWS
+        cmp r1, r2
+        brlt ren_vis_in
+        br ren_vis_no
+ren_vis_in:
+        sll r1, MAP_SHIFT
+        add r1, r1, r0
+        lea r2, st_fov
+        add r2, r2, r1
+        ldr r0, r2, 0
+        and r0, r0, FOV_VISIBLE
+        brz ren_vis_no
+        mov r0, 1
+        pop r2
+        pop r1
+        ret
+ren_vis_no:
+        mov r0, 0
+        pop r2
+        pop r1
+        ret
+
+; ---- internal: ren_put_cell (r0=y, r1=x, r2=cell -> -) --------------
+ren_put_cell:
+        push r0
+        push r1
+        push lr
+        add r0, r0, VIEW_ROW
+        add r1, r1, VIEW_COL
+        bl video_addr
+        cmp r0, 0
+        brz ren_pc_done
+        str r2, r0, 0
+ren_pc_done:
+        pop lr
+        pop r1
+        pop r0
+        ret
+
+; ---- lookup tables & constants (within ±256 words of inner loop) ----
+ren_tbl_vis:
+        .word G_SPACE                   ; 0 T_ROCK
+        .word GL_FLOOR|A_FLOOR          ; 1 T_FLOOR
+        .word GL_WALL|A_WALL            ; 2 T_WALL
+        .word GL_DOOR|A_DOOR            ; 3 T_DOOR
+        .word GL_DOOR_OPEN|A_DOOR       ; 4 T_DOOR_OPEN
+        .word GL_STAIRS|A_STAIRS        ; 5 T_STAIRS
+        .word GL_RUBBLE|A_RUBBLE        ; 6 T_RUBBLE
+        .word G_SPACE                   ; 7..15 unused
+        .word G_SPACE
+        .word G_SPACE
+        .word G_SPACE
+        .word G_SPACE
+        .word G_SPACE
+        .word G_SPACE
+        .word G_SPACE
+        .word G_SPACE
+
+ren_tbl_mem:
+        .word G_SPACE                   ; 0 T_ROCK
+        .word GL_FLOOR|A_MEMORY         ; 1 T_FLOOR
+        .word GL_WALL|A_MEMORY          ; 2 T_WALL
+        .word GL_DOOR|A_MEMORY          ; 3 T_DOOR
+        .word GL_DOOR_OPEN|A_MEMORY     ; 4 T_DOOR_OPEN
+        .word GL_STAIRS|A_MEMORY        ; 5 T_STAIRS
+        .word GL_RUBBLE|A_MEMORY        ; 6 T_RUBBLE
+        .word G_SPACE                   ; 7..15 unused
+        .word G_SPACE
+        .word G_SPACE
+        .word G_SPACE
+        .word G_SPACE
+        .word G_SPACE
+        .word G_SPACE
+        .word G_SPACE
+        .word G_SPACE
+
 ren_c_player:   .word GL_PLAYER|A_PLAYER
-ren_s_label:    .string "MAP 64x24 (render WP5)"
+ren_m_nobg:     .word 0x0FFF
+ren_a_tgt_bg:   .word A_TARGET_BG

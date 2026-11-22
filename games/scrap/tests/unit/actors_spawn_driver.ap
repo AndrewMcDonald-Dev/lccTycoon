@@ -1,0 +1,207 @@
+; Multi-depth, multi-seed spawning unit driver for src/actors.ap (WP7).
+; Generates real floors at depths 10..1 and validates every act_spawn_floor invariant:
+;   - exact spawn count = SPAWN_BASE + (11-depth)/2 hostiles + 1 EN_TINKER
+;   - every hostile type has ET_DLO <= depth <= ET_DHI
+;   - every spawned enemy is on T_FLOOR (never wall/rock/stairs)
+;   - never in st_start_room
+;   - distance >= SPAWN_SAFE from (st_px, st_py) (and never on player)
+;   - never two enemies on the same tile
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        millis r0
+        srand r0
+        mov r0, 0
+        st r0, drv_bad_count
+        st r0, drv_bad_tinker
+        st r0, drv_bad_depth
+        st r0, drv_bad_tile
+        st r0, drv_bad_room
+        st r0, drv_bad_safe
+        st r0, drv_bad_dup
+        st r0, drv_floors_ok
+
+        mov r0, 10
+        st r0, drv_depth
+drv_d_lp:
+        ld r0, drv_depth
+        cmp r0, 1
+        brlt drv_done
+        bl dun_generate
+        bl act_clear
+        mov r0, 0
+        st r0, st_time
+        ld r0, drv_depth
+        bl act_spawn_floor
+
+        ; Inspect all spawned enemies
+        mov r0, 0
+        st r0, drv_cnt_host
+        st r0, drv_cnt_tnk
+        st r0, drv_i
+drv_e_lp:
+        ld r0, drv_i
+        mov r1, MAX_ENEMIES
+        cmp r0, r1
+        brlt drv_e_chk
+        br drv_e_done
+drv_e_chk:
+        sll r0, ENEMY_SHIFT
+        lea r4, st_enemies
+        add r4, r4, r0
+        ldr r0, r4, E_TYPE
+        cmp r0, EN_NONE
+        brz drv_e_next
+        st r4, drv_eptr
+        st r0, drv_etype
+
+        ; Count tinker vs hostile & verify depth range
+        cmp r0, EN_TINKER
+        brne drv_e_hostile
+        ld r1, drv_cnt_tnk
+        add r1, r1, 1
+        st r1, drv_cnt_tnk
+        br drv_e_pos
+drv_e_hostile:
+        ld r1, drv_cnt_host
+        add r1, r1, 1
+        st r1, drv_cnt_host
+        ld r0, drv_etype
+        bl act_type_info
+        ldr r1, r0, ET_DLO
+        ldr r2, r0, ET_DHI
+        ld r3, drv_depth
+        cmp r3, r1
+        brlt drv_e_dep_bad
+        cmp r3, r2
+        brgt drv_e_dep_bad
+        br drv_e_pos
+drv_e_dep_bad:
+        ld r0, drv_bad_depth
+        add r0, r0, 1
+        st r0, drv_bad_depth
+
+drv_e_pos:
+        ld r4, drv_eptr
+        ldr r0, r4, E_X
+        ldr r1, r4, E_Y
+        st r0, drv_ex
+        st r1, drv_ey
+        ; 1. Tile must be T_FLOOR
+        bl dun_get
+        cmp r0, T_FLOOR
+        bre drv_e_rm
+        ld r0, drv_bad_tile
+        add r0, r0, 1
+        st r0, drv_bad_tile
+drv_e_rm:
+        ; 2. Not in st_start_room
+        ld r0, drv_ex
+        ld r1, drv_ey
+        bl dun_room_of
+        ld r1, st_start_room
+        cmp r0, r1
+        brne drv_e_safe
+        ld r0, drv_bad_room
+        add r0, r0, 1
+        st r0, drv_bad_room
+drv_e_safe:
+        ; 3. Distance >= SPAWN_SAFE from player
+        ld r0, drv_ex
+        ld r1, drv_ey
+        ld r2, st_px
+        ld r3, st_py
+        bl dun_dist
+        cmp r0, SPAWN_SAFE
+        brlt drv_e_safe_bad
+        br drv_e_dup
+drv_e_safe_bad:
+        ld r0, drv_bad_safe
+        add r0, r0, 1
+        st r0, drv_bad_safe
+drv_e_dup:
+        ; 4. Unique tile: act_at(ex, ey) must equal drv_i
+        ld r0, drv_ex
+        ld r1, drv_ey
+        bl act_at
+        ld r1, drv_i
+        cmp r0, r1
+        bre drv_e_next
+        ld r0, drv_bad_dup
+        add r0, r0, 1
+        st r0, drv_bad_dup
+
+drv_e_next:
+        ld r0, drv_i
+        add r0, r0, 1
+        st r0, drv_i
+        br drv_e_lp
+
+drv_e_done:
+        ; Check expected hostile count = SPAWN_BASE + (11 - depth) / 2
+        mov r0, 11
+        ld r1, drv_depth
+        sub r0, r0, r1
+        srl r0, 1
+        add r0, r0, SPAWN_BASE
+        ld r1, drv_cnt_host
+        cmp r0, r1
+        bre drv_chk_tnk
+        ld r0, drv_bad_count
+        add r0, r0, 1
+        st r0, drv_bad_count
+drv_chk_tnk:
+        ld r0, drv_cnt_tnk
+        cmp r0, 1
+        bre drv_floor_ok
+        ld r0, drv_bad_tinker
+        add r0, r0, 1
+        st r0, drv_bad_tinker
+drv_floor_ok:
+        ld r0, drv_floors_ok
+        add r0, r0, 1
+        st r0, drv_floors_ok
+        ; Sleep once per floor so each floor runs well within frame step limit
+        mov r0, 1
+        sleep r0
+        ld r0, drv_depth
+        sub r0, r0, 1
+        st r0, drv_depth
+        br drv_d_lp
+
+drv_done:
+        halt
+
+; Stubs required by actors.ap
+cbt_enemy_attack:
+        ret
+ui_msg:
+        ret
+ui_msg_add:
+        ret
+
+drv_depth:      .word 0
+drv_i:          .word 0
+drv_eptr:       .word 0
+drv_etype:      .word 0
+drv_ex:         .word 0
+drv_ey:         .word 0
+drv_cnt_host:   .word 0
+drv_cnt_tnk:    .word 0
+
+drv_floors_ok:  .word 0
+drv_bad_count:  .word 0
+drv_bad_tinker: .word 0
+drv_bad_depth:  .word 0
+drv_bad_tile:   .word 0
+drv_bad_room:   .word 0
+drv_bad_safe:   .word 0
+drv_bad_dup:    .word 0
+
+        .include "../../src/state.ap"
+        .include "../../src/dungeon.ap"
+        .include "../../src/fov.ap"
+        .include "../../src/actors.ap"

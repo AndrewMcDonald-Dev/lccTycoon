@@ -1,0 +1,28 @@
+{
+  "game": "items_seeds_driver.ap",
+  "scenarios": [
+    {
+      "name": "40 generated floors across depths 1..10: LOOT_MIN..LOOT_MAX count, walkable room floor, never on player/stairs, valid tier & 50-100% hp",
+      "clock": 7777,
+      "frames": 50,
+      "expect": {
+        "status": "halted",
+        "maxStepsPerFrame": 400000,
+        "memory": {
+          "drv_seed_i": 40,
+          "drv_fail_cnt": 0,
+          "drv_fail_walk": 0,
+          "drv_fail_ply": 0,
+          "drv_fail_stairs": 0,
+          "drv_fail_dup": 0,
+          "drv_fail_part": 0,
+          "drv_fail_tier": 0,
+          "drv_fail_hp": 0,
+          "drv_fail_regs": 0,
+          "drv_min_cnt": 3,
+          "drv_max_cnt": 5
+        }
+      }
+    }
+  ]
+}

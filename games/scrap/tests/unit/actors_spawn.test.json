@@ -1,0 +1,77 @@
+{
+  "game": "actors_spawn_driver.ap",
+  "scenarios": [
+    {
+      "name": "spawn invariants across depths 10..1 (seed 1001)",
+      "clock": 1001,
+      "frames": 20,
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_floors_ok": 10,
+          "drv_bad_count": 0,
+          "drv_bad_tinker": 0,
+          "drv_bad_depth": 0,
+          "drv_bad_tile": 0,
+          "drv_bad_room": 0,
+          "drv_bad_safe": 0,
+          "drv_bad_dup": 0
+        }
+      }
+    },
+    {
+      "name": "spawn invariants across depths 10..1 (seed 2027)",
+      "clock": 2027,
+      "frames": 20,
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_floors_ok": 10,
+          "drv_bad_count": 0,
+          "drv_bad_tinker": 0,
+          "drv_bad_depth": 0,
+          "drv_bad_tile": 0,
+          "drv_bad_room": 0,
+          "drv_bad_safe": 0,
+          "drv_bad_dup": 0
+        }
+      }
+    },
+    {
+      "name": "spawn invariants across depths 10..1 (seed 7777)",
+      "clock": 7777,
+      "frames": 20,
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_floors_ok": 10,
+          "drv_bad_count": 0,
+          "drv_bad_tinker": 0,
+          "drv_bad_depth": 0,
+          "drv_bad_tile": 0,
+          "drv_bad_room": 0,
+          "drv_bad_safe": 0,
+          "drv_bad_dup": 0
+        }
+      }
+    },
+    {
+      "name": "spawn invariants across depths 10..1 (seed 9999)",
+      "clock": 9999,
+      "frames": 20,
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_floors_ok": 10,
+          "drv_bad_count": 0,
+          "drv_bad_tinker": 0,
+          "drv_bad_depth": 0,
+          "drv_bad_tile": 0,
+          "drv_bad_room": 0,
+          "drv_bad_safe": 0,
+          "drv_bad_dup": 0
+        }
+      }
+    }
+  ]
+}

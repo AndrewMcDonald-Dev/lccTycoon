@@ -1,0 +1,637 @@
+; Unit driver for src/render.ap (WP5).
+; Isolated from parts/actors/items/fov/dungeon via minimal contract-faithful
+; stubs for prt_info and act_type_info below.
+; Dispatches on the first key token:
+;   'c'  ren_tile_cell direct API + register preservation checks
+;   'm'  MODE_MAP scene: all 7 tile kinds (visible / remembered / unknown),
+;        items visible vs hidden, enemies visible vs hidden, layer order
+;        (enemy over item, player over item), viewport clipping / sentinel
+;   't'  MODE_TARGET with visible enemy targeted -> A_TARGET_BG on target only
+;   'e'  MODE_TARGET edge cases: non-visible target + st_target=-1
+;   'p'  worst-case perf: all 1536 tiles visible + 32 items + 24 enemies + target
+;   'r'  worst-case remembered perf: all 1536 tiles remembered (slowest tile branch)
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        lea r0, st_screen
+        bl video_bind
+        nbain r0
+        mov r1, 'c'
+        cmp r0, r1
+        brz drv_case_cell
+        mov r1, 'm'
+        cmp r0, r1
+        brz drv_case_map
+        mov r1, 't'
+        cmp r0, r1
+        brz drv_case_target
+        mov r1, 'e'
+        cmp r0, r1
+        brz drv_case_edge
+        mov r1, 'p'
+        cmp r0, r1
+        brz drv_case_perf_vis
+        mov r1, 'r'
+        cmp r0, r1
+        brz drv_case_perf_mem
+        halt
+
+; ---- 'c': ren_tile_cell direct checks + register preservation -------
+drv_case_cell:
+        ; Check visible cells for kinds 0..6
+        lea r3, drv_tc_vis
+        mov r2, 0
+drv_cc_vlp:
+        mov r0, r2
+        mov r1, 1
+        bl ren_tile_cell
+        str r0, r3, 0
+        add r3, r3, 1
+        add r2, r2, 1
+        cmp r2, T_KIND_COUNT
+        brlt drv_cc_vlp
+
+        ; Check remembered cells for kinds 0..6
+        lea r3, drv_tc_mem
+        mov r2, 0
+drv_cc_mlp:
+        mov r0, r2
+        mov r1, 0
+        bl ren_tile_cell
+        str r0, r3, 0
+        add r3, r3, 1
+        add r2, r2, 1
+        cmp r2, T_KIND_COUNT
+        brlt drv_cc_mlp
+
+        ; Out-of-bounds kinds -> G_SPACE
+        mov r0, T_OUT
+        mov r1, 1
+        bl ren_tile_cell
+        st r0, drv_tc_neg
+        mov r0, T_KIND_COUNT
+        mov r1, 1
+        bl ren_tile_cell
+        st r0, drv_tc_oob
+
+        ; Register preservation across ren_tile_cell and ren_draw
+        mov r1, 1
+        mov r2, 22
+        mov r3, 33
+        mov r4, 44
+        mov r0, T_WALL
+        bl ren_tile_cell
+        add r1, r1, r2
+        add r1, r1, r3
+        add r1, r1, r4          ; 1 + 22 + 33 + 44 = 100
+        st r1, drv_reg_tc
+
+        mov r0, 11
+        mov r1, 22
+        mov r2, 33
+        mov r3, 44
+        mov r4, 55
+        bl ren_draw
+        add r0, r0, r1
+        add r0, r0, r2
+        add r0, r0, r3
+        add r0, r0, r4          ; 11+22+33+44+55 = 165
+        st r0, drv_reg_draw
+        halt
+
+; ---- 'm': MODE_MAP full scene ---------------------------------------
+drv_case_map:
+        bl drv_setup_scene
+        mov r0, MODE_MAP
+        st r0, st_mode
+        mov r0, 1               ; st_target set, but MODE_MAP -> no highlight
+        st r0, st_target
+        bl ren_draw
+        bl video_present
+        ; Verify viewport boundary sentinels were not overwritten
+        mov r0, 0
+        mov r1, 64
+        bl video_get
+        st r0, drv_guard_col
+        mov r0, 24
+        mov r1, 0
+        bl video_get
+        st r0, drv_guard_row
+        mov r0, FRAME_MS
+        sleep r0
+        halt
+
+; ---- 't': MODE_TARGET with visible enemy targeted -------------------
+drv_case_target:
+        bl drv_setup_scene
+        mov r0, MODE_TARGET
+        st r0, st_mode
+        mov r0, 1               ; enemy 1 = Rifler at (2, 6), visible
+        st r0, st_target
+        bl ren_draw
+        bl video_present
+        mov r0, FRAME_MS
+        sleep r0
+        halt
+
+; ---- 'e': MODE_TARGET with hidden enemy (index 2) & st_target=-1 ----
+drv_case_edge:
+        bl drv_setup_scene
+        mov r0, MODE_TARGET
+        st r0, st_mode
+        mov r0, 2               ; enemy 2 at (3, 6), remembered only (not visible)
+        st r0, st_target
+        bl ren_draw
+        bl video_present
+        mov r0, FRAME_MS
+        sleep r0
+        ; Second frame: st_target = -1
+        mov r0, -1
+        st r0, st_target
+        bl ren_draw
+        bl video_present
+        mov r0, FRAME_MS
+        sleep r0
+        halt
+
+; ---- 'p': worst-case perf (all visible + 32 items + 24 enemies) -----
+drv_case_perf_vis:
+        bl drv_clear_world
+        lea r0, st_map
+        mov r1, T_FLOOR
+        ld r2, drv_c_map_size
+        bl drv_fill_words
+        lea r0, st_fov
+        mov r1, FOV_VISIBLE|FOV_KNOWN
+        ld r2, drv_c_map_size
+        bl drv_fill_words
+        ; Fill all 32 items on rows 1..2
+        lea r4, st_items
+        mov r3, 0
+drv_pv_ilp:
+        mov r0, PT_RIVET_GUN
+        str r0, r4, I_PART
+        str r3, r4, I_X
+        mov r0, 1
+        str r0, r4, I_Y
+        mov r0, 10
+        str r0, r4, I_HP
+        add r4, r4, ITEM_SIZE
+        add r3, r3, 1
+        mov r0, MAX_ITEMS
+        cmp r3, r0
+        brlt drv_pv_ilp
+        ; Fill all 24 enemies on row 3
+        lea r4, st_enemies
+        mov r3, 0
+drv_pv_elp:
+        mov r0, EN_RIFLER
+        str r0, r4, E_TYPE
+        str r3, r4, E_X
+        mov r0, 3
+        str r0, r4, E_Y
+        mov r0, 10
+        str r0, r4, E_HP
+        mov r0, ENEMY_SIZE
+        add r4, r4, r0
+        add r3, r3, 1
+        mov r0, MAX_ENEMIES
+        cmp r3, r0
+        brlt drv_pv_elp
+        mov r0, 10
+        st r0, st_px
+        mov r0, 10
+        st r0, st_py
+        mov r0, MODE_TARGET
+        st r0, st_mode
+        mov r0, 0
+        st r0, st_target
+        ; Frame 0 ends setup; Frame 1 measures pure ren_draw + present
+        mov r0, FRAME_MS
+        sleep r0
+        bl ren_draw
+        bl video_present
+        mov r0, FRAME_MS
+        sleep r0
+        halt
+
+; ---- 'r': worst-case remembered perf (all 1536 tiles FOV_KNOWN) -----
+drv_case_perf_mem:
+        bl drv_clear_world
+        lea r0, st_map
+        mov r1, T_WALL
+        ld r2, drv_c_map_size
+        bl drv_fill_words
+        lea r0, st_fov
+        mov r1, FOV_KNOWN
+        ld r2, drv_c_map_size
+        bl drv_fill_words
+        mov r0, 5
+        st r0, st_px
+        mov r0, 5
+        st r0, st_py
+        mov r0, MODE_MAP
+        st r0, st_mode
+        mov r0, FRAME_MS
+        sleep r0
+        bl ren_draw
+        bl video_present
+        mov r0, FRAME_MS
+        sleep r0
+        halt
+
+; ---- scene setup for 'm', 't', 'e' ----------------------------------
+drv_setup_scene:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        bl drv_clear_world
+        ; Pre-fill screen with sentinel 'X' outside viewport so we verify clipping
+        mov r0, G_SPACE
+        bl video_clear
+        mov r0, 0
+        mov r1, 64
+        mov r2, 'X'
+        bl video_put
+        mov r0, 24
+        mov r1, 0
+        mov r2, 'X'
+        bl video_put
+
+        ; Row 0 cols 0..6: all 7 tile kinds VISIBLE (FOV_VISIBLE|FOV_KNOWN)
+        ; Row 1 cols 0..6: all 7 tile kinds REMEMBERED (FOV_KNOWN)
+        ; Row 2 cols 0..6: all 7 tile kinds UNKNOWN (0)
+        mov r3, 0
+drv_sc_klp:
+        ; row 0 (y=0, x=r3)
+        mov r0, r3
+        mov r1, 0
+        mov r2, r3
+        bl drv_set_tile
+        mov r0, r3
+        mov r1, 0
+        mov r2, FOV_VISIBLE|FOV_KNOWN
+        bl drv_set_fov
+        ; row 1 (y=1, x=r3)
+        mov r0, r3
+        mov r1, 1
+        mov r2, r3
+        bl drv_set_tile
+        mov r0, r3
+        mov r1, 1
+        mov r2, FOV_KNOWN
+        bl drv_set_fov
+        ; row 2 (y=2, x=r3)
+        mov r0, r3
+        mov r1, 2
+        mov r2, r3
+        bl drv_set_tile
+        mov r0, r3
+        mov r1, 2
+        mov r2, 0
+        bl drv_set_fov
+        add r3, r3, 1
+        cmp r3, T_KIND_COUNT
+        brlt drv_sc_klp
+
+        ; Row 4: items test (cols 1..5 are T_FLOOR)
+        ;   col 1 visible: PT_RIVET_GUN ('/' FG_WHITE)
+        ;   col 2 visible: PT_ARC_BATTERY ('*' FG_BCYAN)
+        ;   col 3 visible: PT_HEX_ARMOR ('&' FG_BMAGENTA — stubbed tier 3 for distinct color)
+        ;   col 4 remembered: PT_RIVET_GUN (must be HIDDEN -> remembered floor)
+        ;   col 5 unknown: PT_RIVET_GUN (must be HIDDEN -> blank)
+        mov r3, 1
+drv_sc_r4:
+        mov r0, r3
+        mov r1, 4
+        mov r2, T_FLOOR
+        bl drv_set_tile
+        add r3, r3, 1
+        cmp r3, 6
+        brlt drv_sc_r4
+        mov r0, 1
+        mov r1, 4
+        mov r2, FOV_VISIBLE|FOV_KNOWN
+        bl drv_set_fov
+        mov r0, 2
+        mov r1, 4
+        mov r2, FOV_VISIBLE|FOV_KNOWN
+        bl drv_set_fov
+        mov r0, 3
+        mov r1, 4
+        mov r2, FOV_VISIBLE|FOV_KNOWN
+        bl drv_set_fov
+        mov r0, 4
+        mov r1, 4
+        mov r2, FOV_KNOWN
+        bl drv_set_fov
+        ; item 0 at (1,4)
+        mov r0, 0
+        mov r1, PT_RIVET_GUN
+        mov r2, 1
+        mov r3, 4
+        bl drv_set_item
+        ; item 1 at (2,4)
+        mov r0, 1
+        mov r1, PT_ARC_BATTERY
+        mov r2, 2
+        mov r3, 4
+        bl drv_set_item
+        ; item 2 at (3,4)
+        mov r0, 2
+        mov r1, PT_FUSION_KNOT
+        mov r2, 3
+        mov r3, 4
+        bl drv_set_item
+        ; item 3 at (4,4) - remembered only
+        mov r0, 3
+        mov r1, PT_RIVET_GUN
+        mov r2, 4
+        mov r3, 4
+        bl drv_set_item
+        ; item 4 at (5,4) - unknown
+        mov r0, 4
+        mov r1, PT_RIVET_GUN
+        mov r2, 5
+        mov r3, 4
+        bl drv_set_item
+
+        ; Row 6: enemies test (cols 1..4 are T_FLOOR)
+        ;   col 1 visible: enemy 0 EN_FLIT ('f' FG_BCYAN)
+        ;   col 2 visible: enemy 1 EN_RIFLER ('r' FG_BRED) + item 5 underneath
+        ;   col 3 remembered: enemy 2 EN_BULWARK ('B' FG_BWHITE) -> HIDDEN
+        ;   col 4 unknown: enemy 3 EN_TINKER ('t' FG_GREEN) -> HIDDEN
+        mov r3, 1
+drv_sc_r6:
+        mov r0, r3
+        mov r1, 6
+        mov r2, T_FLOOR
+        bl drv_set_tile
+        add r3, r3, 1
+        cmp r3, 5
+        brlt drv_sc_r6
+        mov r0, 1
+        mov r1, 6
+        mov r2, FOV_VISIBLE|FOV_KNOWN
+        bl drv_set_fov
+        mov r0, 2
+        mov r1, 6
+        mov r2, FOV_VISIBLE|FOV_KNOWN
+        bl drv_set_fov
+        mov r0, 3
+        mov r1, 6
+        mov r2, FOV_KNOWN
+        bl drv_set_fov
+        ; item 5 under enemy 1 at (2,6)
+        mov r0, 5
+        mov r1, PT_RIVET_GUN
+        mov r2, 2
+        mov r3, 6
+        bl drv_set_item
+        ; enemy 0 at (1,6)
+        mov r0, 0
+        mov r1, EN_FLIT
+        mov r2, 1
+        mov r3, 6
+        bl drv_set_enemy
+        ; enemy 1 at (2,6)
+        mov r0, 1
+        mov r1, EN_RIFLER
+        mov r2, 2
+        mov r3, 6
+        bl drv_set_enemy
+        ; enemy 2 at (3,6) - remembered only
+        mov r0, 2
+        mov r1, EN_BULWARK
+        mov r2, 3
+        mov r3, 6
+        bl drv_set_enemy
+        ; enemy 3 at (4,6) - unknown
+        mov r0, 3
+        mov r1, EN_TINKER
+        mov r2, 4
+        mov r3, 6
+        bl drv_set_enemy
+
+        ; Row 8: player at (2,8) standing on visible floor with item 6 underneath
+        mov r0, 2
+        mov r1, 8
+        mov r2, T_FLOOR
+        bl drv_set_tile
+        mov r0, 2
+        mov r1, 8
+        mov r2, FOV_VISIBLE|FOV_KNOWN
+        bl drv_set_fov
+        mov r0, 6
+        mov r1, PT_RIVET_GUN
+        mov r2, 2
+        mov r3, 8
+        bl drv_set_item
+        mov r0, 2
+        st r0, st_px
+        mov r0, 8
+        st r0, st_py
+
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; ---- helper routines for driver setup -------------------------------
+drv_clear_world:
+        push r0
+        push r1
+        push r2
+        push lr
+        lea r0, st_map
+        mov r1, 0
+        ld r2, drv_c_map_size
+        bl drv_fill_words
+        lea r0, st_fov
+        mov r1, 0
+        ld r2, drv_c_map_size
+        bl drv_fill_words
+        lea r0, st_items
+        mov r1, 0
+        mov r2, MAX_ITEMS*ITEM_SIZE
+        bl drv_fill_words
+        lea r0, st_enemies
+        mov r1, 0
+        ld r2, drv_c_en_words
+        bl drv_fill_words
+        pop lr
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; r0=dst r1=val r2=count
+drv_fill_words:
+        push r0
+        push r2
+drv_fw_lp:
+        cmp r2, 0
+        brz drv_fw_done
+        str r1, r0, 0
+        add r0, r0, 1
+        sub r2, r2, 1
+        br drv_fw_lp
+drv_fw_done:
+        pop r2
+        pop r0
+        ret
+
+; r0=x r1=y r2=kind
+drv_set_tile:
+        push r1
+        push r3
+        sll r1, MAP_SHIFT
+        add r1, r1, r0
+        lea r3, st_map
+        add r3, r3, r1
+        str r2, r3, 0
+        pop r3
+        pop r1
+        ret
+
+; r0=x r1=y r2=fov_bits
+drv_set_fov:
+        push r1
+        push r3
+        sll r1, MAP_SHIFT
+        add r1, r1, r0
+        lea r3, st_fov
+        add r3, r3, r1
+        str r2, r3, 0
+        pop r3
+        pop r1
+        ret
+
+; r0=idx r1=part r2=x r3=y
+drv_set_item:
+        push r0
+        push r4
+        sll r0, ITEM_SHIFT
+        lea r4, st_items
+        add r4, r4, r0
+        str r1, r4, I_PART
+        str r2, r4, I_X
+        str r3, r4, I_Y
+        mov r0, 10
+        str r0, r4, I_HP
+        pop r4
+        pop r0
+        ret
+
+; r0=idx r1=etype r2=x r3=y
+drv_set_enemy:
+        push r0
+        push r4
+        sll r0, ENEMY_SHIFT
+        lea r4, st_enemies
+        add r4, r4, r0
+        str r1, r4, E_TYPE
+        str r2, r4, E_X
+        str r3, r4, E_Y
+        mov r0, 10
+        str r0, r4, E_HP
+        pop r4
+        pop r0
+        ret
+
+; ---- contract-faithful stubs for prt_info & act_type_info -----------
+prt_info:
+        cmp r0, PT_RIVET_GUN
+        brz drv_pi_rivet
+        cmp r0, PT_ARC_BATTERY
+        brz drv_pi_arc
+        cmp r0, PT_FUSION_KNOT
+        brz drv_pi_fusion
+        mov r0, 0
+        ret
+drv_pi_rivet:
+        lea r0, drv_p_rivet
+        ret
+drv_pi_arc:
+        lea r0, drv_p_arc
+        ret
+drv_pi_fusion:
+        lea r0, drv_p_fusion
+        ret
+
+act_type_info:
+        cmp r0, EN_FLIT
+        brz drv_ai_flit
+        cmp r0, EN_RIFLER
+        brz drv_ai_rifler
+        cmp r0, EN_BULWARK
+        brz drv_ai_bulwark
+        cmp r0, EN_TINKER
+        brz drv_ai_tinker
+        mov r0, 0
+        ret
+drv_ai_flit:
+        lea r0, drv_e_flit
+        ret
+drv_ai_rifler:
+        lea r0, drv_e_rifler
+        ret
+drv_ai_bulwark:
+        lea r0, drv_e_bulwark
+        ret
+drv_ai_tinker:
+        lea r0, drv_e_tinker
+        ret
+
+; ---- stub catalog records (only P_CELL / ET_CELL read by render) ----
+drv_p_rivet:
+        .word PK_WEAPON
+        .word 0
+        .word GL_WEAPON|A_TIER1
+drv_p_arc:
+        .word PK_POWER
+        .word 0
+        .word GL_POWER|A_TIER2
+drv_p_fusion:
+        .word PK_UTIL
+        .word 0
+        .word GL_UTIL|A_TIER3
+
+drv_e_flit:
+        .word 0
+        .word 'f'|FG_BCYAN
+drv_e_rifler:
+        .word 0
+        .word 'r'|FG_BRED
+drv_e_bulwark:
+        .word 0
+        .word 'B'|FG_BWHITE
+drv_e_tinker:
+        .word 0
+        .word 't'|FG_GREEN
+
+; ---- constants & result cells ---------------------------------------
+drv_c_map_size: .word MAP_SIZE
+drv_c_en_words: .word MAX_ENEMIES*ENEMY_SIZE
+
+drv_tc_vis:     .zero T_KIND_COUNT
+drv_tc_mem:     .zero T_KIND_COUNT
+drv_tc_neg:     .word 0
+drv_tc_oob:     .word 0
+drv_reg_tc:     .word 0
+drv_reg_draw:   .word 0
+drv_guard_col:  .word 0
+drv_guard_row:  .word 0
+
+        .include "../../src/state.ap"
+        .include "../../src/render.ap"
+        .include "video.ap"

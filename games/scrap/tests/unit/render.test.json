@@ -1,0 +1,114 @@
+{
+  "game": "render_driver.ap",
+  "scenarios": [
+    {
+      "name": "ren_tile_cell returns palette cells for all kinds visible vs remembered, blank for rock/invalid, preserves regs",
+      "keys": "c",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_tc_vis": [32, 2042, 3875, 811, 807, 2876, 2092],
+          "drv_tc_mem": [32, 1274, 1059, 1067, 1063, 1084, 1068],
+          "drv_tc_neg": 32,
+          "drv_tc_oob": 32,
+          "drv_reg_tc": 100,
+          "drv_reg_draw": 165
+        }
+      }
+    },
+    {
+      "name": "MODE_MAP renders all tile kinds visible/remembered/unknown, hides unseen items/enemies, layers enemy/player over items, respects viewport bounds",
+      "keys": "m",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_guard_col": 88,
+          "drv_guard_row": 88
+        },
+        "screen": {
+          "lines": {
+            "0": " ·#+'<,                                                         X",
+            "1": " ·#+'<,",
+            "2": "",
+            "4": " /*&·",
+            "6": " fr·",
+            "8": "  @",
+            "24": "X"
+          }
+        },
+        "colors": {
+          "lines": {
+            "0": " wWyyYK                                                         .",
+            "1": " bbbbbb",
+            "2": "",
+            "4": " wCMb",
+            "6": " CRb",
+            "8": "  W"
+          }
+        },
+        "bg": {
+          "lines": {
+            "6": " kkk"
+          }
+        }
+      }
+    },
+    {
+      "name": "MODE_TARGET applies A_TARGET_BG (red) only to the targeted visible enemy",
+      "keys": "t",
+      "expect": {
+        "status": "halted",
+        "screen": {
+          "lines": {
+            "6": " fr·"
+          }
+        },
+        "colors": {
+          "lines": {
+            "6": " CRb"
+          }
+        },
+        "bg": {
+          "lines": {
+            "6": " krk"
+          }
+        }
+      }
+    },
+    {
+      "name": "MODE_TARGET does not highlight a non-visible enemy or st_target=-1",
+      "keys": "e _",
+      "expect": {
+        "status": "halted",
+        "frames": [
+          {
+            "frame": 0,
+            "screen": { "lines": { "6": " fr·" } },
+            "bg": { "lines": { "6": " kkk" } }
+          },
+          {
+            "frame": 1,
+            "screen": { "lines": { "6": " fr·" } },
+            "bg": { "lines": { "6": " kkk" } }
+          }
+        ]
+      }
+    },
+    {
+      "name": "perf: worst-case full visible viewport + 32 items + 24 enemies + target stays <= 150K instr/frame",
+      "keys": "p _",
+      "expect": {
+        "status": "halted",
+        "maxStepsPerFrame": 150000
+      }
+    },
+    {
+      "name": "perf: worst-case all-remembered 64x24 viewport stays <= 150K instr/frame",
+      "keys": "r _",
+      "expect": {
+        "status": "halted",
+        "maxStepsPerFrame": 150000
+      }
+    }
+  ]
+}

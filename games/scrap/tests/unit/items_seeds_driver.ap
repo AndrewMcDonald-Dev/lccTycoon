@@ -1,0 +1,319 @@
+; Multi-seed stress driver for src/items.ap itm_spawn_floor (WP6).
+; Generates 40 floors across depths 1..10 (one sleep per seed) and verifies:
+;   - active item count is in [LOOT_MIN, LOOT_MAX] (3..5) on every floor
+;   - every item is on a walkable T_FLOOR tile inside a room (dun_room_of >= 0)
+;   - no item is on the player tile (st_px, st_py)
+;   - no item is on the stairs tile (st_stairs_x, st_stairs_y) or any T_STAIRS
+;   - no two items share a tile (itm_at(I_X, I_Y) == slot index)
+;   - every item has a valid part id with P_TIER allowed at that depth
+;   - every item has integrity in 50..100% of P_MAXHP (hp*2 >= maxhp && hp <= maxhp)
+;   - itm_spawn_floor preserves r0..r4
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+        .define SEED_COUNT 40
+
+drv_main:
+        millis r0
+        st r0, drv_base_seed
+        mov r0, 0
+        st r0, drv_seed_i
+        st r0, drv_fail_cnt
+        st r0, drv_fail_walk
+        st r0, drv_fail_ply
+        st r0, drv_fail_stairs
+        st r0, drv_fail_dup
+        st r0, drv_fail_part
+        st r0, drv_fail_tier
+        st r0, drv_fail_hp
+        st r0, drv_fail_regs
+        st r0, drv_total_items
+        mov r0, 99
+        st r0, drv_min_cnt
+        mov r0, 0
+        st r0, drv_max_cnt
+
+drv_seed_loop:
+        ld r0, drv_seed_i
+        mov r1, SEED_COUNT
+        cmp r0, r1
+        brlt drv_run_one
+        halt
+
+drv_run_one:
+        ; seed = base_seed + seed_i * 31 + 7
+        mov r1, 31
+        mul r0, r1
+        ld r1, drv_base_seed
+        add r0, r0, r1
+        add r0, r0, 7
+        srand r0
+
+        ; depth = (seed_i % 10) + 1
+        ld r0, drv_seed_i
+        mov r1, 10
+        rem r0, r1
+        add r0, r0, 1
+        st r0, drv_depth
+
+        bl dun_generate
+        bl itm_clear
+
+        ; Call itm_spawn_floor and verify register preservation
+        ld r0, drv_depth
+        mov r1, 41
+        mov r2, 42
+        mov r3, 43
+        mov r4, 44
+        bl itm_spawn_floor
+        st r0, drv_ix
+        mov r0, 44
+        cmp r4, r0
+        brnz drv_reg_bad
+        mov r0, 43
+        cmp r3, r0
+        brnz drv_reg_bad
+        mov r0, 42
+        cmp r2, r0
+        brnz drv_reg_bad
+        mov r0, 41
+        cmp r1, r0
+        brnz drv_reg_bad
+        ld r0, drv_ix
+        ld r1, drv_depth
+        cmp r0, r1
+        brnz drv_reg_bad
+        br drv_chk_items
+drv_reg_bad:
+        ld r0, drv_fail_regs
+        add r0, r0, 1
+        st r0, drv_fail_regs
+
+drv_chk_items:
+        ; Determine max allowed tier for drv_depth
+        ld r0, drv_depth
+        cmp r0, TIER3_DEPTH
+        brlt drv_t3
+        bre drv_t3
+        cmp r0, TIER2_DEPTH
+        brlt drv_t2
+        bre drv_t2
+        mov r0, 1
+        br drv_tset
+drv_t3:
+        mov r0, 3
+        br drv_tset
+drv_t2:
+        mov r0, 2
+drv_tset:
+        st r0, drv_max_tier
+
+        ; Scan all MAX_ITEMS slots
+        mov r0, 0
+        st r0, drv_cnt
+        mov r0, 0
+        st r0, drv_slot_i
+drv_slot_lp:
+        ld r0, drv_slot_i
+        mov r1, MAX_ITEMS
+        cmp r0, r1
+        brlt drv_slot_body
+        br drv_chk_cnt
+
+drv_slot_body:
+        sll r0, ITEM_SHIFT
+        lea r4, st_items
+        add r4, r4, r0
+        ldr r2, r4, I_PART
+        cmp r2, PART_NONE
+        brz drv_slot_next
+
+        ; Active item found
+        ld r0, drv_cnt
+        add r0, r0, 1
+        st r0, drv_cnt
+
+        ldr r0, r4, I_X
+        ldr r1, r4, I_Y
+        st r0, drv_ix
+        st r1, drv_iy
+        st r2, drv_ipart
+        ldr r3, r4, I_HP
+        st r3, drv_ihp
+
+        ; 1. Walkable and inside a room
+        bl dun_walkable
+        cmp r0, 0
+        brz drv_bad_walk
+        ld r0, drv_ix
+        ld r1, drv_iy
+        bl dun_room_of
+        cmp r0, 0
+        brn drv_bad_walk
+        br drv_chk_ply
+drv_bad_walk:
+        ld r0, drv_fail_walk
+        add r0, r0, 1
+        st r0, drv_fail_walk
+
+        ; 2. Never on player tile
+drv_chk_ply:
+        ld r0, drv_ix
+        ld r1, st_px
+        cmp r0, r1
+        brnz drv_chk_stairs
+        ld r0, drv_iy
+        ld r1, st_py
+        cmp r0, r1
+        brnz drv_chk_stairs
+        ld r0, drv_fail_ply
+        add r0, r0, 1
+        st r0, drv_fail_ply
+
+        ; 3. Never on stairs tile or T_STAIRS
+drv_chk_stairs:
+        ld r0, drv_ix
+        ld r1, st_stairs_x
+        cmp r0, r1
+        brnz drv_chk_st_kind
+        ld r0, drv_iy
+        ld r1, st_stairs_y
+        cmp r0, r1
+        brz drv_bad_stairs
+drv_chk_st_kind:
+        ld r0, drv_ix
+        ld r1, drv_iy
+        bl dun_get
+        cmp r0, T_STAIRS
+        brnz drv_chk_dup
+drv_bad_stairs:
+        ld r0, drv_fail_stairs
+        add r0, r0, 1
+        st r0, drv_fail_stairs
+
+        ; 4. Unique tile: itm_at(ix, iy) must equal drv_slot_i
+drv_chk_dup:
+        ld r0, drv_ix
+        ld r1, drv_iy
+        bl itm_at
+        ld r1, drv_slot_i
+        cmp r0, r1
+        brz drv_chk_part
+        ld r0, drv_fail_dup
+        add r0, r0, 1
+        st r0, drv_fail_dup
+
+        ; 5. Valid part, allowed tier, 50..100% integrity
+drv_chk_part:
+        ld r0, drv_ipart
+        bl prt_info
+        cmp r0, 0
+        brnz drv_part_ok
+        ld r1, drv_fail_part
+        add r1, r1, 1
+        st r1, drv_fail_part
+        br drv_slot_next
+drv_part_ok:
+        ldr r1, r0, P_TIER
+        ld r2, drv_max_tier
+        cmp r1, r2
+        brlt drv_tier_ok
+        bre drv_tier_ok
+        ld r1, drv_fail_tier
+        add r1, r1, 1
+        st r1, drv_fail_tier
+drv_tier_ok:
+        ldr r1, r0, P_MAXHP     ; max_hp
+        ld r2, drv_ihp          ; hp
+        cmp r2, 1
+        brlt drv_bad_hp
+        cmp r2, r1
+        brgt drv_bad_hp
+        add r3, r2, r2          ; hp * 2 >= max_hp (at least 50%)
+        cmp r3, r1
+        brlt drv_bad_hp
+        br drv_slot_next
+drv_bad_hp:
+        ld r1, drv_fail_hp
+        add r1, r1, 1
+        st r1, drv_fail_hp
+
+drv_slot_next:
+        ld r0, drv_slot_i
+        add r0, r0, 1
+        st r0, drv_slot_i
+        br drv_slot_lp
+
+drv_chk_cnt:
+        ld r0, drv_cnt
+        ld r1, drv_total_items
+        add r1, r1, r0
+        st r1, drv_total_items
+        ld r1, drv_min_cnt
+        cmp r0, r1
+        brlt drv_upd_min
+        br drv_chk_max
+drv_upd_min:
+        st r0, drv_min_cnt
+drv_chk_max:
+        ld r1, drv_max_cnt
+        cmp r0, r1
+        brgt drv_upd_max
+        br drv_chk_bounds
+drv_upd_max:
+        st r0, drv_max_cnt
+drv_chk_bounds:
+        cmp r0, LOOT_MIN
+        brlt drv_bad_cnt
+        cmp r0, LOOT_MAX
+        brgt drv_bad_cnt
+        br drv_next_seed
+drv_bad_cnt:
+        ld r1, drv_fail_cnt
+        add r1, r1, 1
+        st r1, drv_fail_cnt
+
+drv_next_seed:
+        ld r0, drv_seed_i
+        add r0, r0, 1
+        st r0, drv_seed_i
+        mov r0, 1
+        sleep r0
+        br drv_seed_loop
+
+; Scratch / results
+drv_base_seed:   .word 0
+drv_seed_i:      .word 0
+drv_depth:       .word 0
+drv_max_tier:    .word 0
+drv_cnt:         .word 0
+drv_slot_i:      .word 0
+drv_ix:          .word 0
+drv_iy:          .word 0
+drv_ipart:       .word 0
+drv_ihp:         .word 0
+drv_min_cnt:     .word 0
+drv_max_cnt:     .word 0
+drv_total_items: .word 0
+drv_fail_cnt:    .word 0
+drv_fail_walk:   .word 0
+drv_fail_ply:    .word 0
+drv_fail_stairs: .word 0
+drv_fail_dup:    .word 0
+drv_fail_part:   .word 0
+drv_fail_tier:   .word 0
+drv_fail_hp:     .word 0
+drv_fail_regs:   .word 0
+
+; UI stubs needed by parts.ap (prt_damage)
+ui_msg:
+ui_msg_add:
+ui_msg_attr:
+        ret
+
+        .include "../../src/state.ap"
+        .include "../../src/dungeon.ap"
+        .include "../../src/parts.ap"
+        .include "../../src/items.ap"
