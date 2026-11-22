@@ -17,10 +17,10 @@ DESIGN.md.
 | WP5 | Map viewport renderer | src/render.ap, tests/unit/render_* | WP1, WP2 | lcc-text-graphics | 2 | done |
 | WP6 | Floor items | src/items.ap, tests/unit/items_* | WP1, WP3 | lcc-simulation | 2 | done |
 | WP7 | Robots: types, spawning, scheduler, AI | src/actors.ap, tests/unit/actors_* | WP1, WP2 | lcc-simulation | 2 | done |
-| WP8 | Combat | src/combat.ap, tests/unit/combat_* | WP3, WP6, WP7 | lcc-simulation | 3 | active |
-| WP9 | Player input + actions + integration | src/player.ap, main.ap (integration fixes only), tests/play.test.json | WP3, WP4, WP6, WP7 | lcc-game-dev | 3 | active |
-| QA-1 | Review + scripted playthroughs | tests/qa1.test.json (+ findings report) | wave 3 | lcc-qa | 4 | todo |
-| WP10 | Balance + polish (QA-1 fixes, tuning) | per finding: defs tuning (ARCH), catalog in parts.ap, act_types in actors.ap, ui text | QA-1 | lcc-qa + domain | 5 | todo |
+| WP8 | Combat | src/combat.ap, tests/unit/combat_* | WP3, WP6, WP7 | lcc-simulation | 3 | done |
+| WP9 | Player input + actions + integration | src/player.ap, main.ap (integration fixes only), tests/play.test.json | WP3, WP4, WP6, WP7 | lcc-game-dev | 3 | done |
+| QA-1 | Review + scripted playthroughs | tests/qa1.test.json (+ findings report) | wave 3 | lcc-qa | 4 | active |
+| WP10 | Balance + polish (QA-1 fixes, tuning) | per finding: defs tuning (ARCH), catalog in parts.ap, act_types in actors.ap, ui text | QA-1 | lcc-qa + domain | 5 | active |
 | QA-2 | Final playtest: win path, death path, perf | tests/qa2.test.json | WP10 | lcc-qa | 5 | todo |
 
 Waves (files are disjoint within a wave):
@@ -56,7 +56,7 @@ module stubbed with complete `;;` contracts; main loop calls them in the documen
   smoke 12/12 + dungeon unit 1/1, repo check 222/222. Stub `.` wait exercises main_turn.
 
 ## WP1 — Dungeon generator
-**Log:** 2026-11-21 wave 1 (WP1-4, Gemini 4 Neon) integrated: check 244/244, 18.3K/40K words; FOV 34K instr worst case. Wave 2 (WP5-7, Neon) integrated: check 259/259; render ~35K instr worst case. Wave 3 (WP8-9) dispatched to Neon.
+**Log:** 2026-11-21 wave 1 (WP1-4, Gemini 4 Neon) integrated: check 244/244, 18.3K/40K words; FOV 34K instr worst case. Wave 2 (WP5-7, Neon) integrated: check 259/259; render ~35K instr worst case. Wave 3 (WP8-9, Neon) integrated: check 279/279. QA-1 dispatched (Opus).
 **Goal:** `dun_generate` builds a floor as specified in its contract and DESIGN.md: rooms
 (ROOMS_MIN..MAX_ROOMS, sizes ROOM_MIN/MAX_*) with walls, L-shaped corridors connecting
 all rooms, doors (DOOR_PCT), rubble, one `<` far from the start room, and the player

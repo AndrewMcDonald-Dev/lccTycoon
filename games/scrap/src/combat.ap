@@ -18,21 +18,781 @@
 ;;                   one random part from ET_DROP at rand(DROP_HP_MIN..100)% integrity on its tile, act_kill. Clears st_target if it was the target.
 ; ---------------------------------------------------------------------
 
-; WP0 stub: nothing hits.
+; ---- hit chance -------------------------------------------------------------
+; r0 = accuracy%, r1 = distance -> r0 = clamped HIT_MIN..HIT_MAX
 cbt_hit_chance:
+        push r1
+        push r2
+        cmp r1, 1
+        brlt cbt_hc_clamp
+        bre cbt_hc_clamp
+        sub r1, r1, 1           ; r1 = distance - 1
+        mov r2, HIT_DIST_PEN
+        mul r1, r2              ; r1 = HIT_DIST_PEN * (distance - 1)
+        sub r0, r0, r1
+cbt_hc_clamp:
+        cmp r0, HIT_MIN
+        brgt cbt_hc_hi
+        bre cbt_hc_hi
         mov r0, HIT_MIN
+        br cbt_hc_done
+cbt_hc_hi:
+        mov r2, HIT_MAX
+        cmp r0, r2
+        brlt cbt_hc_done
+        bre cbt_hc_done
+        mov r0, HIT_MAX
+cbt_hc_done:
+        pop r2
+        pop r1
         ret
 
+; ---- player ranged fire -----------------------------------------------------
+; r0 = enemy index -> r0 = number of weapons fired (0 = none could fire)
+; Locals relative to fp:
+;   fp-1  enemy_idx
+;   fp-2  dist
+;   fp-3  ename (string ptr)
+;   fp-4  fired count
+;   fp-5  slot index
+;   fp-6  pinfo (catalog record ptr)
+;   fp-7  dmg
 cbt_player_fire:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        push fp
+        mov fp, sp
+        sub sp, sp, 7
+
+        mov r1, 0
+        str r1, fp, -4          ; fired = 0
+
+        ; Validate enemy index 0..MAX_ENEMIES-1
+        cmp r0, 0
+        brn cbt_pf_ret0
+        mov r2, MAX_ENEMIES
+        cmp r0, r2
+        brlt cbt_pf_idxok
+        br cbt_pf_ret0
+cbt_pf_idxok:
+        str r0, fp, -1          ; enemy_idx
+        mov r2, r0
+        sll r2, ENEMY_SHIFT
+        lea r3, st_enemies
+        add r3, r3, r2          ; r3 = eptr
+        ldr r1, r3, E_TYPE
+        cmp r1, EN_NONE
+        brz cbt_pf_ret0
+
+        ; Cache enemy name before any shots
+        bl act_name
+        str r0, fp, -3          ; ename
+
+        ; Require line of sight
+        ld r0, st_px
+        ld r1, st_py
+        ldr r2, r3, E_X
+        ldr r3, r3, E_Y
+        bl fov_los
+        cmp r0, 0
+        brz cbt_pf_ret0
+
+        ; Compute Chebyshev distance
+        ldr r0, fp, -1
+        sll r0, ENEMY_SHIFT
+        lea r4, st_enemies
+        add r4, r4, r0
+        ld r0, st_px
+        ld r1, st_py
+        ldr r2, r4, E_X
+        ldr r3, r4, E_Y
+        bl dun_dist
+        str r0, fp, -2          ; dist
+
+        ; Fire every ranged weapon in slot order (SLOT_WEAP0..SLOT_WEAP0+NUM_WEAP-1)
+        mov r0, SLOT_WEAP0
+        str r0, fp, -5
+cbt_pf_lp:
+        ldr r0, fp, -5
+        cmp r0, SLOT_WEAP0+NUM_WEAP
+        brlt cbt_pf_slot
+        br cbt_pf_done
+cbt_pf_slot:
+        sll r0, SLOT_SHIFT
+        lea r1, st_slots
+        add r1, r1, r0
+        ldr r0, r1, S_PART
+        cmp r0, PART_NONE
+        brz cbt_pf_next
+        bl prt_info
+        cmp r0, 0
+        brz cbt_pf_next
+        str r0, fp, -6          ; pinfo
+        ldr r1, r0, P_KIND
+        cmp r1, PK_WEAPON
+        brne cbt_pf_next
+        ldr r1, r0, P_W_MELEE
+        cmp r1, 0
+        brnz cbt_pf_next        ; melee weapon: skip
+        ldr r1, r0, P_W_RANGE
+        ldr r2, fp, -2          ; dist
+        cmp r1, r2
+        brlt cbt_pf_next        ; out of range
+        ldr r0, r0, P_W_ENERGY
+        bl prt_spend_energy
+        cmp r0, 0
+        brz cbt_pf_next         ; not enough energy
+
+        ; Weapon fires
+        ldr r0, fp, -4
+        add r0, r0, 1
+        str r0, fp, -4
+
+        ; Hit chance = cbt_hit_chance(P_W_ACC + st_acc_bonus, dist)
+        ldr r4, fp, -6
+        ldr r0, r4, P_W_ACC
+        ld r1, st_acc_bonus
+        add r0, r0, r1
+        ldr r1, fp, -2
+        bl cbt_hit_chance
+        mov r2, r0              ; r2 = hit%
+
+        ; Roll 1..100 <= hit%
+        mov r0, 1
+        mov r1, 100
+        rand r0, r1
+        cmp r0, r2
+        brgt cbt_pf_miss
+
+        ; Hit: damage rand(DMIN..DMAX)
+        ldr r4, fp, -6
+        ldr r0, r4, P_W_DMIN
+        ldr r1, r4, P_W_DMAX
+        rand r0, r1
+        str r0, fp, -7
+
+        ; Message: "<Weapon> hits <Enemy> for <N>."
+        ldr r0, r4, P_NAME
+        bl ui_msg
+        lea r0, cbt_s_hits
+        bl ui_msg_add
+        ldr r0, fp, -3
+        bl ui_msg_add
+        lea r0, cbt_s_for
+        bl ui_msg_add
+        ldr r0, fp, -7
+        bl ui_msg_addn
+        lea r0, cbt_s_dot
+        bl ui_msg_add
+
+        ; Deal damage; stop firing if target destroyed
+        ldr r0, fp, -1
+        ldr r1, fp, -7
+        bl cbt_damage_enemy
+        cmp r0, 0
+        brnz cbt_pf_done
+        br cbt_pf_next
+
+cbt_pf_miss:
+        ; Message: "<Weapon> misses <Enemy>."
+        ldr r4, fp, -6
+        ldr r0, r4, P_NAME
+        bl ui_msg
+        lea r0, cbt_s_misses_sp
+        bl ui_msg_add
+        ldr r0, fp, -3
+        bl ui_msg_add
+        lea r0, cbt_s_dot
+        bl ui_msg_add
+        ld r0, cbt_a_dim
+        bl ui_msg_attr
+
+cbt_pf_next:
+        ldr r0, fp, -5
+        add r0, r0, 1
+        str r0, fp, -5
+        br cbt_pf_lp
+
+cbt_pf_ret0:
         mov r0, 0
+        br cbt_pf_out
+cbt_pf_done:
+        ldr r0, fp, -4
+cbt_pf_out:
+        mov sp, fp
+        pop fp
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
         ret
 
+; ---- player melee / core ram ------------------------------------------------
+; r0 = enemy index -> -
+; Locals relative to fp:
+;   fp-1  enemy_idx
+;   fp-2  ename (string ptr)
+;   fp-3  swung count
+;   fp-4  slot index
+;   fp-5  pinfo (catalog record ptr)
+;   fp-6  dmg
 cbt_player_melee:
-        ret
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        push fp
+        mov fp, sp
+        sub sp, sp, 6
 
-cbt_enemy_attack:
-        ret
+        ; Validate enemy index 0..MAX_ENEMIES-1
+        cmp r0, 0
+        brn cbt_pm_out
+        mov r2, MAX_ENEMIES
+        cmp r0, r2
+        brlt cbt_pm_idxok
+        br cbt_pm_out
+cbt_pm_idxok:
+        str r0, fp, -1          ; enemy_idx
+        mov r2, r0
+        sll r2, ENEMY_SHIFT
+        lea r3, st_enemies
+        add r3, r3, r2
+        ldr r1, r3, E_TYPE
+        cmp r1, EN_NONE
+        brz cbt_pm_out
 
-cbt_damage_enemy:
+        bl act_name
+        str r0, fp, -2          ; ename
+
         mov r0, 0
+        str r0, fp, -3          ; swung = 0
+        mov r0, SLOT_WEAP0
+        str r0, fp, -4          ; slot = SLOT_WEAP0
+cbt_pm_lp:
+        ldr r0, fp, -4
+        cmp r0, SLOT_WEAP0+NUM_WEAP
+        brlt cbt_pm_slot
+        br cbt_pm_after_lp
+cbt_pm_slot:
+        sll r0, SLOT_SHIFT
+        lea r1, st_slots
+        add r1, r1, r0
+        ldr r0, r1, S_PART
+        cmp r0, PART_NONE
+        brz cbt_pm_next
+        bl prt_info
+        cmp r0, 0
+        brz cbt_pm_next
+        str r0, fp, -5          ; pinfo
+        ldr r1, r0, P_KIND
+        cmp r1, PK_WEAPON
+        brne cbt_pm_next
+        ldr r1, r0, P_W_MELEE
+        cmp r1, 0
+        brz cbt_pm_next         ; ranged weapon: skip
+        ldr r0, r0, P_W_ENERGY
+        bl prt_spend_energy
+        cmp r0, 0
+        brz cbt_pm_next         ; not enough energy: skip
+
+        ; Melee weapon swings
+        ldr r0, fp, -3
+        add r0, r0, 1
+        str r0, fp, -3
+
+        ; Hit chance = cbt_hit_chance(P_W_ACC + st_acc_bonus, 1)
+        ldr r4, fp, -5
+        ldr r0, r4, P_W_ACC
+        ld r1, st_acc_bonus
+        add r0, r0, r1
+        mov r1, 1
+        bl cbt_hit_chance
+        mov r2, r0              ; r2 = hit%
+
+        mov r0, 1
+        mov r1, 100
+        rand r0, r1
+        cmp r0, r2
+        brgt cbt_pm_miss
+
+        ; Hit: damage rand(DMIN..DMAX)
+        ldr r4, fp, -5
+        ldr r0, r4, P_W_DMIN
+        ldr r1, r4, P_W_DMAX
+        rand r0, r1
+        str r0, fp, -6
+
+        ; Message: "<Weapon> hits <Enemy> for <N>."
+        ldr r0, r4, P_NAME
+        bl ui_msg
+        lea r0, cbt_s_hits
+        bl ui_msg_add
+        ldr r0, fp, -2
+        bl ui_msg_add
+        lea r0, cbt_s_for
+        bl ui_msg_add
+        ldr r0, fp, -6
+        bl ui_msg_addn
+        lea r0, cbt_s_dot
+        bl ui_msg_add
+
+        ; Deal damage; stop swinging if target destroyed
+        ldr r0, fp, -1
+        ldr r1, fp, -6
+        bl cbt_damage_enemy
+        cmp r0, 0
+        brnz cbt_pm_out
+        br cbt_pm_next
+
+cbt_pm_miss:
+        ldr r4, fp, -5
+        ldr r0, r4, P_NAME
+        bl ui_msg
+        lea r0, cbt_s_misses_sp
+        bl ui_msg_add
+        ldr r0, fp, -2
+        bl ui_msg_add
+        lea r0, cbt_s_dot
+        bl ui_msg_add
+        ld r0, cbt_a_dim
+        bl ui_msg_attr
+
+cbt_pm_next:
+        ldr r0, fp, -4
+        add r0, r0, 1
+        str r0, fp, -4
+        br cbt_pm_lp
+
+cbt_pm_after_lp:
+        ; If no melee weapon swung, fall back to a core ram
+        ldr r0, fp, -3
+        cmp r0, 0
+        brnz cbt_pm_out
+
+        mov r0, RAM_ACC
+        mov r1, 1
+        bl cbt_hit_chance
+        mov r2, r0              ; r2 = hit%
+
+        mov r0, 1
+        mov r1, 100
+        rand r0, r1
+        cmp r0, r2
+        brgt cbt_pm_ram_miss
+
+        mov r0, RAM_DMIN
+        mov r1, RAM_DMAX
+        rand r0, r1
+        str r0, fp, -6
+
+        lea r0, cbt_s_core_rams
+        bl ui_msg
+        ldr r0, fp, -2
+        bl ui_msg_add
+        lea r0, cbt_s_for
+        bl ui_msg_add
+        ldr r0, fp, -6
+        bl ui_msg_addn
+        lea r0, cbt_s_dot
+        bl ui_msg_add
+
+        ldr r0, fp, -1
+        ldr r1, fp, -6
+        bl cbt_damage_enemy
+        br cbt_pm_out
+
+cbt_pm_ram_miss:
+        lea r0, cbt_s_ram_miss
+        bl ui_msg
+        ldr r0, fp, -2
+        bl ui_msg_add
+        lea r0, cbt_s_dot
+        bl ui_msg_add
+        ld r0, cbt_a_dim
+        bl ui_msg_attr
+
+cbt_pm_out:
+        mov sp, fp
+        pop fp
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
         ret
+
+; ---- enemy attack on the player ---------------------------------------------
+; r0 = enemy index -> -
+; Locals relative to fp:
+;   fp-1  etype
+;   fp-2  tptr
+;   fp-3  rolled dmg
+;   fp-4  slot hit (-1 = core, 0..NUM_SLOTS-1 = slot)
+;   fp-5  shown dmg (after armor reduction)
+;   fp-6  snapped part id of hit slot
+cbt_enemy_attack:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        push fp
+        mov fp, sp
+        sub sp, sp, 6
+
+        ; Validate enemy index 0..MAX_ENEMIES-1
+        cmp r0, 0
+        brn cbt_ea_out
+        mov r2, MAX_ENEMIES
+        cmp r0, r2
+        brlt cbt_ea_idxok
+        br cbt_ea_out
+cbt_ea_idxok:
+        mov r2, r0
+        sll r2, ENEMY_SHIFT
+        lea r4, st_enemies
+        add r4, r4, r2          ; r4 = eptr
+        ldr r0, r4, E_TYPE
+        cmp r0, EN_NONE
+        brz cbt_ea_out
+        str r0, fp, -1          ; etype
+        bl act_type_info
+        cmp r0, 0
+        brz cbt_ea_out
+        str r0, fp, -2          ; tptr
+
+        ; Non-attacking type (e.g., Tinker)
+        ldr r1, r0, ET_DMAX
+        cmp r1, 0
+        brlt cbt_ea_out
+        brz cbt_ea_out
+
+        ; Distance between enemy and player
+        ldr r0, r4, E_X
+        ldr r1, r4, E_Y
+        ld r2, st_px
+        ld r3, st_py
+        bl dun_dist
+
+        ; hit = max(HIT_MIN, cbt_hit_chance(ET_ACC, dist) - st_evade)
+        mov r1, r0              ; r1 = dist
+        ldr r4, fp, -2          ; tptr
+        ldr r0, r4, ET_ACC
+        bl cbt_hit_chance
+        ld r1, st_evade
+        sub r0, r0, r1
+        cmp r0, HIT_MIN
+        brgt cbt_ea_hitok
+        bre cbt_ea_hitok
+        mov r0, HIT_MIN
+cbt_ea_hitok:
+        mov r2, r0              ; r2 = hit%
+
+        ; Roll 1..100 <= hit%
+        mov r0, 1
+        mov r1, 100
+        rand r0, r1
+        cmp r0, r2
+        brgt cbt_ea_miss
+
+        ; Hit: roll rand(ET_DMIN..ET_DMAX)
+        ldr r4, fp, -2
+        ldr r0, r4, ET_DMIN
+        ldr r1, r4, ET_DMAX
+        rand r0, r1
+        str r0, fp, -3          ; dmg
+
+        ; Snapshot attached part ids before prt_damage (which empties destroyed slots)
+        lea r1, st_slots
+        lea r2, cbt_snap_parts
+        mov r3, NUM_SLOTS
+cbt_ea_snap:
+        ldr r4, r1, S_PART
+        str r4, r2, 0
+        add r1, r1, SLOT_SIZE
+        add r2, r2, 1
+        sub r3, r3, 1
+        brp cbt_ea_snap
+
+        ; Apply damage through prt_damage
+        ldr r0, fp, -3
+        bl prt_damage
+        str r0, fp, -4          ; slot (-1 = core)
+
+        ; Set death cause if core died
+        ld r1, st_game_state
+        cmp r1, GAME_DEAD
+        brne cbt_ea_msg
+        ldr r1, fp, -1          ; etype
+        st r1, st_death_cause
+
+cbt_ea_msg:
+        ; Message: "<name> hits <part|core> for <N>." in A_BAD
+        ldr r4, fp, -2
+        ldr r0, r4, ET_NAME
+        bl ui_msg
+        lea r0, cbt_s_hits
+        bl ui_msg_add
+
+        ldr r0, fp, -4          ; slot
+        cmp r0, 0
+        brn cbt_ea_msg_core
+        cmp r0, NUM_SLOTS
+        brlt cbt_ea_msg_part
+cbt_ea_msg_core:
+        lea r0, cbt_s_core
+        bl ui_msg_add
+        ldr r0, fp, -3
+        str r0, fp, -5
+        br cbt_ea_msg_dmg
+
+cbt_ea_msg_part:
+        lea r1, cbt_snap_parts
+        add r1, r1, r0
+        ldr r0, r1, 0           ; pid
+        str r0, fp, -6
+        bl prt_name
+        bl ui_msg_add
+        ; Match prt_damage armor reduction for reported damage
+        ldr r1, fp, -3          ; dmg
+        cmp r1, 0
+        brlt cbt_ea_sd_set
+        brz cbt_ea_sd_set
+        ldr r0, fp, -6          ; pid
+        bl prt_info
+        cmp r0, 0
+        brz cbt_ea_sd_set
+        ldr r2, r0, P_KIND
+        cmp r2, PK_UTIL
+        brne cbt_ea_sd_set
+        ldr r2, r0, P_U_TYPE
+        cmp r2, UT_ARMOR
+        brne cbt_ea_sd_set
+        ldr r2, r0, P_U_VALUE
+        sub r1, r1, r2
+        cmp r1, 1
+        brgt cbt_ea_sd_set
+        bre cbt_ea_sd_set
+        mov r1, 1
+cbt_ea_sd_set:
+        str r1, fp, -5
+
+cbt_ea_msg_dmg:
+        lea r0, cbt_s_for
+        bl ui_msg_add
+        ldr r0, fp, -5
+        bl ui_msg_addn
+        lea r0, cbt_s_dot
+        bl ui_msg_add
+        ld r0, cbt_a_bad
+        bl ui_msg_attr
+        br cbt_ea_out
+
+cbt_ea_miss:
+        ldr r4, fp, -2
+        ldr r0, r4, ET_NAME
+        bl ui_msg
+        lea r0, cbt_s_misses
+        bl ui_msg_add
+        ld r0, cbt_a_dim
+        bl ui_msg_attr
+
+cbt_ea_out:
+        mov sp, fp
+        pop fp
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; ---- damage enemy & handle destruction / drops ------------------------------
+; r0 = enemy index, r1 = damage -> r0 = 1 destroyed, 0 still alive
+; Locals relative to fp:
+;   fp-1  enemy_idx
+;   fp-2  eptr
+;   fp-3  tptr
+;   fp-4  ex
+;   fp-5  ey
+;   fp-6  drop part id
+cbt_damage_enemy:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        push fp
+        mov fp, sp
+        sub sp, sp, 6
+
+        ; Validate enemy index 0..MAX_ENEMIES-1
+        cmp r0, 0
+        brn cbt_de_alive
+        mov r2, MAX_ENEMIES
+        cmp r0, r2
+        brlt cbt_de_idxok
+        br cbt_de_alive
+cbt_de_idxok:
+        cmp r1, 0
+        brlt cbt_de_alive
+        brz cbt_de_alive
+
+        str r0, fp, -1          ; enemy_idx
+        mov r2, r0
+        sll r2, ENEMY_SHIFT
+        lea r3, st_enemies
+        add r3, r3, r2          ; r3 = eptr
+        ldr r0, r3, E_TYPE
+        cmp r0, EN_NONE
+        brz cbt_de_alive
+
+        str r3, fp, -2          ; eptr
+        ldr r2, r3, E_HP
+        sub r2, r2, r1
+        brp cbt_de_survive
+
+        ; Destroyed (hp <= 0)
+        mov r2, 0
+        str r2, r3, E_HP
+        ldr r2, r3, E_X
+        str r2, fp, -4          ; ex
+        ldr r2, r3, E_Y
+        str r2, fp, -5          ; ey
+
+        ; r0 holds E_TYPE
+        bl act_type_info
+        str r0, fp, -3          ; tptr
+
+        ; Message: "<name> destroyed." in A_GOOD
+        ldr r0, fp, -1
+        bl act_name
+        bl ui_msg
+        lea r0, cbt_s_destroyed
+        bl ui_msg_add
+        ld r0, cbt_a_good
+        bl ui_msg_attr
+
+        ; Increment st_kills (saturating)
+        ld r0, st_kills
+        add r0, r0, 1
+        brn cbt_de_kills_sat
+        st r0, st_kills
+cbt_de_kills_sat:
+
+        ; Clear st_target if it pointed to this enemy
+        ld r0, st_target
+        ldr r1, fp, -1
+        cmp r0, r1
+        brne cbt_de_drop
+        mov r0, -1
+        st r0, st_target
+
+cbt_de_drop:
+        ; Roll ET_DROP_PCT chance to drop one random part from ET_DROP
+        ldr r4, fp, -3          ; tptr
+        cmp r4, 0
+        brz cbt_de_kill
+        ldr r1, r4, ET_DROP_PCT
+        cmp r1, 0
+        brlt cbt_de_kill
+        brz cbt_de_kill
+        mov r0, 1
+        mov r2, 100
+        rand r0, r2
+        cmp r0, r1
+        brgt cbt_de_kill
+
+        ldr r4, r4, ET_DROP
+        cmp r4, 0
+        brz cbt_de_kill
+        ldr r1, r4, 0           ; drop list count
+        cmp r1, 0
+        brlt cbt_de_kill
+        brz cbt_de_kill
+        mov r0, 1
+        rand r0, r1             ; k in 1..count
+        add r4, r4, r0
+        ldr r2, r4, 0           ; part id
+        str r2, fp, -6
+        mov r0, r2
+        bl prt_info
+        cmp r0, 0
+        brz cbt_de_kill
+        ldr r3, r0, P_MAXHP     ; max integrity
+
+        ; integrity = rand(DROP_HP_MIN..100)% of P_MAXHP (rounded half-up, >= 1)
+        mov r0, DROP_HP_MIN
+        mov r1, 100
+        rand r0, r1
+        mul r3, r0
+        mov r0, 50
+        add r3, r3, r0
+        mov r0, 100
+        div r3, r0
+        cmp r3, 1
+        brgt cbt_de_hp_ok
+        bre cbt_de_hp_ok
+        mov r3, 1
+cbt_de_hp_ok:
+        ldr r0, fp, -4          ; ex
+        ldr r1, fp, -5          ; ey
+        ldr r2, fp, -6          ; part id
+        bl itm_place
+        cmp r0, 0
+        brn cbt_de_kill
+        lea r0, cbt_s_drops
+        bl ui_msg_add
+        ldr r0, fp, -6
+        bl prt_name
+        bl ui_msg_add
+        lea r0, cbt_s_dot
+        bl ui_msg_add
+
+cbt_de_kill:
+        ldr r0, fp, -1
+        bl act_kill
+        mov r0, 1
+        br cbt_de_done
+
+cbt_de_survive:
+        str r2, r3, E_HP
+cbt_de_alive:
+        mov r0, 0
+cbt_de_done:
+        mov sp, fp
+        pop fp
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; ---- constants, scratch & strings -------------------------------------------
+cbt_a_bad:       .word A_BAD
+cbt_a_good:      .word A_GOOD
+cbt_a_dim:       .word A_DIM
+
+cbt_snap_parts:  .zero NUM_SLOTS
+
+cbt_s_hits:      .string " hits "
+cbt_s_for:       .string " for "
+cbt_s_dot:       .string "."
+cbt_s_misses:    .string " misses."
+cbt_s_misses_sp: .string " misses "
+cbt_s_core:      .string "core"
+cbt_s_core_rams: .string "Core rams "
+cbt_s_ram_miss:  .string "Core ram misses "
+cbt_s_destroyed: .string " destroyed."
+cbt_s_drops:     .string " Drops "

@@ -126,6 +126,7 @@ main_new_floor:
 main_turn:
         push r0
         push r1
+        push r2
         push lr
         ld r0, st_climb
         cmp r0, 0
@@ -140,7 +141,7 @@ main_turn:
         st r0, st_game_state
         mov r0, 0
         st r0, st_depth_best
-        br main_turn_count
+        br main_turn_climb_cnt
 main_turn_floor:
         ld r1, st_depth_best    ; best = min(best, depth)
         cmp r0, r1
@@ -152,13 +153,22 @@ main_turn_gen:
         bl ui_msg
         ld r0, st_depth
         bl ui_msg_addn
-        br main_turn_count
+main_turn_climb_cnt:
+        ld r0, st_turn          ; saturating turn counter (fov already updated by main_new_floor)
+        add r0, r0, 1
+        brn main_turn_ret
+        st r0, st_turn
+        br main_turn_ret
 main_turn_world:
         ld r0, st_ply_next      ; elapsed = player's action cost (before act_run rebases)
         ld r1, st_time
         sub r0, r0, r1
         mov r1, r0
+        bl fov_update           ; update FOV before enemies act (player move/door/sensor)
         bl act_run
+        ld r0, st_game_state    ; skip regen/repair if player died during act_run
+        cmp r0, GAME_PLAY
+        brnz main_turn_count
         mov r0, r1
         bl prt_tick
 main_turn_count:
@@ -167,8 +177,33 @@ main_turn_count:
         brn main_turn_fov
         st r0, st_turn
 main_turn_fov:
-        bl fov_update
+        bl fov_update           ; refresh FOV in case enemies opened doors
+        ; Clear st_target if the tracked enemy died or left sight
+        ld r0, st_target
+        cmp r0, 0
+        brn main_turn_ret
+        mov r1, MAX_ENEMIES
+        cmp r0, r1
+        brlt main_turn_tchk
+        br main_turn_tclr
+main_turn_tchk:
+        sll r0, ENEMY_SHIFT
+        lea r2, st_enemies
+        add r2, r2, r0
+        ldr r0, r2, E_TYPE
+        cmp r0, EN_NONE
+        brz main_turn_tclr
+        ldr r0, r2, E_X
+        ldr r1, r2, E_Y
+        bl fov_visible
+        cmp r0, 0
+        brnz main_turn_ret
+main_turn_tclr:
+        mov r0, -1
+        st r0, st_target
+main_turn_ret:
         pop lr
+        pop r2
         pop r1
         pop r0
         ret
