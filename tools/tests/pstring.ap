@@ -1,0 +1,12 @@
+; Harness self-test: .pstring packs 2 chars/word ((c0 << 8) | c1), NUL-terminated.
+        .lccplus
+        .start main
+main:
+        halt
+
+p_odd:  .pstring "ABC"          ; 0x4142, 0x4300
+p_even: .pstring "ABCD"         ; 0x4142, 0x4344, 0x0000
+p_empty:
+        .pstring ""             ; 0x0000
+p_esc:  .pstring "a\\b\"c\n\t"  ; 'a'\ 'b'" 'c'\n \t\0 -> 0x615C, 0x6222, 0x630A, 0x0900
+p_semi: .pstring "x;y"          ; comment after ; must not eat ; inside quotes -> 0x783B, 0x7900

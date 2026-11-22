@@ -33,29 +33,35 @@
 ;; prt_free_slots   ()               -> r0=number of empty loadout slots 0..NUM_SLOTS
 ; ---------------------------------------------------------------------
 
+; Offsets from st_game_state (see src/state.ap)
+        .define PRT_ST_GAME_STATE   0
+        .define PRT_ST_CORE_HP      15
+        .define PRT_ST_ENERGY       16
+        .define PRT_ST_REGEN_ACC    17
+        .define PRT_ST_REPAIR_ACC   18
+        .define PRT_ST_MOVE_COST    19
+        .define PRT_ST_REGEN        20
+        .define PRT_ST_ENERGY_MAX   21
+        .define PRT_ST_SIGHT        22
+        .define PRT_ST_ACC_BONUS    23
+        .define PRT_ST_EVADE        24
+        .define PRT_ST_REPAIR_TURNS 25
+
 ; ---- init -------------------------------------------------------------------
 prt_init:
         push r0
         push r1
         push r2
         push lr
-        ; zero st_slots (NUM_SLOTS * SLOT_SIZE words)
+        ; zero st_slots + st_inv (contiguous in state.ap)
         lea r0, st_slots
         mov r1, 0
-        mov r2, NUM_SLOTS*SLOT_SIZE
-prt_init_z1:
+        mov r2, (NUM_SLOTS+NUM_INV)*SLOT_SIZE
+prt_init_z:
         str r1, r0, 0
         add r0, r0, 1
         sub r2, r2, 1
-        brp prt_init_z1
-        ; zero st_inv (NUM_INV * SLOT_SIZE words)
-        lea r0, st_inv
-        mov r2, NUM_INV*SLOT_SIZE
-prt_init_z2:
-        str r1, r0, 0
-        add r0, r0, 1
-        sub r2, r2, 1
-        brp prt_init_z2
+        brp prt_init_z
         ; starting loadout at full integrity
         mov r0, SLOT_PROP0
         mov r1, PT_STUB_LEGS
@@ -73,14 +79,15 @@ prt_init_z2:
         mov r1, PT_SPARK_PROD
         bl prt_set_full
         ; core, accumulators, derived stats, full energy
+        lea r2, st_game_state
         mov r0, CORE_MAX
-        st r0, st_core_hp
+        str r0, r2, PRT_ST_CORE_HP
         mov r0, 0
-        st r0, st_regen_acc
-        st r0, st_repair_acc
+        str r0, r2, PRT_ST_REGEN_ACC
+        str r0, r2, PRT_ST_REPAIR_ACC
         bl prt_recalc
-        ld r0, st_energy_max
-        st r0, st_energy
+        ldr r0, r2, PRT_ST_ENERGY_MAX
+        str r0, r2, PRT_ST_ENERGY
         pop lr
         pop r2
         pop r1
@@ -132,15 +139,14 @@ prt_recalc:
         str r0, fp, -1          ; prop_count = 0
         str r0, fp, -2          ; prop_sum = 0
         str r0, fp, -3          ; evade = 0
+        str r0, fp, -7          ; acc_bonus = 0
+        str r0, fp, -8          ; repair_turns = 0
         mov r0, CORE_REGEN
         str r0, fp, -4          ; regen = CORE_REGEN
         mov r0, CORE_ECAP
         str r0, fp, -5          ; ecap = CORE_ECAP
         mov r0, SIGHT_BASE
         str r0, fp, -6          ; sight = SIGHT_BASE
-        mov r0, 0
-        str r0, fp, -7          ; acc_bonus = 0
-        str r0, fp, -8          ; repair_turns = 0
 
         lea r4, st_slots
         mov r3, NUM_SLOTS
@@ -157,7 +163,41 @@ prt_rc_lp:
         cmp r1, PK_POWER
         brz prt_rc_power
         cmp r1, PK_UTIL
-        brz prt_rc_util
+        brnz prt_rc_next
+
+prt_rc_util:
+        ldr r1, r0, P_U_TYPE
+        ldr r0, r0, P_U_VALUE
+        cmp r1, UT_SENSOR
+        brz prt_rc_sensor
+        cmp r1, UT_TARGET
+        brz prt_rc_target
+        cmp r1, UT_REPAIR
+        brnz prt_rc_next
+        cmp r0, 0
+        brp prt_rc_rep_pos
+        br prt_rc_next
+prt_rc_rep_pos:
+        ldr r2, fp, -8
+        cmp r2, 0
+        brz prt_rc_rep_set
+        cmp r0, r2
+        brlt prt_rc_rep_set
+        br prt_rc_next
+prt_rc_rep_set:
+        str r0, fp, -8
+        br prt_rc_next
+
+prt_rc_sensor:
+        ldr r2, fp, -6
+        add r2, r2, r0
+        str r2, fp, -6
+        br prt_rc_next
+
+prt_rc_target:
+        ldr r2, fp, -7
+        add r2, r2, r0
+        str r2, fp, -7
         br prt_rc_next
 
 prt_rc_prop:
@@ -171,8 +211,9 @@ prt_rc_prop:
         ldr r1, r0, P_M_EVADE
         ldr r2, fp, -3
         cmp r1, r2
-        brlt prt_rc_next
-        bre prt_rc_next
+        brgt prt_rc_ev_set
+        br prt_rc_next
+prt_rc_ev_set:
         str r1, fp, -3
         br prt_rc_next
 
@@ -185,50 +226,14 @@ prt_rc_power:
         ldr r2, fp, -5
         add r2, r2, r1
         str r2, fp, -5
-        br prt_rc_next
-
-prt_rc_util:
-        ldr r1, r0, P_U_TYPE
-        cmp r1, UT_SENSOR
-        brz prt_rc_sensor
-        cmp r1, UT_TARGET
-        brz prt_rc_target
-        cmp r1, UT_REPAIR
-        brz prt_rc_repair
-        br prt_rc_next
-
-prt_rc_sensor:
-        ldr r1, r0, P_U_VALUE
-        ldr r2, fp, -6
-        add r2, r2, r1
-        str r2, fp, -6
-        br prt_rc_next
-
-prt_rc_target:
-        ldr r1, r0, P_U_VALUE
-        ldr r2, fp, -7
-        add r2, r2, r1
-        str r2, fp, -7
-        br prt_rc_next
-
-prt_rc_repair:
-        ldr r1, r0, P_U_VALUE
-        cmp r1, 0
-        brlt prt_rc_next
-        bre prt_rc_next
-        ldr r2, fp, -8
-        cmp r2, 0
-        brz prt_rc_rep_set
-        cmp r1, r2
-        brlt prt_rc_rep_set
-        br prt_rc_next
-prt_rc_rep_set:
-        str r1, fp, -8
 
 prt_rc_next:
         add r4, r4, SLOT_SIZE
         sub r3, r3, 1
         brp prt_rc_lp
+
+        ; Write all derived stats via st_game_state base pointer in r4
+        lea r4, st_game_state
 
         ; finalize st_move_cost
         ldr r1, fp, -1          ; prop_count
@@ -246,48 +251,49 @@ prt_rc_limp:
 prt_rc_crawl:
         mov r0, CRAWL_COST
 prt_rc_mv_st:
-        st r0, st_move_cost
+        str r0, r4, PRT_ST_MOVE_COST
 
         ; st_evade, st_regen
         ldr r0, fp, -3
-        st r0, st_evade
+        str r0, r4, PRT_ST_EVADE
         ldr r0, fp, -4
-        st r0, st_regen
+        str r0, r4, PRT_ST_REGEN
 
-        ; st_energy_max and clamp st_energy
+        ; st_energy_max and clamp st_energy to [0, max]
         ldr r0, fp, -5
-        st r0, st_energy_max
-        ld r1, st_energy
+        str r0, r4, PRT_ST_ENERGY_MAX
+        ldr r1, r4, PRT_ST_ENERGY
         cmp r1, r0
-        brlt prt_rc_e_chk0
-        bre prt_rc_e_chk0
-        st r0, st_energy
-        br prt_rc_e_ok
-prt_rc_e_chk0:
+        brgt prt_rc_e_hi
         cmp r1, 0
-        brp prt_rc_e_ok
-        bre prt_rc_e_ok
+        brn prt_rc_e_lo
+        br prt_rc_e_ok
+prt_rc_e_hi:
+        str r0, r4, PRT_ST_ENERGY
+        br prt_rc_e_ok
+prt_rc_e_lo:
         mov r1, 0
-        st r1, st_energy
+        str r1, r4, PRT_ST_ENERGY
 prt_rc_e_ok:
 
         ; st_sight (clamped <= SIGHT_MAX)
         ldr r0, fp, -6
         cmp r0, SIGHT_MAX
-        brlt prt_rc_s_ok
-        bre prt_rc_s_ok
+        brgt prt_rc_s_cap
+        br prt_rc_s_ok
+prt_rc_s_cap:
         mov r0, SIGHT_MAX
 prt_rc_s_ok:
-        st r0, st_sight
+        str r0, r4, PRT_ST_SIGHT
 
         ; st_acc_bonus, st_repair_turns
         ldr r0, fp, -7
-        st r0, st_acc_bonus
+        str r0, r4, PRT_ST_ACC_BONUS
         ldr r0, fp, -8
-        st r0, st_repair_turns
+        str r0, r4, PRT_ST_REPAIR_TURNS
         cmp r0, 0
         brnz prt_rc_done
-        st r0, st_repair_acc
+        str r0, r4, PRT_ST_REPAIR_ACC
 prt_rc_done:
         mov sp, fp
         pop fp
@@ -419,20 +425,10 @@ prt_at_lp:
         cmp r0, PART_NONE
         brnz prt_at_occ
         ; free matching slot found at r3 (ptr r4)
-        ldr r0, fp, -2
-        ldr r1, fp, -3
-        str r0, r4, S_PART
-        str r1, r4, S_HP
-        ldr r2, fp, -1          ; clear inv entry
         mov r0, PART_NONE
-        str r0, r2, S_PART
-        mov r0, 0
-        str r0, r2, S_HP
-        bl prt_recalc
-        mov r0, r3
-        br prt_at_out
+        mov r1, 0
+        br prt_at_commit
 prt_at_occ:
-        ; occupied matching slot at r3: get cur_hp (r0) and cur_max (r1)
         bl prt_info
         cmp r0, 0
         brz prt_at_occ_defmax
@@ -446,42 +442,44 @@ prt_at_occ_hp:
         ldr r2, fp, -5          ; swap_slot
         cmp r2, -1
         bre prt_at_setswap
-        ; compare cur_hp / cur_max <= swap_hp / swap_max  <=>  cur_hp * swap_max <= swap_hp * cur_max
-        str r0, fp, -8          ; cur_hp
-        str r1, fp, -9          ; cur_max
-        ldr r2, fp, -7          ; swap_max
-        mul r0, r2              ; r0 = cur_hp * swap_max
-        ldr r2, fp, -6          ; swap_hp
-        mul r1, r2              ; r1 = cur_max * swap_hp
+        ; compare cur_hp * swap_max <= swap_hp * cur_max
+        str r0, fp, -8
+        str r1, fp, -9
+        ldr r2, fp, -7
+        mul r0, r2
+        ldr r2, fp, -6
+        mul r1, r2
         cmp r0, r1
-        brgt prt_at_next        ; cur ratio strictly higher -> keep current swap candidate
+        brgt prt_at_next
         ldr r0, fp, -8
         ldr r1, fp, -9
 prt_at_setswap:
-        str r3, fp, -5          ; swap_slot = r3
-        str r0, fp, -6          ; swap_hp = cur_hp
-        str r1, fp, -7          ; swap_max = cur_max
+        str r3, fp, -5
+        str r0, fp, -6
+        str r1, fp, -7
 prt_at_next:
         add r4, r4, SLOT_SIZE
         add r3, r3, 1
         cmp r3, NUM_SLOTS
         brlt prt_at_lp
 
-        ; no free slot: swap with swap_slot (lowest integrity ratio; ties -> last slot)
+        ; no free slot: swap with swap_slot
         ldr r3, fp, -5
         cmp r3, -1
         bre prt_at_fail
         mov r2, r3
         sll r2, SLOT_SHIFT
         lea r4, st_slots
-        add r4, r4, r2          ; slot_ptr = &st_slots[swap_slot]
-        ldr r0, r4, S_PART      ; old_part
-        ldr r1, r4, S_HP        ; old_hp
-        ldr r2, fp, -1          ; inv_ptr
+        add r4, r4, r2
+        ldr r0, r4, S_PART      ; old_part -> inv
+        ldr r1, r4, S_HP        ; old_hp -> inv
+prt_at_commit:
+        ; write (r0, r1) to inv_ptr, write (fp-2, fp-3) to slot r4, recalc, return r3
+        ldr r2, fp, -1
         str r0, r2, S_PART
         str r1, r2, S_HP
-        ldr r0, fp, -2          ; new part
-        ldr r1, fp, -3          ; new hp
+        ldr r0, fp, -2
+        ldr r1, fp, -3
         str r0, r4, S_PART
         str r1, r4, S_HP
         bl prt_recalc
@@ -525,8 +523,7 @@ prt_dt_in:
         brn prt_dt_full
         mov r3, PART_NONE
         str r3, r2, S_PART
-        mov r3, 0
-        str r3, r2, S_HP
+        str r3, r2, S_HP        ; PART_NONE == 0
         bl prt_recalc
         br prt_dt_out
 prt_dt_full:
@@ -584,8 +581,7 @@ prt_ic_ok:
         add r1, r1, r0
         mov r2, PART_NONE
         str r2, r1, S_PART
-        mov r2, 0
-        str r2, r1, S_HP
+        str r2, r1, S_HP        ; PART_NONE == 0
 prt_ic_out:
         pop r2
         pop r1
@@ -622,14 +618,15 @@ prt_dmg_noout:
         mov r2, CORE_HIT_EMPTY
         mul r1, r2
         add r1, r1, CORE_HIT_PCT ; r1 = core_pct (6..48)
-        mov r2, r1              ; r2 = core_pct
+        mov r2, r1
         mov r0, 1
         mov r1, 100
         bl rng_range            ; r0 in 1..100
         cmp r0, r2
-        brlt prt_dmg_core
-        bre prt_dmg_core
+        brgt prt_dmg_parts
+        br prt_dmg_core
 
+prt_dmg_parts:
         ; pass 1: sum P_COVER of attached parts in r2
         mov r2, 0
         mov r3, NUM_SLOTS
@@ -649,9 +646,10 @@ prt_dmg_c1n:
         brp prt_dmg_c1
 
         cmp r2, 0
-        brlt prt_dmg_core
-        brz prt_dmg_core
+        brp prt_dmg_pick
+        br prt_dmg_core
 
+prt_dmg_pick:
         ; roll weighted pick in [1, total_cover]
         mov r0, 1
         mov r1, r2
@@ -670,8 +668,8 @@ prt_dmg_c2:
         brz prt_dmg_c2n
         ldr r1, r0, P_COVER
         sub r2, r2, r1
-        brn prt_dmg_slot
-        brz prt_dmg_slot
+        brp prt_dmg_c2n
+        br prt_dmg_slot
 prt_dmg_c2n:
         add r4, r4, SLOT_SIZE
         add r3, r3, 1
@@ -684,8 +682,9 @@ prt_dmg_slot:
         ldr r1, fp, -1          ; r1 = dmg
         ; armor reduction for UT_ARMOR utility parts (min 1 when dmg > 0)
         cmp r1, 0
-        brlt prt_dmg_apply
-        bre prt_dmg_apply
+        brp prt_dmg_arm
+        br prt_dmg_apply
+prt_dmg_arm:
         ldr r2, r0, P_KIND
         cmp r2, PK_UTIL
         brnz prt_dmg_apply
@@ -695,24 +694,24 @@ prt_dmg_slot:
         ldr r2, r0, P_U_VALUE
         sub r1, r1, r2
         cmp r1, 1
-        brgt prt_dmg_apply
-        bre prt_dmg_apply
+        brlt prt_dmg_min1
+        br prt_dmg_apply
+prt_dmg_min1:
         mov r1, 1
 prt_dmg_apply:
         ldr r2, r4, S_HP
         sub r2, r2, r1
         brp prt_dmg_survive
-        ; part destroyed: report destroyed part id, empty slot, recalc (caller posts message)
-        ldr r1, r4, S_PART      ; destroyed part id
-        ldr r2, fp, -2          ; out_destroyed ptr
+        ; part destroyed: report destroyed part id, empty slot, recalc
+        ldr r1, r4, S_PART
+        ldr r2, fp, -2
         cmp r2, 0
         brz prt_dmg_d_clr
         str r1, r2, 0
 prt_dmg_d_clr:
         mov r2, PART_NONE
         str r2, r4, S_PART
-        mov r2, 0
-        str r2, r4, S_HP
+        str r2, r4, S_HP        ; PART_NONE == 0
         bl prt_recalc
         mov r0, r3
         br prt_dmg_out
@@ -722,18 +721,19 @@ prt_dmg_survive:
         br prt_dmg_out
 
 prt_dmg_core:
+        lea r4, st_game_state
         ldr r1, fp, -1          ; dmg
-        ld r2, st_core_hp
+        ldr r2, r4, PRT_ST_CORE_HP
         sub r2, r2, r1
         brp prt_dmg_core_ok
         mov r2, 0
-        st r2, st_core_hp
+        str r2, r4, PRT_ST_CORE_HP
         mov r2, GAME_DEAD
-        st r2, st_game_state
-        mov r0, -1
-        br prt_dmg_out
+        str r2, r4, PRT_ST_GAME_STATE
+        br prt_dmg_core_ret
 prt_dmg_core_ok:
-        st r2, st_core_hp
+        str r2, r4, PRT_ST_CORE_HP
+prt_dmg_core_ret:
         mov r0, -1
 
 prt_dmg_out:
@@ -755,44 +755,46 @@ prt_tick:
         push r4
         push lr
         cmp r0, 0
-        brlt prt_tk_out
-        brz prt_tk_out
-        ld r1, st_regen_acc
+        brp prt_tk_go
+        br prt_tk_out
+prt_tk_go:
+        lea r4, st_game_state
+        ldr r1, r4, PRT_ST_REGEN_ACC
         add r1, r1, r0
-        st r1, st_regen_acc
+        mov r3, TIME_TURN
 prt_tk_lp:
-        ld r1, st_regen_acc
-        mov r2, TIME_TURN
-        cmp r1, r2
-        brlt prt_tk_out
-        sub r1, r1, r2
-        st r1, st_regen_acc
+        cmp r1, r3
+        brlt prt_tk_fin
+        sub r1, r1, r3
         ; energy regen (capped at st_energy_max)
-        ld r1, st_energy
-        ld r2, st_regen
-        add r1, r1, r2
-        ld r2, st_energy_max
-        cmp r1, r2
+        ldr r0, r4, PRT_ST_ENERGY
+        ldr r2, r4, PRT_ST_REGEN
+        add r0, r0, r2
+        ldr r2, r4, PRT_ST_ENERGY_MAX
+        cmp r0, r2
         brlt prt_tk_est
-        mov r1, r2
+        mov r0, r2
 prt_tk_est:
-        st r1, st_energy
+        str r0, r4, PRT_ST_ENERGY
         ; self-repair if st_repair_turns > 0
-        ld r1, st_repair_turns
-        cmp r1, 0
-        brlt prt_tk_lp
-        brz prt_tk_lp
-        ld r2, st_repair_acc
+        ldr r0, r4, PRT_ST_REPAIR_TURNS
+        cmp r0, 0
+        brp prt_tk_rep
+        br prt_tk_lp
+prt_tk_rep:
+        ldr r2, r4, PRT_ST_REPAIR_ACC
         add r2, r2, 1
-        cmp r2, r1
+        cmp r2, r0
         brlt prt_tk_rst
-        sub r2, r2, r1
-        st r2, st_repair_acc
+        sub r2, r2, r0
+        str r2, r4, PRT_ST_REPAIR_ACC
         bl prt_do_repair
         br prt_tk_lp
 prt_tk_rst:
-        st r2, st_repair_acc
+        str r2, r4, PRT_ST_REPAIR_ACC
         br prt_tk_lp
+prt_tk_fin:
+        str r1, r4, PRT_ST_REGEN_ACC
 prt_tk_out:
         pop lr
         pop r4
@@ -846,27 +848,30 @@ prt_dr_lp:
         brz prt_dr_next
         ldr r1, r0, P_MAXHP     ; r1 = max
         cmp r1, 0
-        brlt prt_dr_next
-        brz prt_dr_next
+        brp prt_dr_maxok
+        br prt_dr_next
+prt_dr_maxok:
         ldr r2, r4, S_HP
         sub r0, r1, r2          ; r0 = miss = max - S_HP
-        brlt prt_dr_next
-        brz prt_dr_next
-        ; Compare miss / max > best_miss / best_max  <=>  miss * best_max > best_miss * max
-        str r0, fp, -4          ; cur_miss
-        str r1, fp, -5          ; cur_max
-        ldr r2, fp, -2          ; best_max
-        mul r0, r2              ; r0 = miss * best_max
-        ldr r2, fp, -1          ; best_miss
-        mul r1, r2              ; r1 = max * best_miss
+        brp prt_dr_cmp
+        br prt_dr_next
+prt_dr_cmp:
+        ; Compare miss * best_max > best_miss * max
+        str r0, fp, -4
+        str r1, fp, -5
+        ldr r2, fp, -2
+        mul r0, r2
+        ldr r2, fp, -1
+        mul r1, r2
         cmp r0, r1
-        brlt prt_dr_next
-        bre prt_dr_next
+        brgt prt_dr_take
+        br prt_dr_next
+prt_dr_take:
         ldr r0, fp, -4
         ldr r1, fp, -5
-        str r0, fp, -1          ; best_miss = cur_miss
-        str r1, fp, -2          ; best_max = cur_max
-        str r4, fp, -3          ; best_ptr = slot ptr
+        str r0, fp, -1
+        str r1, fp, -2
+        str r4, fp, -3
 prt_dr_next:
         add r4, r4, SLOT_SIZE
         sub r3, r3, 1
@@ -874,8 +879,9 @@ prt_dr_next:
 
         ldr r0, fp, -1          ; best_miss
         cmp r0, 0
-        brlt prt_dr_out
-        brz prt_dr_out
+        brp prt_dr_apply
+        br prt_dr_out
+prt_dr_apply:
         ldr r2, fp, -3          ; best_ptr
         cmp r2, 0
         brz prt_dr_core
@@ -884,9 +890,10 @@ prt_dr_next:
         str r0, r2, S_HP
         br prt_dr_out
 prt_dr_core:
-        ld r0, st_core_hp
+        lea r2, st_core_hp
+        ldr r0, r2, 0
         add r0, r0, 1
-        st r0, st_core_hp
+        str r0, r2, 0
 prt_dr_out:
         mov sp, fp
         pop fp
@@ -901,20 +908,25 @@ prt_dr_out:
 ; ---- energy spend -----------------------------------------------------------
 prt_spend_energy:
         push r1
+        push r2
         cmp r0, 0
-        brlt prt_se_ok
-        brz prt_se_ok
-        ld r1, st_energy
+        brp prt_se_chk
+        br prt_se_ok
+prt_se_chk:
+        lea r2, st_energy
+        ldr r1, r2, 0
         cmp r1, r0
         brlt prt_se_fail
         sub r1, r1, r0
-        st r1, st_energy
+        str r1, r2, 0
 prt_se_ok:
         mov r0, 1
+        pop r2
         pop r1
         ret
 prt_se_fail:
         mov r0, 0
+        pop r2
         pop r1
         ret
 
@@ -925,7 +937,7 @@ prt_random_part:
         push r3
         push r4
         push lr
-        ; max_tier in r1: depth <= TIER3_DEPTH → 3; <= TIER2_DEPTH → 2; else 1
+        ; max_tier in r1 (1..3)
         cmp r0, TIER3_DEPTH
         brlt prt_rp_t3
         bre prt_rp_t3
@@ -940,7 +952,7 @@ prt_rp_t3:
 prt_rp_t2:
         mov r1, 2
 prt_rp_count:
-        ; pass 1: count eligible parts (P_TIER <= r1)
+        ; pass 1: count eligible parts (P_TIER <= r1), bounded by PART_COUNT
         mov r2, 0
         mov r3, PART_COUNT
         lea r4, prt_catalog

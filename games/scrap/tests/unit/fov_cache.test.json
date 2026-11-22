@@ -1,0 +1,18 @@
+{
+  "game": "fov_cache_driver.ap",
+  "scenarios": [
+    {
+      "name": "fov_update invalidates on exact map changes (hash collision + enemy door open)",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_before_open": 0,
+          "drv_after_open": 1,
+          "drv_en_before": 0,
+          "drv_en_door": 4,
+          "drv_en_after": 1
+        }
+      }
+    }
+  ]
+}

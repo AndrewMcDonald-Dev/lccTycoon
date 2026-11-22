@@ -1,0 +1,458 @@
+; Unit driver: the hardcoded state.ap offsets in module files must match the
+; real layout. Several modules address st_* globals as base + offset (fewer far
+; references); this fails if state.ap is reordered without updating them.
+; Generated list: every <MOD>_ST_<NAME> define == st_<name> - st_game_state,
+; plus the message-ring offsets used by ui.ap.
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+        .include "../../src/state.ap"
+        .include "../../src/rng.ap"
+        .include "../../src/dungeon.ap"
+        .include "../../src/fov.ap"
+        .include "../../src/parts.ap"
+        .include "../../src/items.ap"
+        .include "../../src/actors.ap"
+        .include "../../src/combat.ap"
+        .include "../../src/player.ap"
+        .include "../../src/render.ap"
+        .include "../../src/ui.ap"
+        .include "video.ap"
+        .include "util.ap"
+
+
+drv_main:
+        mov r4, 0
+        lea r0, st_game_state
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, CBT_ST_GAME_STATE
+        cmp r0, r1
+        brz drv_ok0
+        add r4, r4, 1           ; CBT_ST_GAME_STATE != st_game_state - st_game_state
+drv_ok0:
+        lea r0, st_kills
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, CBT_ST_KILLS
+        cmp r0, r1
+        brz drv_ok1
+        add r4, r4, 1           ; CBT_ST_KILLS != st_kills - st_game_state
+drv_ok1:
+        lea r0, st_target
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, CBT_ST_TARGET
+        cmp r0, r1
+        brz drv_ok2
+        add r4, r4, 1           ; CBT_ST_TARGET != st_target - st_game_state
+drv_ok2:
+        lea r0, st_death_cause
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, CBT_ST_DEATH_CAUSE
+        cmp r0, r1
+        brz drv_ok3
+        add r4, r4, 1           ; CBT_ST_DEATH_CAUSE != st_death_cause - st_game_state
+drv_ok3:
+        lea r0, st_px
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, CBT_ST_PX
+        cmp r0, r1
+        brz drv_ok4
+        add r4, r4, 1           ; CBT_ST_PX != st_px - st_game_state
+drv_ok4:
+        lea r0, st_py
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, CBT_ST_PY
+        cmp r0, r1
+        brz drv_ok5
+        add r4, r4, 1           ; CBT_ST_PY != st_py - st_game_state
+drv_ok5:
+        lea r0, st_game_state
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, PRT_ST_GAME_STATE
+        cmp r0, r1
+        brz drv_ok8
+        add r4, r4, 1           ; PRT_ST_GAME_STATE != st_game_state - st_game_state
+drv_ok8:
+        lea r0, st_core_hp
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, PRT_ST_CORE_HP
+        cmp r0, r1
+        brz drv_ok9
+        add r4, r4, 1           ; PRT_ST_CORE_HP != st_core_hp - st_game_state
+drv_ok9:
+        lea r0, st_energy
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, PRT_ST_ENERGY
+        cmp r0, r1
+        brz drv_ok10
+        add r4, r4, 1           ; PRT_ST_ENERGY != st_energy - st_game_state
+drv_ok10:
+        lea r0, st_regen_acc
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, PRT_ST_REGEN_ACC
+        cmp r0, r1
+        brz drv_ok11
+        add r4, r4, 1           ; PRT_ST_REGEN_ACC != st_regen_acc - st_game_state
+drv_ok11:
+        lea r0, st_repair_acc
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, PRT_ST_REPAIR_ACC
+        cmp r0, r1
+        brz drv_ok12
+        add r4, r4, 1           ; PRT_ST_REPAIR_ACC != st_repair_acc - st_game_state
+drv_ok12:
+        lea r0, st_move_cost
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, PRT_ST_MOVE_COST
+        cmp r0, r1
+        brz drv_ok13
+        add r4, r4, 1           ; PRT_ST_MOVE_COST != st_move_cost - st_game_state
+drv_ok13:
+        lea r0, st_regen
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, PRT_ST_REGEN
+        cmp r0, r1
+        brz drv_ok14
+        add r4, r4, 1           ; PRT_ST_REGEN != st_regen - st_game_state
+drv_ok14:
+        lea r0, st_energy_max
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, PRT_ST_ENERGY_MAX
+        cmp r0, r1
+        brz drv_ok15
+        add r4, r4, 1           ; PRT_ST_ENERGY_MAX != st_energy_max - st_game_state
+drv_ok15:
+        lea r0, st_sight
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, PRT_ST_SIGHT
+        cmp r0, r1
+        brz drv_ok16
+        add r4, r4, 1           ; PRT_ST_SIGHT != st_sight - st_game_state
+drv_ok16:
+        lea r0, st_acc_bonus
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, PRT_ST_ACC_BONUS
+        cmp r0, r1
+        brz drv_ok17
+        add r4, r4, 1           ; PRT_ST_ACC_BONUS != st_acc_bonus - st_game_state
+drv_ok17:
+        lea r0, st_evade
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, PRT_ST_EVADE
+        cmp r0, r1
+        brz drv_ok18
+        add r4, r4, 1           ; PRT_ST_EVADE != st_evade - st_game_state
+drv_ok18:
+        lea r0, st_repair_turns
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, PRT_ST_REPAIR_TURNS
+        cmp r0, r1
+        brz drv_ok19
+        add r4, r4, 1           ; PRT_ST_REPAIR_TURNS != st_repair_turns - st_game_state
+drv_ok19:
+        lea r0, st_mode
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, PLY_ST_MODE
+        cmp r0, r1
+        brz drv_ok20
+        add r4, r4, 1           ; PLY_ST_MODE != st_mode - st_game_state
+drv_ok20:
+        lea r0, st_target
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, PLY_ST_TARGET
+        cmp r0, r1
+        brz drv_ok21
+        add r4, r4, 1           ; PLY_ST_TARGET != st_target - st_game_state
+drv_ok21:
+        lea r0, st_climb
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, PLY_ST_CLIMB
+        cmp r0, r1
+        brz drv_ok22
+        add r4, r4, 1           ; PLY_ST_CLIMB != st_climb - st_game_state
+drv_ok22:
+        lea r0, st_px
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, PLY_ST_PX
+        cmp r0, r1
+        brz drv_ok23
+        add r4, r4, 1           ; PLY_ST_PX != st_px - st_game_state
+drv_ok23:
+        lea r0, st_py
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, PLY_ST_PY
+        cmp r0, r1
+        brz drv_ok24
+        add r4, r4, 1           ; PLY_ST_PY != st_py - st_game_state
+drv_ok24:
+        lea r0, st_move_cost
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, PLY_ST_MOVE_COST
+        cmp r0, r1
+        brz drv_ok26
+        add r4, r4, 1           ; PLY_ST_MOVE_COST != st_move_cost - st_game_state
+drv_ok26:
+        lea r0, st_mode
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, REN_ST_MODE
+        cmp r0, r1
+        brz drv_ok27
+        add r4, r4, 1           ; REN_ST_MODE != st_mode - st_game_state
+drv_ok27:
+        lea r0, st_target
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, REN_ST_TARGET
+        cmp r0, r1
+        brz drv_ok28
+        add r4, r4, 1           ; REN_ST_TARGET != st_target - st_game_state
+drv_ok28:
+        lea r0, st_px
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, REN_ST_PX
+        cmp r0, r1
+        brz drv_ok29
+        add r4, r4, 1           ; REN_ST_PX != st_px - st_game_state
+drv_ok29:
+        lea r0, st_py
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, REN_ST_PY
+        cmp r0, r1
+        brz drv_ok30
+        add r4, r4, 1           ; REN_ST_PY != st_py - st_game_state
+drv_ok30:
+        lea r0, st_game_state
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, UI_ST_GAME_STATE
+        cmp r0, r1
+        brz drv_ok31
+        add r4, r4, 1           ; UI_ST_GAME_STATE != st_game_state - st_game_state
+drv_ok31:
+        lea r0, st_frame
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, UI_ST_FRAME
+        cmp r0, r1
+        brz drv_ok32
+        add r4, r4, 1           ; UI_ST_FRAME != st_frame - st_game_state
+drv_ok32:
+        lea r0, st_mode
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, UI_ST_MODE
+        cmp r0, r1
+        brz drv_ok33
+        add r4, r4, 1           ; UI_ST_MODE != st_mode - st_game_state
+drv_ok33:
+        lea r0, st_depth
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, UI_ST_DEPTH
+        cmp r0, r1
+        brz drv_ok34
+        add r4, r4, 1           ; UI_ST_DEPTH != st_depth - st_game_state
+drv_ok34:
+        lea r0, st_depth_best
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, UI_ST_DEPTH_BEST
+        cmp r0, r1
+        brz drv_ok35
+        add r4, r4, 1           ; UI_ST_DEPTH_BEST != st_depth_best - st_game_state
+drv_ok35:
+        lea r0, st_turn
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, UI_ST_TURN
+        cmp r0, r1
+        brz drv_ok36
+        add r4, r4, 1           ; UI_ST_TURN != st_turn - st_game_state
+drv_ok36:
+        lea r0, st_kills
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, UI_ST_KILLS
+        cmp r0, r1
+        brz drv_ok37
+        add r4, r4, 1           ; UI_ST_KILLS != st_kills - st_game_state
+drv_ok37:
+        lea r0, st_target
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, UI_ST_TARGET
+        cmp r0, r1
+        brz drv_ok38
+        add r4, r4, 1           ; UI_ST_TARGET != st_target - st_game_state
+drv_ok38:
+        lea r0, st_death_cause
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, UI_ST_DEATH_CAUSE
+        cmp r0, r1
+        brz drv_ok39
+        add r4, r4, 1           ; UI_ST_DEATH_CAUSE != st_death_cause - st_game_state
+drv_ok39:
+        lea r0, st_px
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, UI_ST_PX
+        cmp r0, r1
+        brz drv_ok40
+        add r4, r4, 1           ; UI_ST_PX != st_px - st_game_state
+drv_ok40:
+        lea r0, st_py
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, UI_ST_PY
+        cmp r0, r1
+        brz drv_ok41
+        add r4, r4, 1           ; UI_ST_PY != st_py - st_game_state
+drv_ok41:
+        lea r0, st_core_hp
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, UI_ST_CORE_HP
+        cmp r0, r1
+        brz drv_ok42
+        add r4, r4, 1           ; UI_ST_CORE_HP != st_core_hp - st_game_state
+drv_ok42:
+        lea r0, st_energy
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, UI_ST_ENERGY
+        cmp r0, r1
+        brz drv_ok43
+        add r4, r4, 1           ; UI_ST_ENERGY != st_energy - st_game_state
+drv_ok43:
+        lea r0, st_move_cost
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, UI_ST_MOVE_COST
+        cmp r0, r1
+        brz drv_ok44
+        add r4, r4, 1           ; UI_ST_MOVE_COST != st_move_cost - st_game_state
+drv_ok44:
+        lea r0, st_energy_max
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, UI_ST_ENERGY_MAX
+        cmp r0, r1
+        brz drv_ok45
+        add r4, r4, 1           ; UI_ST_ENERGY_MAX != st_energy_max - st_game_state
+drv_ok45:
+        lea r0, st_sight
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, UI_ST_SIGHT
+        cmp r0, r1
+        brz drv_ok46
+        add r4, r4, 1           ; UI_ST_SIGHT != st_sight - st_game_state
+drv_ok46:
+        lea r0, st_acc_bonus
+        lea r1, st_game_state
+        sub r0, r0, r1
+        mov r1, UI_ST_ACC_BONUS
+        cmp r0, r1
+        brz drv_ok47
+        add r4, r4, 1           ; UI_ST_ACC_BONUS != st_acc_bonus - st_game_state
+drv_ok47:
+        lea r0, st_msg_head
+        lea r1, st_msg_head
+        sub r0, r0, r1
+        mov r1, UI_MSG_HEAD_OFF
+        cmp r0, r1
+        brz drv_ok48
+        add r4, r4, 1           ; UI_MSG_HEAD_OFF != st_msg_head - st_msg_head
+drv_ok48:
+        lea r0, st_msg_attr
+        lea r1, st_msg_head
+        sub r0, r0, r1
+        mov r1, UI_MSG_ATTR_OFF
+        cmp r0, r1
+        brz drv_ok49
+        add r4, r4, 1           ; UI_MSG_ATTR_OFF != st_msg_attr - st_msg_head
+drv_ok49:
+        lea r0, st_msg_text
+        lea r1, st_msg_head
+        sub r0, r0, r1
+        mov r1, UI_MSG_TEXT_OFF
+        cmp r0, r1
+        brz drv_ok50
+        add r4, r4, 1           ; UI_MSG_TEXT_OFF != st_msg_text - st_msg_head
+drv_ok50:
+        lea r0, st_msg_text
+        lea r1, st_msg_attr
+        sub r0, r0, r1
+        mov r1, MSG_COUNT
+        cmp r0, r1
+        brz drv_ok51
+        add r4, r4, 1           ; MSG_COUNT != st_msg_text - st_msg_attr
+drv_ok51:
+        lea r0, st_py
+        lea r1, st_px
+        sub r0, r0, r1
+        mov r1, 1
+        cmp r0, r1
+        brz drv_ok52
+        add r4, r4, 1           ; st_py - st_px != 1
+drv_ok52:
+        lea r0, st_stairs_y
+        lea r1, st_stairs_x
+        sub r0, r0, r1
+        mov r1, 1
+        cmp r0, r1
+        brz drv_ok53
+        add r4, r4, 1           ; st_stairs_y - st_stairs_x != 1
+drv_ok53:
+        lea r0, st_inv
+        lea r1, st_slots
+        sub r0, r0, r1
+        mov r1, NUM_SLOTS*SLOT_SIZE
+        cmp r0, r1
+        brz drv_ok54
+        add r4, r4, 1           ; st_inv - st_slots != NUM_SLOTS*SLOT_SIZE
+drv_ok54:
+        lea r0, st_fov
+        lea r1, st_map
+        sub r0, r0, r1
+        ld r1, drv_k_mapsize
+        cmp r0, r1
+        brz drv_ok55
+        add r4, r4, 1           ; st_fov - st_map != MAP_SIZE
+drv_ok55:
+        st r4, drv_bad
+        mov r4, 53
+        st r4, drv_count
+        halt
+
+drv_k_mapsize: .word MAP_SIZE
+drv_bad:       .word -1
+drv_count:     .word 0

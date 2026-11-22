@@ -4,7 +4,7 @@
 ; layout ET_* in defs.ap, values in DESIGN.md "Enemy table"), the enemy
 ; pool st_enemies (E_*), spawning per depth, the action-time scheduler
 ; and enemy AI. Owns a private distance field (BFS from the player over
-; dun_walkable tiles, MAP_SIZE words, recomputed once per act_run) used
+; dun_walkable tiles, MAP_SIZE words, recomputed lazily when needed) used
 ; for chasing and fleeing. Attacks go through cbt_enemy_attack.
 ; All routines: args r0..r4, result r0, all other registers preserved.
 ;
@@ -29,6 +29,15 @@
 ;;                   the nearest visible enemy (preferring hostile over AI_WORKER); -1 if none visible
 ; ---------------------------------------------------------------------
 
+; ---- local pool 1 (placed before routines: negative PC offsets) -----
+act_p_enemies1:   .word st_enemies
+act_p_types1:     .word act_types
+act_p_px1:        .word st_px       ; +0: st_px, +1: st_py
+act_p_bfsval1:    .word act_bfs_valid
+act_p_bfsbok1:    .word act_bfs_border_ok
+act_p_snone:      .word act_s_none
+act_c_pool_words: .word MAX_ENEMIES*ENEMY_SIZE
+
 ; =====================================================================
 ; Initialization, pool clearing, lookup & kill
 ; =====================================================================
@@ -43,9 +52,9 @@ act_clear:
         push r0
         push r1
         push r2
-        lea r0, st_enemies
+        ld r0, act_p_enemies1
         mov r1, 0
-        ld r2, act_c_pool_words
+        ld r2, act_c_pool_words ; ENEMY_SIZE=16=2*8, so count is always a multiple of 8
 act_clr_lp:
         str r1, r0, 0
         str r1, r0, 1
@@ -58,7 +67,10 @@ act_clr_lp:
         add r0, r0, 8
         sub r2, r2, 8
         brp act_clr_lp
-        st r1, act_bfs_valid
+        ld r0, act_p_bfsval1
+        str r1, r0, 0           ; act_bfs_valid = 0
+        ld r0, act_p_bfsbok1
+        str r1, r0, 0           ; act_bfs_border_ok = 0 (recheck border once per floor)
         pop r2
         pop r1
         pop r0
@@ -72,7 +84,7 @@ act_type_info:
         brgt act_ti_bad
         sub r0, r0, 1
         sll r0, ETYPE_SHIFT
-        lea r1, act_types
+        ld r1, act_p_types1
         add r0, r1, r0
         pop r1
         ret
@@ -86,13 +98,11 @@ act_name:
         push lr
         cmp r0, 0
         brn act_nm_bad
-        mov r1, MAX_ENEMIES
+        mov r1, MAX_ENEMIES-1
         cmp r0, r1
-        brlt act_nm_ok
-        br act_nm_bad
-act_nm_ok:
+        brgt act_nm_bad
         sll r0, ENEMY_SHIFT
-        lea r1, st_enemies
+        ld r1, act_p_enemies1
         add r1, r1, r0
         ldr r0, r1, E_TYPE
         bl act_type_info
@@ -103,7 +113,7 @@ act_nm_ok:
         pop r1
         ret
 act_nm_bad:
-        lea r0, act_s_none
+        ld r0, act_p_snone
         pop lr
         pop r1
         ret
@@ -113,13 +123,11 @@ act_kill:
         push r1
         cmp r0, 0
         brn act_kl_done
-        mov r1, MAX_ENEMIES
+        mov r1, MAX_ENEMIES-1
         cmp r0, r1
-        brlt act_kl_ok
-        br act_kl_done
-act_kl_ok:
+        brgt act_kl_done
         sll r0, ENEMY_SHIFT
-        lea r1, st_enemies
+        ld r1, act_p_enemies1
         add r1, r1, r0
         mov r0, EN_NONE
         str r0, r1, E_TYPE
@@ -129,8 +137,6 @@ act_kl_done:
         ret
 
 ; act_alert r0=index -> -
-; Alert a living enemy to (st_px, st_py): E_TX=st_px, E_TY=st_py, E_ALERT=ALERT_TURNS;
-; if ES_IDLE, switch to ES_HUNT (or ES_FLEE for AI_WORKER).
 act_alert:
         push r0
         push r1
@@ -138,20 +144,20 @@ act_alert:
         push lr
         cmp r0, 0
         brn act_al_done
-        mov r1, MAX_ENEMIES
+        mov r1, MAX_ENEMIES-1
         cmp r0, r1
-        brlt act_al_ok
-        br act_al_done
-act_al_ok:
+        brgt act_al_done
         sll r0, ENEMY_SHIFT
-        lea r2, st_enemies
+        ld r2, act_p_enemies1
         add r2, r2, r0
         ldr r0, r2, E_TYPE
         cmp r0, EN_NONE
         brz act_al_done
-        ld r1, st_px
+        ld r1, act_p_px1
+        ldr r1, r1, 0           ; st_px
         str r1, r2, E_TX
-        ld r1, st_py
+        ld r1, act_p_px1
+        ldr r1, r1, 1           ; st_py
         str r1, r2, E_TY
         mov r1, ALERT_TURNS
         str r1, r2, E_ALERT
@@ -184,8 +190,8 @@ act_at:
         push r2
         push r3
         push r4
-        lea r2, st_enemies
-        mov r3, 0               ; index 0..MAX_ENEMIES-1
+        ld r2, act_p_enemies1
+        mov r3, -MAX_ENEMIES    ; -24..-1
 act_at_lp:
         ldr r4, r2, E_TYPE
         cmp r4, EN_NONE
@@ -198,11 +204,9 @@ act_at_lp:
         bre act_at_found
 act_at_next:
         add r2, r2, 8
-        add r2, r2, 8           ; + ENEMY_SIZE (16)
+        add r2, r2, 8
         add r3, r3, 1
-        mov r4, MAX_ENEMIES
-        cmp r4, r3              ; MAX_ENEMIES > r3  <=>  r3 < MAX_ENEMIES
-        brgt act_at_lp
+        brn act_at_lp
         mov r0, -1
         pop r4
         pop r3
@@ -210,7 +214,8 @@ act_at_next:
         pop r1
         ret
 act_at_found:
-        mov r0, r3
+        mov r0, MAX_ENEMIES
+        add r0, r0, r3
         pop r4
         pop r3
         pop r2
@@ -220,6 +225,19 @@ act_at_found:
 ; =====================================================================
 ; Spawning: act_spawn, act_spawn_floor
 ; =====================================================================
+
+; ---- local pool 2 (before act_spawn & act_spawn_floor) --------------
+act_p_enemies2: .word st_enemies
+act_p_time2:    .word st_time
+act_sp_type:    .word 0
+act_sp_x:       .word 0
+act_sp_y:       .word 0
+act_sp_tptr:    .word 0
+act_sf_depth:   .word 0
+act_sf_wsum:    .word 0
+act_sf_left:    .word 0
+act_sf_tile:    .word 0
+act_sf_pick_t:  .word 0
 
 ; act_spawn r0=type r1=x r2=y -> r0=enemy index, -1 invalid or pool full
 act_spawn:
@@ -235,9 +253,8 @@ act_spawn:
         cmp r0, 0
         brz act_sp_fail
         st r0, act_sp_tptr
-        ; Find first free slot in st_enemies
-        lea r2, st_enemies
-        mov r3, 0
+        ld r2, act_p_enemies2
+        mov r3, -MAX_ENEMIES
 act_sp_scan:
         ldr r4, r2, E_TYPE
         cmp r4, EN_NONE
@@ -245,9 +262,7 @@ act_sp_scan:
         add r2, r2, 8
         add r2, r2, 8
         add r3, r3, 1
-        mov r4, MAX_ENEMIES
-        cmp r4, r3
-        brgt act_sp_scan
+        brn act_sp_scan
 act_sp_fail:
         mov r0, -1
         pop lr
@@ -273,7 +288,6 @@ act_sp_slot:
         mov r0, 0
         str r0, r2, E_ALERT
         str r0, r2, E_FLAGS
-        ; E_NEXT = st_time + rand(0..ET_SPEED)
         ldr r1, r4, ET_SPEED
         cmp r1, 0
         brp act_sp_rand
@@ -283,10 +297,12 @@ act_sp_rand:
         mov r0, 0
         bl rng_range
 act_sp_set_next:
-        ld r1, st_time
+        ld r1, act_p_time2
+        ldr r1, r1, 0
         add r0, r0, r1
         str r0, r2, E_NEXT
-        mov r0, r3
+        mov r0, MAX_ENEMIES
+        add r0, r0, r3
         pop lr
         pop r4
         pop r3
@@ -302,7 +318,6 @@ act_spawn_floor:
         push r3
         push r4
         push lr
-        ; Clamp depth to 1..START_DEPTH
         cmp r0, 1
         brp act_sf_dhi
         bre act_sf_dhi
@@ -314,9 +329,8 @@ act_sf_dhi:
         mov r0, START_DEPTH
 act_sf_dok:
         st r0, act_sf_depth
-        ; Sum weights of eligible hostile types for this depth
-        mov r3, 0               ; total weight
-        mov r2, 1               ; type id 1..ETYPE_COUNT
+        mov r3, 0
+        mov r2, 1
 act_sf_wlp:
         mov r0, r2
         bl act_type_info
@@ -347,7 +361,6 @@ act_sf_wnext:
         brp act_sf_cnt
         br act_sf_tinker
 act_sf_cnt:
-        ; hostile count = SPAWN_BASE + (11 - depth) / 2
         mov r0, 11
         ld r1, act_sf_depth
         sub r0, r0, r1
@@ -366,11 +379,10 @@ act_sf_do_one:
         cmp r0, 0
         brn act_sf_hostile_lp
         st r0, act_sf_tile
-        ; Weighted random pick among eligible hostile types
         mov r0, 1
         ld r1, act_sf_wsum
         bl rng_range
-        mov r3, r0              ; roll in 1..wsum
+        mov r3, r0
         mov r2, 1
 act_sf_pick_lp:
         mov r0, r2
@@ -400,27 +412,26 @@ act_sf_pick_next:
         cmp r2, ETYPE_COUNT
         brlt act_sf_pick_lp
         bre act_sf_pick_lp
-        mov r2, EN_SCUTTLER     ; safety fallback
+        mov r2, EN_SCUTTLER
 act_sf_picked:
         st r2, act_sf_pick_t
         ld r1, act_sf_tile
         mov r0, MAP_XMASK
-        and r1, r1, r0          ; x
+        and r1, r1, r0
         ld r2, act_sf_tile
-        srl r2, MAP_SHIFT       ; y
+        srl r2, MAP_SHIFT
         ld r0, act_sf_pick_t
         bl act_spawn
         br act_sf_hostile_lp
 act_sf_tinker:
-        ; Spawn one EN_TINKER
         bl act_find_spawn_tile
         cmp r0, 0
         brn act_sf_done
         mov r1, r0
         mov r2, MAP_XMASK
-        and r1, r1, r2          ; x
+        and r1, r1, r2
         mov r2, r0
-        srl r2, MAP_SHIFT       ; y
+        srl r2, MAP_SHIFT
         mov r0, EN_TINKER
         bl act_spawn
 act_sf_done:
@@ -432,8 +443,23 @@ act_sf_done:
         pop r0
         ret
 
-; Internal: find a valid spawn tile (T_FLOOR, not st_start_room,
-; dist >= SPAWN_SAFE from player, unoccupied). Returns idx or -1.
+; ---- local pool 2b (before act_find_spawn_tile & act_spawn_tile_ok) -
+act_p_px2:      .word st_px         ; +0: st_px, +1: st_py
+act_p_rcnt2:    .word st_room_count
+act_p_srm2:     .word st_start_room
+act_p_rooms2:   .word st_rooms
+act_p_map2:     .word st_map
+act_fst_tries:  .word 0
+act_fst_idx:    .word 0
+act_fst_ri:     .word 0
+act_fst_x0:     .word 0
+act_fst_x:      .word 0
+act_fst_xend:   .word 0
+act_fst_y:      .word 0
+act_fst_yend:   .word 0
+act_sto_x:      .word 0
+act_sto_y:      .word 0
+
 act_find_spawn_tile:
         push lr
         mov r0, 48
@@ -443,8 +469,8 @@ act_fst_rand:
         st r0, act_fst_idx
         mov r1, r0
         mov r2, MAP_XMASK
-        and r0, r0, r2          ; x
-        srl r1, MAP_SHIFT       ; y
+        and r0, r0, r2
+        srl r1, MAP_SHIFT
         bl act_spawn_tile_ok
         cmp r0, 0
         brnz act_fst_found
@@ -452,23 +478,24 @@ act_fst_rand:
         sub r0, r0, 1
         st r0, act_fst_tries
         brp act_fst_rand
-        ; Deterministic fallback: scan rooms except st_start_room
         mov r0, 0
         st r0, act_fst_ri
 act_fst_rm_lp:
         ld r0, act_fst_ri
-        ld r1, st_room_count
+        ld r1, act_p_rcnt2
+        ldr r1, r1, 0
         cmp r0, r1
         brlt act_fst_rm_chk
         mov r0, -1
         pop lr
         ret
 act_fst_rm_chk:
-        ld r1, st_start_room
+        ld r1, act_p_srm2
+        ldr r1, r1, 0
         cmp r0, r1
         bre act_fst_rm_next
         sll r0, ROOM_SHIFT
-        lea r4, st_rooms
+        ld r4, act_p_rooms2
         add r4, r4, r0
         ldr r1, r4, RM_Y
         ldr r2, r4, RM_H
@@ -521,31 +548,42 @@ act_fst_found:
         pop lr
         ret
 
-; Internal: check if (r0=x, r1=y) is a valid spawn tile -> r0=1|0
 act_spawn_tile_ok:
         push lr
         st r0, act_sto_x
         st r1, act_sto_y
-        ; Tile must be T_FLOOR
-        bl dun_get
-        cmp r0, T_FLOOR
+        cmp r0, 0
+        brn act_sto_no
+        mov r2, MAP_W-1
+        cmp r0, r2
+        brgt act_sto_no
+        cmp r1, 0
+        brn act_sto_no
+        mov r2, MAP_H-1
+        cmp r1, r2
+        brgt act_sto_no
+        mov r2, r1
+        sll r2, MAP_SHIFT
+        or r2, r0
+        ld r3, act_p_map2
+        add r3, r3, r2
+        ldr r2, r3, 0
+        and r2, r2, T_KIND_MASK
+        cmp r2, T_FLOOR
         brne act_sto_no
-        ; Not in st_start_room
-        ld r0, act_sto_x
-        ld r1, act_sto_y
         bl dun_room_of
-        ld r1, st_start_room
+        ld r1, act_p_srm2
+        ldr r1, r1, 0
         cmp r0, r1
         bre act_sto_no
-        ; Distance >= SPAWN_SAFE from player
         ld r0, act_sto_x
         ld r1, act_sto_y
-        ld r2, st_px
-        ld r3, st_py
+        ld r3, act_p_px2
+        ldr r2, r3, 0
+        ldr r3, r3, 1
         bl dun_dist
         cmp r0, SPAWN_SAFE
         brlt act_sto_no
-        ; Unoccupied by any enemy
         ld r0, act_sto_x
         ld r1, act_sto_y
         bl act_at
@@ -565,126 +603,119 @@ act_sto_yes:
 ; 0 = unvisited/unreachable, 1 = player tile, d+1 = 4-way distance d
 ; =====================================================================
 
-act_compute_bfs:
+; ---- local pool 3 (placed BEFORE BFS routines: negative PC offsets) -
+act_bfs_valid:     .word 0
+act_bfs_border_ok: .word 0          ; 0=unchecked, 1=all border impassable, -1=walkable border
+act_bfs_px:        .word 0
+act_bfs_py:        .word 0
+act_bfs_mver:      .word 0
+act_bfs_head:      .word 0
+act_bfs_prev_tail: .word act_queue
+act_bfs_mdiff:     .word 0
+act_p_dist:        .word act_dist
+act_p_queue:       .word act_queue
+act_p_map3:        .word st_map
+act_p_px3:         .word st_px      ; +0: st_px, +1: st_py
+act_p_mver3:       .word st_map_ver
+
+; Ensure act_dist matches current (st_px, st_py, st_map_ver). Preserves all regs.
+act_ensure_bfs:
         push r0
         push r1
+        ld r0, act_bfs_valid
+        cmp r0, 0
+        brz act_eb_run
+        ld r1, act_p_mver3
+        ld r0, act_bfs_mver
+        ldr r1, r1, 0
+        cmp r0, r1
+        brne act_eb_ver_chg
+        ld r1, act_p_px3
+        ld r0, act_bfs_px
+        ldr r1, r1, 0
+        cmp r0, r1
+        brne act_eb_run
+        ld r1, act_p_px3
+        ld r0, act_bfs_py
+        ldr r1, r1, 1
+        cmp r0, r1
+        bre act_eb_ok
+act_eb_run:
         push r2
         push r3
         push r4
-        push lr
-        ; 1. Clear act_dist (MAP_SIZE = 1536 words, 8x unrolled)
-        lea r0, act_dist
-        mov r1, 0
-        ld r2, act_c_mapsize
-act_bfs_clr:
-        str r1, r0, 0
-        str r1, r0, 1
-        str r1, r0, 2
-        str r1, r0, 3
-        str r1, r0, 4
-        str r1, r0, 5
-        str r1, r0, 6
-        str r1, r0, 7
-        add r0, r0, 8
-        sub r2, r2, 8
-        brp act_bfs_clr
+        br act_bfs_body
+act_eb_ver_chg:
+        mov r0, 0
+        st r0, act_bfs_border_ok ; map changed: recheck border fast-path
+        push r2
+        push r3
+        push r4
+        br act_bfs_body
+act_eb_ok:
+        pop r1
+        pop r0
+        ret
 
-        ; 2. Seed player position
-        ld r0, st_px
-        ld r1, st_py
+act_bfs_body:
+        ; 1. Selectively clear only tiles visited in the previous BFS
+        ; Count = prev_tail - act_queue (0..MAP_SIZE); avoids signed pointer compares
+        ld r0, act_p_queue
+        ld r2, act_bfs_prev_tail
+        sub r2, r2, r0
+        brz act_bf_clr_done
+        mov r1, 0
+        sub r2, r2, 3           ; > 0 iff remaining >= 4
+        brp act_bf_clr4
+        br act_bf_clr_t0
+act_bf_clr4:
+        ldr r3, r0, 0
+        str r1, r3, 0
+        ldr r3, r0, 1
+        str r1, r3, 0
+        ldr r3, r0, 2
+        str r1, r3, 0
+        ldr r3, r0, 3
+        str r1, r3, 0
+        add r0, r0, 4
+        sub r2, r2, 4
+        brp act_bf_clr4
+act_bf_clr_t0:
+        add r2, r2, 3           ; remaining 0..3
+        brz act_bf_clr_done
+act_bf_clr1:
+        ldr r3, r0, 0
+        str r1, r3, 0
+        add r0, r0, 1
+        sub r2, r2, 1
+        brp act_bf_clr1
+act_bf_clr_done:
+        ld r0, act_p_queue
+        st r0, act_bfs_prev_tail
+
+        ; 2. Seed player position & map version
+        ld r2, act_p_mver3
+        ldr r2, r2, 0
+        st r2, act_bfs_mver
+        ld r2, act_p_px3
+        ldr r0, r2, 0           ; st_px
+        ldr r1, r2, 1           ; st_py
         st r0, act_bfs_px
         st r1, act_bfs_py
         mov r2, 1
         st r2, act_bfs_valid
         cmp r0, 0
-        brn act_bfs_done
-        mov r2, MAP_W
+        brn act_bfs_oob_ret
+        mov r2, MAP_W-1
         cmp r0, r2
-        brlt act_bfs_xok
-        br act_bfs_done
-act_bfs_xok:
+        brgt act_bfs_oob_ret
         cmp r1, 0
-        brn act_bfs_done
-        mov r2, MAP_H
+        brn act_bfs_oob_ret
+        mov r2, MAP_H-1
         cmp r1, r2
-        brlt act_bfs_seed
-        br act_bfs_done
-act_bfs_seed:
-        sll r1, MAP_SHIFT
-        or r1, r0               ; idx = (py << 6) | px
-        lea r2, act_dist
-        add r2, r2, r1
-        mov r0, 1
-        str r0, r2, 0           ; act_dist[idx] = 1
-        lea r2, act_queue
-        str r1, r2, 0           ; act_queue[0] = idx
-        mov r0, 0
-        st r0, act_bfs_head
-        mov r0, 1
-        st r0, act_bfs_tail
-
-        ; 3. 4-neighbor BFS loop
-act_bfs_lp:
-        ld r0, act_bfs_head
-        ld r1, act_bfs_tail
-        cmp r0, r1
-        brlt act_bfs_pop
-        br act_bfs_done
-act_bfs_pop:
-        lea r2, act_queue
-        add r2, r2, r0
-        ldr r4, r2, 0           ; r4 = idx
-        add r0, r0, 1
-        st r0, act_bfs_head
-        ; r1 = act_dist[idx] + 1
-        lea r2, act_dist
-        add r2, r2, r4
-        ldr r1, r2, 0
-        add r1, r1, 1
-
-        ; East: if (idx & 63) < 63 -> idx + 1
-        mov r2, MAP_XMASK
-        and r0, r4, r2
-        cmp r0, r2
-        brlt act_bfs_e
-        br act_bfs_chk_w
-act_bfs_e:
-        add r0, r4, 1
-        bl act_bfs_try
-
-act_bfs_chk_w:
-        ; West: if (idx & 63) > 0 -> idx - 1
-        mov r2, MAP_XMASK
-        and r0, r4, r2
-        cmp r0, 0
-        brp act_bfs_w
-        br act_bfs_chk_s
-act_bfs_w:
-        sub r0, r4, 1
-        bl act_bfs_try
-
-act_bfs_chk_s:
-        ; South: if idx < MAP_SIZE - MAP_W -> idx + MAP_W
-        ld r2, act_c_south_lim
-        cmp r4, r2
-        brlt act_bfs_s
-        br act_bfs_chk_n
-act_bfs_s:
-        mov r2, MAP_W
-        add r0, r4, r2
-        bl act_bfs_try
-
-act_bfs_chk_n:
-        ; North: if idx >= MAP_W -> idx - MAP_W
-        mov r2, MAP_W
-        cmp r4, r2
-        brlt act_bfs_lp
-        sub r0, r4, r2
-        bl act_bfs_try
-        br act_bfs_lp
-
-act_bfs_done:
-        pop lr
+        brgt act_bfs_oob_ret
+        br act_bfs_inbounds
+act_bfs_oob_ret:
         pop r4
         pop r3
         pop r2
@@ -692,39 +723,298 @@ act_bfs_done:
         pop r0
         ret
 
-; Internal: visit neighbor r0=nidx with distance r1=nd.
-; Preserves r1 and r4; clobbers r0, r2, r3.
-act_bfs_try:
-        lea r2, act_dist
-        add r2, r2, r0
-        ldr r3, r2, 0
-        cmp r3, 0
-        brnz act_bt_ret         ; already visited
-        lea r3, st_map
-        add r3, r3, r0
-        ldr r3, r3, 0
-        and r3, r3, T_KIND_MASK
-        cmp r3, T_ROCK
-        brz act_bt_ret
-        cmp r3, T_WALL
-        bre act_bt_ret
-        cmp r3, T_KIND_COUNT
-        brlt act_bt_push
-        ret
-act_bt_push:
-        str r1, r2, 0           ; act_dist[nidx] = nd
-        ld r2, act_bfs_tail
-        lea r3, act_queue
-        add r3, r3, r2
+act_bfs_inbounds:
+        ; Seed act_dist[pidx] = 1, act_queue[0] = &act_dist[pidx]
+        mov r2, r1
+        sll r2, MAP_SHIFT
+        or r2, r0               ; pidx
+        ld r4, act_p_dist
+        add r4, r4, r2
+        mov r3, 1
+        str r3, r4, 0
+        ld r3, act_p_queue
+        str r4, r3, 0
+        st r3, act_bfs_head
+        add r3, r3, 1           ; r3 = q_tail
+        st r3, act_bfs_prev_tail
+
+        ; Precompute mdiff = st_map - act_dist
+        ld r2, act_p_map3
+        ld r4, act_p_dist
+        sub r2, r2, r4
+        st r2, act_bfs_mdiff
+
+        ; 3. Fast-path eligibility: player strictly interior AND border clean (cached per floor!)
+        cmp r0, 1
+        brlt act_bf_go_slow
+        mov r2, MAP_W-2
+        cmp r0, r2
+        brgt act_bf_go_slow
+        cmp r1, 1
+        brlt act_bf_go_slow
+        mov r2, MAP_H-2
+        cmp r1, r2
+        brgt act_bf_go_slow
+
+        ld r2, act_bfs_border_ok
+        cmp r2, 1
+        bre act_bf_lp
+        cmp r2, 0
+        brp act_bf_chk_border
+        brz act_bf_chk_border
+act_bf_go_slow:
+        br act_bfs_slow
+
+act_bf_chk_border:
+        ; First BFS on this floor: check 172 border tiles once and cache result
+        ; MAP_W is a multiple of 8 (defs.ap invariant 5).
+        mov r0, 0
+        ld r1, act_p_map3
+        mov r2, MAP_W/8
+act_bf_btop:
+        ldr r4, r1, 0
+        or r0, r4
+        ldr r4, r1, 1
+        or r0, r4
+        ldr r4, r1, 2
+        or r0, r4
+        ldr r4, r1, 3
+        or r0, r4
+        ldr r4, r1, 4
+        or r0, r4
+        ldr r4, r1, 5
+        or r0, r4
+        ldr r4, r1, 6
+        or r0, r4
+        ldr r4, r1, 7
+        or r0, r4
+        add r1, r1, 8
+        sub r2, r2, 1
+        brp act_bf_btop
+        mov r2, MAP_H-2
+act_bf_bside:
+        ldr r4, r1, 0
+        or r0, r4
+        mov r4, MAP_W-1
+        add r4, r1, r4
+        ldr r4, r4, 0
+        or r0, r4
+        mov r4, MAP_W
+        add r1, r1, r4
+        sub r2, r2, 1
+        brp act_bf_bside
+        mov r2, MAP_W/8
+act_bf_bbot:
+        ldr r4, r1, 0
+        or r0, r4
+        ldr r4, r1, 1
+        or r0, r4
+        ldr r4, r1, 2
+        or r0, r4
+        ldr r4, r1, 3
+        or r0, r4
+        ldr r4, r1, 4
+        or r0, r4
+        ldr r4, r1, 5
+        or r0, r4
+        ldr r4, r1, 6
+        or r0, r4
+        ldr r4, r1, 7
+        or r0, r4
+        add r1, r1, 8
+        sub r2, r2, 1
+        brp act_bf_bbot
+
+        and r0, r0, 13
+        brnz act_bf_bdirty
+        mov r0, 1
+        st r0, act_bfs_border_ok
+        br act_bf_lp
+act_bf_bdirty:
+        mov r0, -1
+        st r0, act_bfs_border_ok
+        br act_bfs_slow
+
+        ; 4. Fast zero-bounds-check 4-neighbor BFS loop (r3 = q_tail)
+act_bf_lp:
+        ld r0, act_bfs_head
+        cmp r0, r3
+        bre act_bf_fin
+        ldr r4, r0, 0           ; r4 = p = &act_dist[idx]
+        add r0, r0, 1
+        st r0, act_bfs_head
+        ldr r1, r4, 0
+        add r1, r1, 1           ; r1 = nd
+        ld r2, act_bfs_mdiff
+        add r2, r4, r2          ; r2 = mp = &st_map[idx]
+
+        ; East (+1)
+        ldr r0, r4, 1
+        cmp r0, 0
+        brnz act_bf_w
+        ldr r0, r2, 1
+        and r0, r0, 5
+        brz act_bf_w
+        str r1, r4, 1
+        add r0, r4, 1
         str r0, r3, 0
-        add r2, r2, 1
-        st r2, act_bfs_tail
-act_bt_ret:
+        add r3, r3, 1
+
+act_bf_w:
+        ; West (-1)
+        ldr r0, r4, -1
+        cmp r0, 0
+        brnz act_bf_s
+        ldr r0, r2, -1
+        and r0, r0, 5
+        brz act_bf_s
+        str r1, r4, -1
+        sub r0, r4, 1
+        str r0, r3, 0
+        add r3, r3, 1
+
+act_bf_s:
+        ; South (+MAP_W)
+        mov r0, MAP_W
+        add r4, r4, r0
+        add r2, r2, r0
+        ldr r0, r4, 0
+        cmp r0, 0
+        brnz act_bf_n
+        ldr r0, r2, 0
+        and r0, r0, 5
+        brz act_bf_n
+        str r1, r4, 0
+        str r4, r3, 0
+        add r3, r3, 1
+
+act_bf_n:
+        ; North (-MAP_W, -2*MAP_W from South)
+        mov r0, -2*MAP_W
+        add r4, r4, r0
+        add r2, r2, r0
+        ldr r0, r4, 0
+        cmp r0, 0
+        brnz act_bf_lp
+        ldr r0, r2, 0
+        and r0, r0, 5
+        brz act_bf_lp
+        str r1, r4, 0
+        str r4, r3, 0
+        add r3, r3, 1
+        br act_bf_lp
+
+act_bf_fin:
+        st r3, act_bfs_prev_tail
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; ---- local pool 3b (for act_bfs_slow) -------------------------------
+act_p_bhead3b:  .word act_bfs_head
+act_p_bpt3b:    .word act_bfs_prev_tail
+act_p_bmd3b:    .word act_bfs_mdiff
+act_p_dist3b:   .word act_dist
+act_c_slim3b:   .word MAP_SIZE-MAP_W
+
+; 5. Safe border-checked BFS fallback (only if border tile is walkable)
+act_bfs_slow:
+        push lr
+act_bfs_slp:
+        ld r2, act_p_bhead3b
+        ldr r0, r2, 0
+        cmp r0, r3
+        bre act_bfs_sfin
+        ldr r4, r0, 0
+        add r0, r0, 1
+        str r0, r2, 0
+        ldr r1, r4, 0
+        add r1, r1, 1
+        ld r0, act_p_dist3b
+        sub r4, r4, r0
+
+        mov r2, MAP_XMASK
+        and r0, r4, r2
+        cmp r0, r2
+        brlt act_bs_e
+        br act_bs_cw
+act_bs_e:
+        add r0, r4, 1
+        bl act_bfs_stry
+act_bs_cw:
+        mov r2, MAP_XMASK
+        and r0, r4, r2
+        cmp r0, 0
+        brp act_bs_w
+        br act_bs_cs
+act_bs_w:
+        sub r0, r4, 1
+        bl act_bfs_stry
+act_bs_cs:
+        ld r2, act_c_slim3b
+        cmp r4, r2
+        brlt act_bs_s
+        br act_bs_cn
+act_bs_s:
+        mov r2, MAP_W
+        add r0, r4, r2
+        bl act_bfs_stry
+act_bs_cn:
+        mov r2, MAP_W
+        cmp r4, r2
+        brlt act_bfs_slp
+        sub r0, r4, r2
+        bl act_bfs_stry
+        br act_bfs_slp
+act_bfs_sfin:
+        pop lr
+        ld r0, act_p_bpt3b
+        str r3, r0, 0
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+act_bfs_stry:
+        ld r2, act_p_dist3b
+        add r2, r2, r0
+        ldr r0, r2, 0
+        cmp r0, 0
+        brnz act_bst_ret
+        ld r0, act_p_bmd3b
+        ldr r0, r0, 0
+        add r0, r2, r0
+        ldr r0, r0, 0
+        and r0, r0, T_KIND_MASK
+        cmp r0, T_ROCK
+        brz act_bst_ret
+        cmp r0, T_WALL
+        bre act_bst_ret
+        cmp r0, T_KIND_COUNT
+        brlt act_bst_push
+        ret
+act_bst_push:
+        str r1, r2, 0
+        str r2, r3, 0
+        add r3, r3, 1
+act_bst_ret:
         ret
 
 ; =====================================================================
 ; Action-time Scheduler: act_run
 ; =====================================================================
+
+; ---- local pool 4 (before act_run) ----------------------------------
+act_p_gstate4:  .word st_game_state
+act_p_pnext4:   .word st_ply_next
+act_p_time4:    .word st_time
+act_p_enemies4: .word st_enemies
+act_c_rebase:   .word TIME_REBASE
 
 act_run:
         push r0
@@ -733,60 +1023,57 @@ act_run:
         push r3
         push r4
         push lr
-        ; Invalidate BFS so it recomputes fresh once if any enemy acts
-        mov r0, 0
-        st r0, act_bfs_valid
 act_run_lp:
-        ld r0, st_game_state
+        ld r0, act_p_gstate4
+        ldr r0, r0, 0
         cmp r0, GAME_PLAY
         brne act_run_finish
-        ; Find live enemy with smallest E_NEXT strictly < st_ply_next (ties -> lower index)
-        ld r1, st_ply_next      ; r1 = best_time (strictly < st_ply_next)
-        mov r0, -1              ; r0 = best_idx
-        lea r2, st_enemies
-        mov r3, 0               ; index 0..MAX_ENEMIES-1
+        ld r1, act_p_pnext4
+        ldr r1, r1, 0           ; best_time
+        mov r0, 0               ; 0 = none found (-24..-1 when found)
+        ld r2, act_p_enemies4
+        mov r3, -MAX_ENEMIES
 act_run_scan:
         ldr r4, r2, E_TYPE
         cmp r4, EN_NONE
         brz act_run_snext
         ldr r4, r2, E_NEXT
-        cmp r4, r1              ; E_NEXT < best_time ?
+        cmp r4, r1
         brlt act_run_better
-        br act_run_snext
-act_run_better:
-        mov r1, r4
-        mov r0, r3
 act_run_snext:
         add r2, r2, 8
         add r2, r2, 8
         add r3, r3, 1
-        mov r4, MAX_ENEMIES
-        cmp r4, r3
-        brgt act_run_scan
-        ; None left?
+        brn act_run_scan
+        br act_run_chk
+act_run_better:
+        mov r1, r4
+        mov r0, r3
+        add r2, r2, 8
+        add r2, r2, 8
+        add r3, r3, 1
+        brn act_run_scan
+act_run_chk:
         cmp r0, 0
-        brn act_run_finish
-        ; Ensure BFS distance field is computed once for this act_run
-        ld r1, act_bfs_valid
-        cmp r1, 0
-        brnz act_run_act
-        bl act_compute_bfs
-act_run_act:
+        brz act_run_finish
+        mov r1, MAX_ENEMIES
+        add r0, r0, r1
         bl act_think
         br act_run_lp
 
 act_run_finish:
-        ld r0, st_ply_next
-        st r0, st_time
-        ; Rebase clock if st_time >= TIME_REBASE
+        ld r2, act_p_pnext4
+        ldr r0, r2, 0
+        ld r3, act_p_time4
+        str r0, r3, 0
         ld r1, act_c_rebase
         cmp r0, r1
         brlt act_run_done
         sub r0, r0, r1
-        st r0, st_time
-        st r0, st_ply_next
-        lea r2, st_enemies
-        mov r3, 0
+        str r0, r3, 0
+        str r0, r2, 0
+        ld r2, act_p_enemies4
+        mov r3, -MAX_ENEMIES
 act_run_rb_lp:
         ldr r4, r2, E_TYPE
         cmp r4, EN_NONE
@@ -798,9 +1085,7 @@ act_run_rb_next:
         add r2, r2, 8
         add r2, r2, 8
         add r3, r3, 1
-        mov r4, MAX_ENEMIES
-        cmp r4, r3
-        brgt act_run_rb_lp
+        brn act_run_rb_lp
 act_run_done:
         pop lr
         pop r4
@@ -814,6 +1099,26 @@ act_run_done:
 ; Enemy AI: act_think
 ; =====================================================================
 
+; ---- local pool 5 (BEFORE act_think: negative PC offsets!) ----------
+; Fixed-order scratch block relative to act_th_eptr (indexed via act_p_th5b / act_p_th5c):
+        .define ACT_TH_EPTR     0
+        .define ACT_TH_X        2
+        .define ACT_TH_Y        3
+        .define ACT_TH_DIST     4
+        .define ACT_TH_SEE      5
+act_p_enemies5: .word st_enemies
+act_p_px5:      .word st_px         ; +0: st_px, +1: st_py
+act_p_spotted:  .word act_s_spotted
+act_th_idx:     .word 0
+act_th_eptr:    .word 0             ; +ACT_TH_EPTR
+act_th_tptr:    .word 0
+act_th_x:       .word 0             ; +ACT_TH_X
+act_th_y:       .word 0             ; +ACT_TH_Y
+act_th_dist:    .word 0             ; +ACT_TH_DIST
+act_th_see:     .word 0             ; +ACT_TH_SEE
+act_th_ai:      .word 0
+act_th_cost:    .word 0
+
 act_think:
         push r0
         push r1
@@ -821,50 +1126,42 @@ act_think:
         push r3
         push r4
         push lr
-        ; Validate index and live slot
         cmp r0, 0
-        brn act_th_ret
-        mov r1, MAX_ENEMIES
+        brn act_th_ret_top
+        mov r1, MAX_ENEMIES-1
         cmp r0, r1
-        brlt act_th_idx_ok
-        br act_th_ret
-act_th_idx_ok:
+        brgt act_th_ret_top
         st r0, act_th_idx
         sll r0, ENEMY_SHIFT
-        lea r4, st_enemies
+        ld r4, act_p_enemies5
         add r4, r4, r0
         ldr r0, r4, E_TYPE
         cmp r0, EN_NONE
-        brz act_th_ret
+        brz act_th_ret_top
         st r4, act_th_eptr
         bl act_type_info
         cmp r0, 0
-        brz act_th_ret
+        brnz act_th_ok
+act_th_ret_top:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+act_th_ok:
         st r0, act_th_tptr
 
-        ; Ensure BFS distance field matches current (st_px, st_py)
-        ld r0, act_bfs_valid
-        cmp r0, 0
-        brz act_th_dobfs
-        ld r0, act_bfs_px
-        ld r1, st_px
-        cmp r0, r1
-        brne act_th_dobfs
-        ld r0, act_bfs_py
-        ld r1, st_py
-        cmp r0, r1
-        bre act_th_bfs_ok
-act_th_dobfs:
-        bl act_compute_bfs
-act_th_bfs_ok:
         ; Cache enemy position & Chebyshev distance to player
         ld r4, act_th_eptr
         ldr r0, r4, E_X
         ldr r1, r4, E_Y
         st r0, act_th_x
         st r1, act_th_y
-        ld r2, st_px
-        ld r3, st_py
+        ld r3, act_p_px5
+        ldr r2, r3, 0
+        ldr r3, r3, 1
         bl dun_dist
         st r0, act_th_dist
 
@@ -875,8 +1172,9 @@ act_th_bfs_ok:
         brgt act_th_nosee
         ld r0, act_th_x
         ld r1, act_th_y
-        ld r2, st_px
-        ld r3, st_py
+        ld r3, act_p_px5
+        ldr r2, r3, 0
+        ldr r3, r3, 1
         bl fov_los
         st r0, act_th_see
         br act_th_see_done
@@ -884,35 +1182,16 @@ act_th_nosee:
         mov r0, 0
         st r0, act_th_see
 act_th_see_done:
-        ; Compute low-HP flag for non-turrets: E_HP * 100 < ET_HP * FLEE_PCT
-        mov r0, 0
-        st r0, act_th_lowhp
         ld r4, act_th_tptr
         ldr r1, r4, ET_AI
         st r1, act_th_ai
-        cmp r1, AI_TURRET
-        bre act_th_hp_done
-        ld r3, act_th_eptr
-        ldr r0, r3, E_HP
-        mov r2, 100
-        mul r0, r2              ; E_HP * 100
-        ldr r1, r4, ET_HP
-        mov r2, FLEE_PCT
-        mul r1, r2              ; ET_HP * FLEE_PCT
-        cmp r0, r1
-        brlt act_th_is_low
-        br act_th_hp_done
-act_th_is_low:
-        mov r0, 1
-        st r0, act_th_lowhp
-act_th_hp_done:
+
         ; State transitions
         ld r0, act_th_see
         cmp r0, 0
         brz act_th_unseen
 
         ; --- Player seen! ---
-        ; First sighting while enemy tile is fov_visible posts "<Name> spotted."
         ld r4, act_th_eptr
         ldr r0, r4, E_FLAGS
         and r0, r0, EF_SEEN
@@ -930,23 +1209,32 @@ act_th_hp_done:
         ld r4, act_th_tptr
         ldr r0, r4, ET_NAME
         bl ui_msg
-        lea r0, act_s_spotted
+        ld r0, act_p_spotted
         bl ui_msg_add
 act_th_seen_ok:
         ld r4, act_th_eptr
-        ld r0, st_px
+        ld r1, act_p_px5
+        ldr r0, r1, 0
         str r0, r4, E_TX
-        ld r0, st_py
+        ldr r0, r1, 1
         str r0, r4, E_TY
         mov r0, ALERT_TURNS
         str r0, r4, E_ALERT
-        ; Worker or low-hp non-turret -> ES_FLEE; else ES_HUNT
         ld r0, act_th_ai
         cmp r0, AI_WORKER
         bre act_th_set_flee
-        ld r0, act_th_lowhp
-        cmp r0, 0
-        brnz act_th_set_flee
+        cmp r0, AI_TURRET
+        bre act_th_set_hunt
+        ldr r0, r4, E_HP
+        mov r2, 100
+        mul r0, r2
+        ld r3, act_th_tptr
+        ldr r1, r3, ET_HP
+        mov r2, FLEE_PCT
+        mul r1, r2
+        cmp r0, r1
+        brlt act_th_set_flee
+act_th_set_hunt:
         mov r0, ES_HUNT
         str r0, r4, E_STATE
         br act_th_act
@@ -961,10 +1249,20 @@ act_th_unseen:
         ldr r0, r4, E_STATE
         cmp r0, ES_IDLE
         bre act_th_act
-        ; If low HP while alerted, switch to ES_FLEE
-        ld r1, act_th_lowhp
-        cmp r1, 0
-        brz act_th_decay
+        ld r1, act_th_ai
+        cmp r1, AI_TURRET
+        bre act_th_decay
+        ldr r0, r4, E_HP
+        mov r2, 100
+        mul r0, r2
+        ld r3, act_th_tptr
+        ldr r1, r3, ET_HP
+        mov r2, FLEE_PCT
+        mul r1, r2
+        cmp r0, r1
+        brlt act_th_u_flee
+        br act_th_decay
+act_th_u_flee:
         mov r0, ES_FLEE
         str r0, r4, E_STATE
 act_th_decay:
@@ -984,7 +1282,6 @@ act_th_al_keep:
 act_th_act:
         mov r0, TIME_WAIT
         st r0, act_th_cost
-        ; Turrets never move: shoot if player seen and in range, else wait
         ld r0, act_th_ai
         cmp r0, AI_TURRET
         brne act_th_mobile
@@ -1005,7 +1302,6 @@ act_th_mobile:
         bre act_th_idle
         cmp r0, ES_FLEE
         bre act_th_flee
-        ; ES_HUNT: dispatch by AI kind
         ld r0, act_th_ai
         cmp r0, AI_WORKER
         bre act_th_flee
@@ -1020,19 +1316,16 @@ act_th_mobile:
         brgt act_th_chase
         br act_th_do_attack
 
-        ; AI_RANGED in ES_HUNT
 act_th_ranged:
         ld r0, act_th_see
         cmp r0, 0
         brz act_th_chase
-        ; At dist <= 2, try to step away to hold distance >= 3
         ld r0, act_th_dist
         cmp r0, 2
         brgt act_th_rng_shoot
         bl act_step_away
         cmp r0, 0
         brnz act_th_moved
-        ; Cornered and cannot back off: shoot if in range
 act_th_rng_shoot:
         ld r4, act_th_tptr
         ldr r1, r4, ET_RANGE
@@ -1054,7 +1347,6 @@ act_th_flee:
         br act_th_apply_cost
 
 act_th_idle:
-        ; 50% random step, 50% wait
         mov r0, 0
         mov r1, 1
         bl rng_range
@@ -1104,50 +1396,97 @@ act_th_ret:
 ; AI Movement Helpers (use act_th_* context; return r0=1 moved, 0 wait)
 ; =====================================================================
 
+; ---- local pool 5b (BEFORE movement helpers: negative PC offsets!) --
+; Fixed-order scratch block relative to act_mv_d0 (indexed via act_p_mv5c):
+        .define ACT_MV_D0       0
+        .define ACT_MV_K        1
+        .define ACT_MV_NX       2
+        .define ACT_MV_NY       3
+        .define ACT_MV_NIDX     4
+        .define ACT_MV_BEST     5
+        .define ACT_MV_BX       6
+        .define ACT_MV_BY       7
+        .define ACT_MV_SC       8
+        .define ACT_MV_TX       9
+        .define ACT_MV_TY       10
+        .define ACT_MV_CURD     11
+act_p_px5b:     .word st_px         ; +0: st_px, +1: st_py
+act_p_map5b:    .word st_map
+act_p_dist5b:   .word act_dist
+act_p_th5b:     .word act_th_eptr   ; fixed-order block: ACT_TH_*
+act_mv_d0:      .word 0             ; +ACT_MV_D0
+act_mv_k:       .word 0             ; +ACT_MV_K
+act_mv_nx:      .word 0             ; +ACT_MV_NX
+act_mv_ny:      .word 0             ; +ACT_MV_NY
+act_mv_nidx:    .word 0             ; +ACT_MV_NIDX
+act_mv_best:    .word 0             ; +ACT_MV_BEST
+act_mv_bx:      .word 0             ; +ACT_MV_BX
+act_mv_by:      .word 0             ; +ACT_MV_BY
+act_mv_sc:      .word 0             ; +ACT_MV_SC
+act_mv_tx:      .word 0             ; +ACT_MV_TX
+act_mv_ty:      .word 0             ; +ACT_MV_TY
+act_mv_curd:    .word 0             ; +ACT_MV_CURD
+; 8-way direction tables (N, NE, E, SE, S, SW, W, NW)
+act_dx:
+        .word 0
+        .word 1
+        .word 1
+        .word 1
+        .word 0
+        .word -1
+        .word -1
+        .word -1
+act_dy:
+        .word -1
+        .word -1
+        .word 0
+        .word 1
+        .word 1
+        .word 1
+        .word 0
+        .word -1
+
 ; Commit step to (r0=nx, r1=ny); opens T_DOOR if stepped onto.
 act_do_step:
-        push lr
-        ld r4, act_th_eptr
+        ld r3, act_p_th5b
+        ldr r4, r3, ACT_TH_EPTR
         str r0, r4, E_X
         str r1, r4, E_Y
-        st r0, act_th_x
-        st r1, act_th_y
+        str r0, r3, ACT_TH_X
+        str r1, r3, ACT_TH_Y
         mov r2, r1
         sll r2, MAP_SHIFT
         or r2, r0
-        lea r3, st_map
+        ld r3, act_p_map5b
         add r3, r3, r2
         ldr r2, r3, 0
         and r2, r2, T_KIND_MASK
         cmp r2, T_DOOR
         brne act_ds_done
+        push lr
         mov r2, T_DOOR_OPEN
         bl dun_set
-act_ds_done:
         pop lr
+act_ds_done:
         ret
 
 ; Check if (r0=nx, r1=ny) is in bounds, not player, and walkable -> r0=1|0
-; Preserves nothing; fast inline check without calling dun_walkable.
 act_tile_free_static:
         cmp r0, 0
         brn act_tfs_no
-        mov r2, MAP_W
+        mov r2, MAP_W-1
         cmp r0, r2
-        brlt act_tfs_xok
-        br act_tfs_no
-act_tfs_xok:
+        brgt act_tfs_no
         cmp r1, 0
         brn act_tfs_no
-        mov r2, MAP_H
+        mov r2, MAP_H-1
         cmp r1, r2
-        brlt act_tfs_in
-        br act_tfs_no
-act_tfs_in:
-        ld r2, st_px
+        brgt act_tfs_no
+        ld r3, act_p_px5b
+        ldr r2, r3, 0
         cmp r0, r2
         brne act_tfs_notp
-        ld r2, st_py
+        ldr r2, r3, 1
         cmp r1, r2
         bre act_tfs_no
 act_tfs_notp:
@@ -1155,7 +1494,7 @@ act_tfs_notp:
         sll r2, MAP_SHIFT
         or r2, r0
         st r2, act_mv_nidx
-        lea r3, st_map
+        ld r3, act_p_map5b
         add r3, r3, r2
         ldr r2, r3, 0
         and r2, r2, T_KIND_MASK
@@ -1198,9 +1537,10 @@ act_sr_try:
         lea r3, act_dy
         add r3, r3, r0
         ldr r3, r3, 0
-        ld r0, act_th_x
+        ld r4, act_p_th5b
+        ldr r0, r4, ACT_TH_X
         add r0, r0, r2
-        ld r1, act_th_y
+        ldr r1, r4, ACT_TH_Y
         add r1, r1, r3
         st r0, act_mv_nx
         st r1, act_mv_ny
@@ -1226,20 +1566,21 @@ act_sr_go:
         ret
 
 ; Step down BFS distance field toward player -> r0=1|0
-; Uses score = (act_dist << 3) + dun_dist(n, player), strictly < current score.
 act_step_bfs_toward:
         push lr
-        ld r0, act_th_y
+        bl act_ensure_bfs
+        ld r4, act_p_th5b
+        ldr r0, r4, ACT_TH_Y
         sll r0, MAP_SHIFT
-        ld r1, act_th_x
+        ldr r1, r4, ACT_TH_X
         or r0, r1
-        lea r2, act_dist
+        ld r2, act_p_dist5b
         add r2, r2, r0
         ldr r0, r2, 0           ; cur_d
         cmp r0, 0
         brz act_sbt_fail
         sll r0, 3
-        ld r1, act_th_dist
+        ldr r1, r4, ACT_TH_DIST
         add r0, r0, r1
         st r0, act_mv_best
         mov r0, -1
@@ -1272,9 +1613,10 @@ act_sbt_try:
         lea r3, act_dy
         add r3, r3, r0
         ldr r3, r3, 0
-        ld r0, act_th_x
+        ld r4, act_p_th5b
+        ldr r0, r4, ACT_TH_X
         add r0, r0, r2
-        ld r1, act_th_y
+        ldr r1, r4, ACT_TH_Y
         add r1, r1, r3
         st r0, act_mv_nx
         st r1, act_mv_ny
@@ -1282,20 +1624,21 @@ act_sbt_try:
         cmp r0, 0
         brz act_sbt_next
         ld r2, act_mv_nidx
-        lea r3, act_dist
+        ld r3, act_p_dist5b
         add r3, r3, r2
-        ldr r0, r3, 0           ; nd
+        ldr r0, r3, 0
         cmp r0, 0
         brz act_sbt_next
         sll r0, 3
         st r0, act_mv_sc
         ld r0, act_mv_nx
         ld r1, act_mv_ny
-        ld r2, st_px
-        ld r3, st_py
+        ld r3, act_p_px5b
+        ldr r2, r3, 0
+        ldr r3, r3, 1
         bl dun_dist
         ld r1, act_mv_sc
-        add r0, r0, r1          ; score = (nd << 3) + cheb
+        add r0, r0, r1
         ld r1, act_mv_best
         cmp r0, r1
         brlt act_sbt_chk_occ
@@ -1325,133 +1668,146 @@ act_sbt_fail:
         pop lr
         ret
 
-; Step toward hunting goal: BFS only when seeing the player or when
-; (E_TX,E_TY) == (st_px,st_py); otherwise greedy toward (E_TX,E_TY) and
-; return 0 (wait) if blocked — never fall back to the player-seeded BFS.
+; ---- local pool 5c (before act_step_hunt & act_step_away) -----------
+act_p_px5c:     .word st_px
+act_p_dist5c:   .word act_dist
+act_p_th5c:     .word act_th_eptr   ; fixed-order block: ACT_TH_*
+act_p_mv5c:     .word act_mv_d0     ; fixed-order block: ACT_MV_*
+act_p_dx5c:     .word act_dx
+act_p_dy5c:     .word act_dy
+
+; Step toward hunting goal: BFS if seeing player or target==player, else greedy.
 act_step_hunt:
         push lr
-        ld r0, act_th_see
+        ld r3, act_p_th5c
+        ldr r0, r3, ACT_TH_SEE
         cmp r0, 0
-        brnz act_sh_bfs
-        ld r4, act_th_eptr
+        brnz act_sh_bfs_top
+        ldr r4, r3, ACT_TH_EPTR
+        ld r2, act_p_px5c
         ldr r0, r4, E_TX
-        ld r1, st_px
+        ldr r1, r2, 0
         cmp r0, r1
         brne act_sh_greedy
         ldr r0, r4, E_TY
-        ld r1, st_py
+        ldr r1, r2, 1
         cmp r0, r1
-        bre act_sh_bfs
+        brne act_sh_greedy
+act_sh_bfs_top:
+        bl act_step_bfs_toward
+        pop lr
+        ret
 act_sh_greedy:
-        ; Walk toward (E_TX, E_TY)
-        ld r4, act_th_eptr
         ldr r2, r4, E_TX
         ldr r3, r4, E_TY
-        st r2, act_mv_tx
-        st r3, act_mv_ty
-        ld r0, act_th_x
-        ld r1, act_th_y
+        ld r4, act_p_mv5c
+        str r2, r4, ACT_MV_TX
+        str r3, r4, ACT_MV_TY
+        ld r4, act_p_th5c
+        ldr r0, r4, ACT_TH_X
+        ldr r1, r4, ACT_TH_Y
         cmp r0, r2
         brne act_sh_gdo
         cmp r1, r3
-        bre act_sh_gfail        ; already reached last known position
+        bre act_sh_gfail
 act_sh_gdo:
         bl act_score_to_target
-        st r0, act_mv_best
+        ld r4, act_p_mv5c
+        str r0, r4, ACT_MV_BEST
         mov r0, -1
-        st r0, act_mv_bx
+        str r0, r4, ACT_MV_BX
         mov r0, 0
         mov r1, 7
         bl rng_range
-        st r0, act_mv_d0
+        ld r4, act_p_mv5c
+        str r0, r4, ACT_MV_D0
         mov r0, 0
-        st r0, act_mv_k
+        str r0, r4, ACT_MV_K
 act_sh_glp:
-        ld r0, act_mv_k
+        ld r4, act_p_mv5c
+        ldr r0, r4, ACT_MV_K
         cmp r0, 8
         brlt act_sh_gtry
-        ld r0, act_mv_bx
+        ldr r0, r4, ACT_MV_BX
         cmp r0, 0
-        brn act_sh_gfail        ; blocked: wait rather than leaking player position via BFS
-        ld r1, act_mv_by
+        brn act_sh_gfail
+        ldr r1, r4, ACT_MV_BY
         bl act_do_step
         mov r0, 1
         pop lr
         ret
 act_sh_gtry:
-        ld r1, act_mv_d0
+        ldr r1, r4, ACT_MV_D0
         add r0, r0, r1
         and r0, r0, 7
-        lea r2, act_dx
+        ld r2, act_p_dx5c
         add r2, r2, r0
         ldr r2, r2, 0
-        lea r3, act_dy
+        ld r3, act_p_dy5c
         add r3, r3, r0
         ldr r3, r3, 0
-        ld r0, act_th_x
+        ld r1, act_p_th5c
+        ldr r0, r1, ACT_TH_X
         add r0, r0, r2
-        ld r1, act_th_y
+        ldr r1, r1, ACT_TH_Y
         add r1, r1, r3
-        st r0, act_mv_nx
-        st r1, act_mv_ny
+        str r0, r4, ACT_MV_NX
+        str r1, r4, ACT_MV_NY
         bl act_tile_free_static
         cmp r0, 0
         brz act_sh_gnext
-        ld r0, act_mv_nx
-        ld r1, act_mv_ny
-        ld r2, act_mv_tx
-        ld r3, act_mv_ty
+        ld r4, act_p_mv5c
+        ldr r0, r4, ACT_MV_NX
+        ldr r1, r4, ACT_MV_NY
+        ldr r2, r4, ACT_MV_TX
+        ldr r3, r4, ACT_MV_TY
         bl act_score_to_target
-        ld r1, act_mv_best
+        ld r4, act_p_mv5c
+        ldr r1, r4, ACT_MV_BEST
         cmp r0, r1
         brlt act_sh_gocc
         br act_sh_gnext
 act_sh_gocc:
-        st r0, act_mv_sc
-        ld r0, act_mv_nx
-        ld r1, act_mv_ny
+        str r0, r4, ACT_MV_SC
+        ldr r0, r4, ACT_MV_NX
+        ldr r1, r4, ACT_MV_NY
         bl act_at
         cmp r0, 0
         brn act_sh_gtake
         br act_sh_gnext
 act_sh_gtake:
-        ld r0, act_mv_sc
-        st r0, act_mv_best
-        ld r0, act_mv_nx
-        st r0, act_mv_bx
-        ld r0, act_mv_ny
-        st r0, act_mv_by
+        ld r4, act_p_mv5c
+        ldr r0, r4, ACT_MV_SC
+        str r0, r4, ACT_MV_BEST
+        ldr r0, r4, ACT_MV_NX
+        str r0, r4, ACT_MV_BX
+        ldr r0, r4, ACT_MV_NY
+        str r0, r4, ACT_MV_BY
 act_sh_gnext:
-        ld r0, act_mv_k
+        ld r4, act_p_mv5c
+        ldr r0, r4, ACT_MV_K
         add r0, r0, 1
-        st r0, act_mv_k
+        str r0, r4, ACT_MV_K
         br act_sh_glp
 act_sh_gfail:
         mov r0, 0
         pop lr
         ret
-act_sh_bfs:
-        bl act_step_bfs_toward
-        pop lr
-        ret
 
-; Internal: compute manhattan(r0,r1 -> r2,r3)*8 + cheb(r0,r1 -> r2,r3) -> r0
+; Internal: manhattan(r0,r1 -> r2,r3)*8 + cheb(r0,r1 -> r2,r3) -> r0
 act_score_to_target:
         sub r0, r0, r2
         brp act_stt_dxok
-        brz act_stt_dxok
-        mov r2, 0
-        sub r0, r2, r0
+        not r0, r0
+        add r0, r0, 1
 act_stt_dxok:
         sub r1, r1, r3
         brp act_stt_dyok
-        brz act_stt_dyok
-        mov r2, 0
-        sub r1, r2, r1
+        not r1, r1
+        add r1, r1, 1
 act_stt_dyok:
-        ; r0 = |dx|, r1 = |dy|
-        add r2, r0, r1          ; manhattan
-        sll r2, 3               ; manhattan * 8
+        add r2, r0, r1
+        sll r2, 3
         cmp r0, r1
         brgt act_stt_max0
         mov r0, r1
@@ -1462,113 +1818,126 @@ act_stt_max0:
 ; Step away from player (highest BFS distance + Chebyshev tie-break) -> r0=1|0
 act_step_away:
         push lr
-        ld r0, act_th_y
+        bl act_ensure_bfs
+        ld r3, act_p_th5c
+        ldr r0, r3, ACT_TH_Y
         sll r0, MAP_SHIFT
-        ld r1, act_th_x
+        ldr r1, r3, ACT_TH_X
         or r0, r1
-        lea r2, act_dist
+        ld r2, act_p_dist5c
         add r2, r2, r0
         ldr r0, r2, 0           ; cur_d
-        st r0, act_mv_curd
+        ld r4, act_p_mv5c
+        str r0, r4, ACT_MV_CURD
         cmp r0, 0
         brz act_sa_unreach
         sll r0, 3
-        ld r1, act_th_dist
+        ldr r1, r3, ACT_TH_DIST
         add r0, r0, r1
-        st r0, act_mv_best
+        str r0, r4, ACT_MV_BEST
         br act_sa_init
 act_sa_unreach:
-        ld r0, act_th_dist
-        st r0, act_mv_best
+        ldr r0, r3, ACT_TH_DIST
+        str r0, r4, ACT_MV_BEST
 act_sa_init:
         mov r0, -1
-        st r0, act_mv_bx
+        str r0, r4, ACT_MV_BX
         mov r0, 0
         mov r1, 7
         bl rng_range
-        st r0, act_mv_d0
+        ld r4, act_p_mv5c
+        str r0, r4, ACT_MV_D0
         mov r0, 0
-        st r0, act_mv_k
+        str r0, r4, ACT_MV_K
 act_sa_lp:
-        ld r0, act_mv_k
+        ld r4, act_p_mv5c
+        ldr r0, r4, ACT_MV_K
         cmp r0, 8
         brlt act_sa_try
-        ld r0, act_mv_bx
+        ldr r0, r4, ACT_MV_BX
         cmp r0, 0
         brn act_sa_fail
-        ld r1, act_mv_by
+        ldr r1, r4, ACT_MV_BY
         bl act_do_step
         mov r0, 1
         pop lr
         ret
 act_sa_try:
-        ld r1, act_mv_d0
+        ldr r1, r4, ACT_MV_D0
         add r0, r0, r1
         and r0, r0, 7
-        lea r2, act_dx
+        ld r2, act_p_dx5c
         add r2, r2, r0
         ldr r2, r2, 0
-        lea r3, act_dy
+        ld r3, act_p_dy5c
         add r3, r3, r0
         ldr r3, r3, 0
-        ld r0, act_th_x
+        ld r1, act_p_th5c
+        ldr r0, r1, ACT_TH_X
         add r0, r0, r2
-        ld r1, act_th_y
+        ldr r1, r1, ACT_TH_Y
         add r1, r1, r3
-        st r0, act_mv_nx
-        st r1, act_mv_ny
+        str r0, r4, ACT_MV_NX
+        str r1, r4, ACT_MV_NY
         bl act_tile_free_static
         cmp r0, 0
         brz act_sa_next
-        ld r0, act_mv_curd
+        ld r4, act_p_mv5c
+        ldr r0, r4, ACT_MV_CURD
         cmp r0, 0
         brz act_sa_cheb_only
-        ld r2, act_mv_nidx
-        lea r3, act_dist
+        ldr r2, r4, ACT_MV_NIDX
+        ld r3, act_p_dist5c
         add r3, r3, r2
         ldr r0, r3, 0           ; nd
         cmp r0, 0
         brz act_sa_next
         sll r0, 3
-        st r0, act_mv_sc
-        ld r0, act_mv_nx
-        ld r1, act_mv_ny
-        ld r2, st_px
-        ld r3, st_py
+        str r0, r4, ACT_MV_SC
+        ldr r0, r4, ACT_MV_NX
+        ldr r1, r4, ACT_MV_NY
+        ld r3, act_p_px5c
+        ldr r2, r3, 0
+        ldr r3, r3, 1
         bl dun_dist
-        ld r1, act_mv_sc
-        add r0, r0, r1          ; score = (nd << 3) + cheb
+        ld r4, act_p_mv5c
+        ldr r1, r4, ACT_MV_SC
+        add r0, r0, r1
         br act_sa_cmp
 act_sa_cheb_only:
-        ld r0, act_mv_nx
-        ld r1, act_mv_ny
-        ld r2, st_px
-        ld r3, st_py
+        ldr r0, r4, ACT_MV_NX
+        ldr r1, r4, ACT_MV_NY
+        ld r3, act_p_px5c
+        ldr r2, r3, 0
+        ldr r3, r3, 1
         bl dun_dist
+        ld r4, act_p_mv5c
 act_sa_cmp:
-        ld r1, act_mv_best
+        ldr r1, r4, ACT_MV_BEST
         cmp r0, r1
         brgt act_sa_occ
         br act_sa_next
 act_sa_occ:
-        st r0, act_mv_sc
-        ld r0, act_mv_nx
-        ld r1, act_mv_ny
+        str r0, r4, ACT_MV_SC
+        ldr r0, r4, ACT_MV_NX
+        ldr r1, r4, ACT_MV_NY
         bl act_at
         cmp r0, 0
         brn act_sa_take
         br act_sa_next
 act_sa_take:
-        ld r0, act_mv_sc
-        st r0, act_mv_best
-        ld r0, act_mv_nx
-        st r0, act_mv_bx
-        ld r0, act_mv_ny
-        st r0, act_mv_by
+        ld r4, act_p_mv5c
+        ldr r0, r4, ACT_MV_SC
+        str r0, r4, ACT_MV_BEST
+        ldr r0, r4, ACT_MV_NX
+        str r0, r4, ACT_MV_BX
+        ldr r0, r4, ACT_MV_NY
+        str r0, r4, ACT_MV_BY
 act_sa_next:
-        ld r0, act_mv_k
+        ld r4, act_p_mv5c
+        ldr r0, r4, ACT_MV_K
         add r0, r0, 1
-        st r0, act_mv_k
+        str r0, r4, ACT_MV_K
         br act_sa_lp
 act_sa_fail:
         mov r0, 0
@@ -1579,6 +1948,18 @@ act_sa_fail:
 ; Target Cycling: act_next_visible r0=from r1=dir -> r0=index or -1
 ; =====================================================================
 
+; ---- local pool 6 (BEFORE act_next_visible: negative PC offsets!) ---
+act_p_enemies6:   .word st_enemies
+act_p_px6:        .word st_px       ; +0: st_px, +1: st_py
+act_c_inf:        .word 9999
+act_c_worker_pen: .word 1000
+act_nv_step:      .word 0
+act_nv_cur:       .word 0
+act_nv_left:      .word 0
+act_nv_best:      .word 0
+act_nv_bdist:     .word 0
+act_nv_cdist:     .word 0
+
 act_next_visible:
         push r1
         push r2
@@ -1588,7 +1969,6 @@ act_next_visible:
         cmp r0, 0
         brn act_nv_nearest
 
-        ; Cycle in pool order by dir (+1 or -1), wrapping
         cmp r1, 0
         brn act_nv_step_neg
         mov r1, 1
@@ -1597,9 +1977,11 @@ act_nv_step_neg:
         mov r1, -1
 act_nv_step_ok:
         st r1, act_nv_step
-        mov r2, MAX_ENEMIES
+        mov r2, MAX_ENEMIES-1
         cmp r0, r2
-        brlt act_nv_cur_ok
+        brgt act_nv_cur_zero
+        br act_nv_cur_ok
+act_nv_cur_zero:
         mov r0, 0
 act_nv_cur_ok:
         st r0, act_nv_cur
@@ -1610,7 +1992,12 @@ act_nv_cyc_lp:
         cmp r0, 0
         brp act_nv_cyc_go
         mov r0, -1
-        br act_nv_ret
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
 act_nv_cyc_go:
         sub r0, r0, 1
         st r0, act_nv_left
@@ -1619,9 +2006,11 @@ act_nv_cyc_go:
         add r0, r0, r1
         cmp r0, 0
         brn act_nv_wrap_hi
-        mov r2, MAX_ENEMIES
+        mov r2, MAX_ENEMIES-1
         cmp r0, r2
-        brlt act_nv_wrap_ok
+        brgt act_nv_wrap_lo
+        br act_nv_wrap_ok
+act_nv_wrap_lo:
         mov r0, 0
         br act_nv_wrap_ok
 act_nv_wrap_hi:
@@ -1629,7 +2018,7 @@ act_nv_wrap_hi:
 act_nv_wrap_ok:
         st r0, act_nv_cur
         sll r0, ENEMY_SHIFT
-        lea r4, st_enemies
+        ld r4, act_p_enemies6
         add r4, r4, r0
         ldr r0, r4, E_TYPE
         cmp r0, EN_NONE
@@ -1642,7 +2031,6 @@ act_nv_wrap_ok:
         ld r0, act_nv_cur
         br act_nv_ret
 
-        ; from < 0: pick nearest visible enemy, preferring hostile over AI_WORKER (ties -> lower index)
 act_nv_nearest:
         mov r0, -1
         st r0, act_nv_best
@@ -1659,7 +2047,7 @@ act_nv_near_lp:
         br act_nv_ret
 act_nv_near_chk:
         sll r0, ENEMY_SHIFT
-        lea r4, st_enemies
+        ld r4, act_p_enemies6
         add r4, r4, r0
         ldr r0, r4, E_TYPE
         cmp r0, EN_NONE
@@ -1671,11 +2059,11 @@ act_nv_near_chk:
         brz act_nv_near_next
         ldr r0, r4, E_X
         ldr r1, r4, E_Y
-        ld r2, st_px
-        ld r3, st_py
+        ld r3, act_p_px6
+        ldr r2, r3, 0
+        ldr r3, r3, 1
         bl dun_dist
         st r0, act_nv_cdist
-        ; Penalize non-hostile AI_WORKER so any visible hostile is preferred first
         ldr r0, r4, E_TYPE
         bl act_type_info
         cmp r0, 0
@@ -1714,11 +2102,6 @@ act_nv_ret:
 ; =====================================================================
 ; Static Tables: Enemy Types (DESIGN.md "Enemy table"), Names, Drops
 ; =====================================================================
-; Record layout (ETYPE_SIZE = 16):
-;   0: ET_NAME      1: ET_CELL      2: ET_HP        3: ET_SPEED
-;   4: ET_ATK_TIME  5: ET_DMIN      6: ET_DMAX      7: ET_RANGE
-;   8: ET_ACC       9: ET_AI       10: ET_DLO      11: ET_DHI
-;  12: ET_DROP     13: ET_DROP_PCT 14: ET_SIGHT    15: ET_WEIGHT
 
 act_types:
         ; 1: EN_FLIT — fast weak melee drone
@@ -1847,7 +2230,6 @@ act_types:
         .word 6
         .word 0
 
-; Enemy names
 act_n_flit:      .string "Flit"
 act_n_scuttler:  .string "Scuttler"
 act_n_rifler:    .string "Rifler"
@@ -1858,7 +2240,6 @@ act_n_tinker:    .string "Tinker"
 act_s_none:      .string "?"
 act_s_spotted:   .string " spotted."
 
-; Drop lists: count, then part ids (exact DESIGN.md "Enemy table")
 act_drop_flit:
         .word 4
         .word PT_LIFT_FAN
@@ -1905,99 +2286,6 @@ act_drop_tinker:
         .word PT_PATCH_DRONE
         .word PT_AIM_GYRO
         .word PT_CELL_PACK
-
-; 8-way direction tables (N, NE, E, SE, S, SW, W, NW)
-act_dx:
-        .word 0
-        .word 1
-        .word 1
-        .word 1
-        .word 0
-        .word -1
-        .word -1
-        .word -1
-act_dy:
-        .word -1
-        .word -1
-        .word 0
-        .word 1
-        .word 1
-        .word 1
-        .word 0
-        .word -1
-
-; =====================================================================
-; Private Constants, Scratch & BFS Buffers
-; =====================================================================
-
-act_c_pool_words: .word MAX_ENEMIES*ENEMY_SIZE
-act_c_mapsize:    .word MAP_SIZE
-act_c_south_lim:  .word MAP_SIZE-MAP_W
-act_c_rebase:     .word TIME_REBASE
-act_c_inf:        .word 9999
-act_c_worker_pen: .word 1000
-
-; Spawn scratch
-act_sp_type:    .word 0
-act_sp_x:       .word 0
-act_sp_y:       .word 0
-act_sp_tptr:    .word 0
-act_sf_depth:   .word 0
-act_sf_wsum:    .word 0
-act_sf_left:    .word 0
-act_sf_tile:    .word 0
-act_sf_pick_t:  .word 0
-act_fst_tries:  .word 0
-act_fst_idx:    .word 0
-act_fst_ri:     .word 0
-act_fst_x0:     .word 0
-act_fst_x:      .word 0
-act_fst_xend:   .word 0
-act_fst_y:      .word 0
-act_fst_yend:   .word 0
-act_sto_x:      .word 0
-act_sto_y:      .word 0
-
-; BFS state & scratch
-act_bfs_valid:  .word 0
-act_bfs_px:     .word 0
-act_bfs_py:     .word 0
-act_bfs_head:   .word 0
-act_bfs_tail:   .word 0
-
-; AI think scratch
-act_th_idx:     .word 0
-act_th_eptr:    .word 0
-act_th_tptr:    .word 0
-act_th_x:       .word 0
-act_th_y:       .word 0
-act_th_dist:    .word 0
-act_th_see:     .word 0
-act_th_ai:      .word 0
-act_th_lowhp:   .word 0
-act_th_cost:    .word 0
-
-; Movement helper scratch
-act_mv_d0:      .word 0
-act_mv_k:       .word 0
-act_mv_nx:      .word 0
-act_mv_ny:      .word 0
-act_mv_nidx:    .word 0
-act_mv_best:    .word 0
-act_mv_bx:      .word 0
-act_mv_by:      .word 0
-act_mv_sc:      .word 0
-act_mv_tx:      .word 0
-act_mv_ty:      .word 0
-act_mv_curd:    .word 0
-
-; Target cycling scratch
-act_nv_step:    .word 0
-act_nv_cur:     .word 0
-act_nv_left:    .word 0
-act_nv_best:    .word 0
-act_nv_bdist:   .word 0
-act_nv_cdist:   .word 0
 
 ; Private BFS arrays (3072 words, budgeted in DESIGN.md)
 act_dist:       .zero MAP_SIZE

@@ -1,0 +1,18 @@
+{
+  "game": "pstring.ap",
+  "scenarios": [
+    {
+      "name": ".pstring packs odd, even, empty, escaped, and semicolon strings big-endian NUL-terminated",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "p_odd": [16706, 17152],
+          "p_even": [16706, 17220, 0],
+          "p_empty": 0,
+          "p_esc": [24924, 25122, 25354, 2304],
+          "p_semi": [30779, 30976]
+        }
+      }
+    }
+  ]
+}

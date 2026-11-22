@@ -13,14 +13,17 @@
 ;;                   (dun_random_floor), not on the player or stairs
 ; ---------------------------------------------------------------------
 
+; ---- local pointer pool 1 (before itm_clear..itm_place) ---------------------
+itm_p_items0:   .word st_items
+
 ; ---- clear pool -------------------------------------------------------------
 itm_clear:
         push r0
         push r1
         push r2
-        lea r0, st_items
+        ld r0, itm_p_items0
         mov r1, 0
-        mov r2, MAX_ITEMS*ITEM_SIZE
+        ld r2, itm_k_pool_words ; 1 word per iter (cold: once per floor); exact for any MAX_ITEMS/ITEM_SIZE
 itm_clr_lp:
         str r1, r0, 0
         add r0, r0, 1
@@ -30,6 +33,7 @@ itm_clr_lp:
         pop r1
         pop r0
         ret
+itm_k_pool_words: .word MAX_ITEMS*ITEM_SIZE
 
 ; ---- find item at (x, y) ----------------------------------------------------
 itm_at:
@@ -37,8 +41,8 @@ itm_at:
         push r2
         push r3
         push r4
-        mov r2, 0               ; index 0..MAX_ITEMS-1
-        lea r3, st_items
+        mov r2, -MAX_ITEMS      ; -32..-1
+        ld r3, itm_p_items0
 itm_at_lp:
         ldr r4, r3, I_PART
         cmp r4, PART_NONE
@@ -52,14 +56,16 @@ itm_at_lp:
 itm_at_next:
         add r3, r3, ITEM_SIZE
         add r2, r2, 1
-        mov r4, MAX_ITEMS
-        cmp r4, r2              ; MAX_ITEMS > index
-        brgt itm_at_lp
+        brn itm_at_lp
         mov r0, -1
-        br itm_at_done
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
 itm_at_found:
-        mov r0, r2
-itm_at_done:
+        mov r0, MAX_ITEMS
+        add r0, r0, r2
         pop r4
         pop r3
         pop r2
@@ -73,13 +79,11 @@ itm_remove:
         push r2
         cmp r0, 0
         brn itm_rem_done
-        mov r1, MAX_ITEMS
+        mov r1, MAX_ITEMS-1
         cmp r0, r1
-        brlt itm_rem_ok
-        br itm_rem_done
-itm_rem_ok:
+        brgt itm_rem_done
         sll r0, ITEM_SHIFT
-        lea r1, st_items
+        ld r1, itm_p_items
         add r1, r1, r0
         mov r2, PART_NONE
         str r2, r1, I_PART
@@ -124,33 +128,29 @@ itm_place:
         ; reject out-of-bounds base coordinates
         cmp r0, 0
         brn itm_pl_fail
-        mov r4, MAP_W
+        mov r4, MAP_W-1
         cmp r4, r0
-        brgt itm_pl_xok
-        br itm_pl_fail
-itm_pl_xok:
+        brlt itm_pl_fail
         cmp r1, 0
         brn itm_pl_fail
-        mov r4, MAP_H
+        mov r4, MAP_H-1
         cmp r4, r1
-        brgt itm_pl_yok
-        br itm_pl_fail
-itm_pl_yok:
+        brlt itm_pl_fail
 
         ; find first free slot in st_items
-        mov r0, 0
-        lea r1, st_items
+        mov r0, -MAX_ITEMS
+        ld r1, itm_p_items
 itm_pl_slot_lp:
         ldr r2, r1, I_PART
         cmp r2, PART_NONE
         brz itm_pl_slot_ok
         add r1, r1, ITEM_SIZE
         add r0, r0, 1
-        mov r2, MAX_ITEMS
-        cmp r0, r2
-        brlt itm_pl_slot_lp
+        brn itm_pl_slot_lp
         br itm_pl_fail
 itm_pl_slot_ok:
+        mov r2, MAX_ITEMS
+        add r0, r0, r2
         str r0, fp, -5
 
         ; check 25 offsets (distance 0, 1, 2) in order of increasing distance
@@ -166,17 +166,32 @@ itm_pl_off_lp:
         str r0, fp, -6
         str r1, fp, -7
 
-        bl dun_walkable
+        ; Inline check: in-bounds, walkable, not T_STAIRS
         cmp r0, 0
+        brn itm_pl_off_next
+        mov r2, MAP_W-1
+        cmp r0, r2
+        brgt itm_pl_off_next
+        cmp r1, 0
+        brn itm_pl_off_next
+        mov r2, MAP_H-1
+        cmp r1, r2
+        brgt itm_pl_off_next
+        sll r1, MAP_SHIFT
+        or r1, r0
+        ld r2, itm_p_map
+        add r2, r2, r1
+        ldr r2, r2, 0
+        and r2, r2, T_KIND_MASK
+        cmp r2, T_ROCK
         brz itm_pl_off_next
-
-        ldr r0, fp, -6
-        ldr r1, fp, -7
-        bl dun_get
-        cmp r0, T_STAIRS
+        cmp r2, T_WALL
         bre itm_pl_off_next
+        cmp r2, T_STAIRS
+        bre itm_pl_off_next
+        cmp r2, T_KIND_COUNT-1
+        brgt itm_pl_off_next
 
-        ldr r0, fp, -6
         ldr r1, fp, -7
         bl itm_at
         cmp r0, 0
@@ -192,7 +207,7 @@ itm_pl_commit:
         ldr r0, fp, -5          ; slot_idx
         mov r1, r0
         sll r1, ITEM_SHIFT
-        lea r2, st_items
+        ld r2, itm_p_items
         add r2, r2, r1
         ldr r1, fp, -3
         str r1, r2, I_PART
@@ -215,6 +230,67 @@ itm_pl_out:
         pop r2
         pop r1
         ret
+
+; ---- local pointer & offset pool (reaches entire items.ap) ------------------
+itm_p_items:    .word st_items
+itm_p_map:      .word st_map
+itm_p_px:       .word st_px         ; +0: st_px, +1: st_py
+itm_p_stairs:   .word st_stairs_x   ; +0: st_stairs_x, +1: st_stairs_y
+itm_p_rcnt:     .word st_room_count
+itm_p_rooms:    .word st_rooms
+
+; offset table for itm_place (25 pairs: dx, dy), ordered by distance
+itm_place_offsets:
+        .word 0
+        .word 0
+        .word 0
+        .word -1
+        .word 1
+        .word 0
+        .word 0
+        .word 1
+        .word -1
+        .word 0
+        .word 1
+        .word -1
+        .word 1
+        .word 1
+        .word -1
+        .word 1
+        .word -1
+        .word -1
+        .word 0
+        .word -2
+        .word 2
+        .word 0
+        .word 0
+        .word 2
+        .word -2
+        .word 0
+        .word 1
+        .word -2
+        .word 2
+        .word -1
+        .word 2
+        .word 1
+        .word 1
+        .word 2
+        .word -1
+        .word 2
+        .word -2
+        .word 1
+        .word -2
+        .word -1
+        .word -1
+        .word -2
+        .word 2
+        .word -2
+        .word 2
+        .word 2
+        .word -2
+        .word 2
+        .word -2
+        .word -2
 
 ; ---- spawn per-floor loot ---------------------------------------------------
 ; Locals relative to fp:
@@ -305,42 +381,63 @@ itm_sf_done:
 itm_spawn_tile_ok:
         push r1
         push r2
+        push r3
         push lr
-        ld r2, st_px
+        ld r3, itm_p_px
+        ldr r2, r3, 0           ; st_px
         cmp r0, r2
         brnz itm_sto_not_ply
-        ld r2, st_py
+        ldr r2, r3, 1           ; st_py
         cmp r1, r2
         brz itm_sto_no
 itm_sto_not_ply:
-        ld r2, st_stairs_x
+        ld r3, itm_p_stairs
+        ldr r2, r3, 0           ; st_stairs_x
         cmp r0, r2
         brnz itm_sto_not_st
-        ld r2, st_stairs_y
+        ldr r2, r3, 1           ; st_stairs_y
         cmp r1, r2
         brz itm_sto_no
 itm_sto_not_st:
-        mov r2, r0              ; preserve x across calls
-        bl dun_walkable
         cmp r0, 0
+        brn itm_sto_no
+        mov r2, MAP_W-1
+        cmp r0, r2
+        brgt itm_sto_no
+        cmp r1, 0
+        brn itm_sto_no
+        mov r2, MAP_H-1
+        cmp r1, r2
+        brgt itm_sto_no
+        mov r2, r1
+        sll r2, MAP_SHIFT
+        or r2, r0
+        ld r3, itm_p_map
+        add r3, r3, r2
+        ldr r2, r3, 0
+        and r2, r2, T_KIND_MASK
+        cmp r2, T_ROCK
         brz itm_sto_no
-        mov r0, r2
-        bl dun_get
-        cmp r0, T_STAIRS
+        cmp r2, T_WALL
         bre itm_sto_no
-        mov r0, r2
+        cmp r2, T_STAIRS
+        bre itm_sto_no
+        cmp r2, T_KIND_COUNT-1
+        brgt itm_sto_no
         bl itm_at
         cmp r0, 0
         brn itm_sto_yes         ; -1 => free
 itm_sto_no:
         mov r0, 0
         pop lr
+        pop r3
         pop r2
         pop r1
         ret
 itm_sto_yes:
         mov r0, 1
         pop lr
+        pop r3
         pop r2
         pop r1
         ret
@@ -384,12 +481,13 @@ itm_fst_rnd_ok:
 
         ; Phase 2: deterministic fallback across all room interiors
 itm_fst_scan:
-        ld r0, st_room_count
+        ld r0, itm_p_rcnt
+        ldr r0, r0, 0
         cmp r0, 0
         brlt itm_fst_none
         brz itm_fst_none
         str r0, fp, -1
-        lea r0, st_rooms
+        ld r0, itm_p_rooms
         str r0, fp, -2
 itm_fst_rm_lp:
         ldr r4, fp, -2
@@ -419,11 +517,15 @@ itm_fst_x_lp:
         br itm_fst_y_next
 itm_fst_x_ok:
         ldr r1, fp, -6
-        bl dun_get
-        cmp r0, T_FLOOR
+        mov r2, r1
+        sll r2, MAP_SHIFT
+        or r2, r0
+        ld r3, itm_p_map
+        add r3, r3, r2
+        ldr r2, r3, 0
+        and r2, r2, T_KIND_MASK
+        cmp r2, T_FLOOR
         brnz itm_fst_x_next
-        ldr r0, fp, -5
-        ldr r1, fp, -6
         bl itm_spawn_tile_ok
         cmp r0, 0
         brz itm_fst_x_next
@@ -461,62 +563,3 @@ itm_fst_out:
         pop r2
         pop r1
         ret
-
-; ---- offset table for itm_place (25 pairs: dx, dy), ordered by distance -----
-itm_place_offsets:
-        ; dist 0
-        .word 0
-        .word 0
-        ; dist 1 cardinal
-        .word 0
-        .word -1
-        .word 1
-        .word 0
-        .word 0
-        .word 1
-        .word -1
-        .word 0
-        ; dist 1 diagonal
-        .word 1
-        .word -1
-        .word 1
-        .word 1
-        .word -1
-        .word 1
-        .word -1
-        .word -1
-        ; dist 2 cardinal
-        .word 0
-        .word -2
-        .word 2
-        .word 0
-        .word 0
-        .word 2
-        .word -2
-        .word 0
-        ; dist 2 knight
-        .word 1
-        .word -2
-        .word 2
-        .word -1
-        .word 2
-        .word 1
-        .word 1
-        .word 2
-        .word -1
-        .word 2
-        .word -2
-        .word 1
-        .word -2
-        .word -1
-        .word -1
-        .word -2
-        ; dist 2 diagonal
-        .word 2
-        .word -2
-        .word 2
-        .word 2
-        .word -2
-        .word 2
-        .word -2
-        .word -2

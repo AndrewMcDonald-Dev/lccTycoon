@@ -1,0 +1,60 @@
+; Unit driver: ui_bar keeps main's exact fill and color when the arithmetic fits
+; in 16 bits, even for max > 255 (overflow scaling must not kick in early).
+;   ui_bar(0,0,180,301,10): 1800/301 = 5 cells, 900 > 903 no, 1800 >= 903 -> A_WARN
+;   ui_bar(1,0,181,301,10): 1810/301 = 6 cells, 905 > 903 -> A_GOOD
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        lea r0, st_screen
+        bl video_bind
+        mov r0, 0
+        mov r1, 0
+        mov r2, 180
+        ld r3, drv_k_301
+        mov r4, 10
+        bl ui_bar
+        mov r0, 1
+        mov r1, 0
+        mov r2, 181
+        ld r3, drv_k_301
+        mov r4, 10
+        bl ui_bar
+        ; row 0: cells 0..4 = G_BLOCK|A_WARN, cell 5 = G_LIGHT|A_DIM
+        lea r0, st_cells
+        ldr r1, r0, 4
+        st r1, drv_r0_c4
+        ldr r1, r0, 5
+        st r1, drv_r0_c5
+        ; row 1: cells 0..5 = G_BLOCK|A_GOOD, cell 6 = G_LIGHT|A_DIM
+        ld r2, drv_k_cols
+        add r0, r0, r2
+        ldr r1, r0, 5
+        st r1, drv_r1_c5
+        ldr r1, r0, 6
+        st r1, drv_r1_c6
+        halt
+
+drv_k_301:  .word 301
+drv_k_cols: .word SCR_COLS
+drv_r0_c4:  .word 0
+drv_r0_c5:  .word 0
+drv_r1_c5:  .word 0
+drv_r1_c6:  .word 0
+
+; Stubs required by src/ui.ap
+prt_info:
+prt_name:
+act_type_info:
+act_name:
+itm_at:
+cbt_hit_chance:
+        mov r0, 0
+        ret
+
+        .include "../../src/state.ap"
+        .include "../../src/ui.ap"
+        .include "video.ap"
+        .include "util.ap"

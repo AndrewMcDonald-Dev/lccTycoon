@@ -1,0 +1,15 @@
+{
+  "game": "tile_kinds_driver.ap",
+  "scenarios": [
+    {
+      "name": "all T_* tile kinds satisfy fast-path walkable, opaque, border-mask, and LUT invariants",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_bad": 0,
+          "drv_kinds_checked": 7
+        }
+      }
+    }
+  ]
+}
