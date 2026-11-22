@@ -245,17 +245,17 @@ main_s_reinf1:  .string "Core reinforced (+"
 main_s_reinf2:  .string ")."
 main_a_good:    .word A_GOOD
 
-; ---- modules (state first: it is used by everything) ---------------------------
+; ---- modules (state first; the rest ordered to minimize far references) --------
         .include "src/state.ap"
-        .include "src/rng.ap"
-        .include "src/dungeon.ap"
         .include "src/fov.ap"
-        .include "src/parts.ap"
+        .include "src/player.ap"
+        .include "src/dungeon.ap"
+        .include "src/rng.ap"
         .include "src/items.ap"
+        .include "src/parts.ap"
+        .include "src/render.ap"
         .include "src/actors.ap"
         .include "src/combat.ap"
-        .include "src/player.ap"
-        .include "src/render.ap"
         .include "src/ui.ap"
 ; ---- stdlib ---------------------------------------------------------------------
         .include "video.ap"
