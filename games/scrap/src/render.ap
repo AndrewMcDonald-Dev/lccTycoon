@@ -1,0 +1,60 @@
+; ---------------------------------------------------------------------
+; Module: render (prefix ren_) — owner WP5. Draws the map viewport
+; (VIEW_ROW/VIEW_COL, VIEW_ROWS×VIEW_COLS = the whole floor, tile (x,y) at
+; cell (VIEW_ROW+y, VIEW_COL+x)) every frame, writing cells directly
+; (video_addr of the row, then one store per cell).
+; Layers, bottom to top:
+;   tiles  FOV_VISIBLE → kind glyph with its A_* color (defs palette);
+;          FOV_KNOWN only → same glyph in A_MEMORY; unknown → blank
+;   items  on visible tiles: the part's P_CELL
+;   enemies on visible tiles: ET_CELL of the type
+;   player GL_PLAYER | A_PLAYER
+;   target in MODE_TARGET the st_target enemy's cell gets A_TARGET_BG
+; All routines: args r0..r4, result r0, all other registers preserved.
+;
+;; ren_draw       ()                 -> -        redraw the whole viewport as above (budget ≤ 150K instructions)
+;; ren_tile_cell  r0=kind r1=visible -> r0=cell for a tile kind (r1=1 visible colors, 0 remembered A_MEMORY); T_ROCK → blank
+; ---------------------------------------------------------------------
+
+; WP0 stub: labeled placeholder box + the player glyph.
+ren_draw:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        mov r0, VIEW_ROW
+        mov r1, VIEW_COL
+        mov r2, VIEW_ROWS
+        mov r3, VIEW_COLS
+        mov r4, G_SPACE
+        bl video_fill
+        ld r4, ren_a_box
+        bl video_box
+        mov r0, VIEW_ROW+1
+        mov r1, VIEW_COL+2
+        lea r2, ren_s_label
+        ld r3, ren_a_box
+        bl video_text
+        ld r0, st_py            ; player
+        add r0, r0, VIEW_ROW
+        ld r1, st_px
+        add r1, r1, VIEW_COL
+        ld r2, ren_c_player
+        bl video_put
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+ren_tile_cell:
+        mov r0, G_SPACE
+        ret
+
+ren_a_box:      .word A_DIM
+ren_c_player:   .word GL_PLAYER|A_PLAYER
+ren_s_label:    .string "MAP 64x24 (render WP5)"

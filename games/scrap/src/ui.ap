@@ -1,0 +1,189 @@
+; ---------------------------------------------------------------------
+; Module: ui (prefix ui_) — owner WP4. Everything on screen except the map
+; viewport: right panel (PANEL_*, rows PR_* in defs.ap), message log
+; (MSG_ROW..MSG_ROW+MSG_ROWS-1, oldest at top, newest at the bottom),
+; help row (HELP_ROW, text per st_mode), menu hints inside the panel
+; (MODE_EQUIP/MODE_DROP number the inventory rows 1-4, MODE_REMOVE numbers
+; the loadout rows 1-8, highlighted A_SELECT), the help overlay
+; (MODE_HELP, drawn over the viewport), and the title / end screens.
+; Message ring: st_msg_text/st_msg_attr/st_msg_head, written only here.
+; All routines: args r0..r4, result r0, all other registers preserved.
+;
+;; ui_init        ()                -> -       new game: clear the message ring
+;; ui_title       ()                -> r0=1 start, 0 quit   title screen with its own frames (draw, video_present, sleep FRAME_MS, nbain): "SCRAPCORE", short pitch, "any key to start, Q to quit"
+;; ui_draw        ()                -> -       draw panel (title + depth + turn, core and energy bars via ui_bar, move cost/sight/kills, 8 loadout rows "<kind letter> <name>
+;;                   <bar>", 4 inventory rows, target name + hp bar + hit chance, item under the player), message rows, help row; menu highlights and help overlay by st_mode; MODE_QUIT help
+;;                   row reads "Quit? y = yes, any other key = no"
+;; ui_end_screen  ()                -> r0=1 play again, 0 quit   death (cause = st_death_cause type name, depth) or win screen with st_kills, st_turn, st_depth_best and
+;;                   ui_score; own frames until a key (Q quits, any other key plays again)
+;; ui_msg         r0=str            -> -       start a new message: copy the string (truncated to MSG_LEN-1) into the next ring slot, attr A_MSG, make it st_msg_head
+;; ui_msg_add     r0=str            -> -       append a string to the newest message (truncated)
+;; ui_msg_addn    r0=n              -> -       append signed decimal n to the newest message
+;; ui_msg_attr    r0=attr           -> -       set the color of the newest message (e.g. A_BAD for damage)
+;; ui_bar         r0=row r1=col r2=value r3=max r4=width -> -   bar of width cells: filled G_BLOCK part = value×width/max (A_GOOD > 60%, A_WARN 30-60%, A_BAD < 30%), rest G_LIGHT A_DIM
+;; ui_score       ()                -> r0=score   (START_DEPTH - st_depth_best)×SCORE_DEPTH + st_kills×SCORE_KILL (+ SCORE_WIN if GAME_WON)
+; ---------------------------------------------------------------------
+
+; WP0 stub: labeled placeholder regions, quit prompt on the help row,
+; a minimal title screen. Messages are not stored yet.
+ui_init:
+        ret
+
+ui_title:
+        push r1
+        push r2
+        push r3
+        push lr
+ui_title_lp:
+        mov r0, G_SPACE
+        bl video_clear
+        mov r0, 10
+        mov r1, 45
+        lea r2, ui_s_title
+        ld r3, ui_a_title
+        bl video_text
+        mov r0, 13
+        mov r1, 34
+        lea r2, ui_s_start
+        ld r3, ui_a_text
+        bl video_text
+        bl video_present
+        mov r0, FRAME_MS
+        sleep r0
+        nbain r0
+        cmp r0, 0
+        brz ui_title_lp
+        mov r1, KEY_QUIT
+        cmp r0, r1
+        brz ui_title_quit
+        mov r0, 1
+        br ui_title_out
+ui_title_quit:
+        mov r0, 0
+ui_title_out:
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+ui_draw:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        ; panel: blank + labels
+        mov r0, PANEL_ROW
+        mov r1, PANEL_COL
+        mov r2, PANEL_ROWS
+        mov r3, PANEL_COLS
+        mov r4, G_SPACE
+        bl video_fill
+        mov r0, PR_TITLE
+        mov r1, PANEL_COL+1
+        lea r2, ui_s_title
+        ld r3, ui_a_title
+        bl video_text
+        mov r1, PANEL_COL+12
+        lea r2, ui_s_depth
+        ld r3, ui_a_text
+        bl video_text
+        mov r1, PANEL_COL+18
+        ld r2, st_depth
+        bl video_num
+        mov r0, PR_CORE
+        mov r1, PANEL_COL+1
+        lea r2, ui_s_core
+        bl video_text
+        mov r0, PR_ENERGY
+        lea r2, ui_s_energy
+        bl video_text
+        ld r3, ui_a_label
+        mov r0, PR_LOAD_HDR
+        lea r2, ui_s_load
+        bl video_text
+        mov r0, PR_INV_HDR
+        lea r2, ui_s_inv
+        bl video_text
+        mov r0, PR_TGT_HDR
+        lea r2, ui_s_tgt
+        bl video_text
+        ; messages
+        mov r0, MSG_ROW
+        mov r1, 0
+        mov r2, MSG_ROWS
+        mov r3, SCR_COLS
+        mov r4, G_SPACE
+        bl video_fill
+        mov r0, MSG_ROW
+        mov r1, 1
+        lea r2, ui_s_msgs
+        ld r3, ui_a_dim
+        bl video_text
+        ; help row
+        mov r0, HELP_ROW
+        mov r1, 0
+        mov r2, 1
+        mov r3, SCR_COLS
+        ld r4, ui_c_help
+        bl video_fill
+        mov r1, 1
+        lea r2, ui_s_help
+        ld r0, st_mode
+        cmp r0, MODE_QUIT
+        brnz ui_draw_help
+        lea r2, ui_s_quit
+ui_draw_help:
+        mov r0, HELP_ROW
+        ld r3, ui_a_help
+        bl video_text
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+ui_end_screen:
+        mov r0, 0
+        ret
+
+ui_msg:
+        ret
+
+ui_msg_add:
+        ret
+
+ui_msg_addn:
+        ret
+
+ui_msg_attr:
+        ret
+
+ui_bar:
+        ret
+
+ui_score:
+        mov r0, 0
+        ret
+
+ui_a_title:     .word A_TITLE
+ui_a_text:      .word A_TEXT
+ui_a_label:     .word A_LABEL
+ui_a_dim:       .word A_DIM
+ui_a_help:      .word A_HELP
+ui_c_help:      .word G_SPACE|A_HELP
+ui_s_title:     .string "SCRAPCORE"
+ui_s_start:     .string "press any key to start, Q to quit"
+ui_s_depth:     .string "Depth"
+ui_s_core:      .string "Core"
+ui_s_energy:    .string "Energy"
+ui_s_load:      .string "-- Loadout --"
+ui_s_inv:       .string "-- Carried --"
+ui_s_tgt:       .string "-- Target --"
+ui_s_msgs:      .string "(messages: ui WP4)"
+ui_s_help:      .string "hjkl/yubn/arrows move  . wait  g get  e equip  r remove  x drop  f fire  < stairs  ? help  Q quit"
+ui_s_quit:      .string "Quit? y = yes, any other key = no"

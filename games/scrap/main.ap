@@ -1,0 +1,192 @@
+; =====================================================================
+; SCRAPCORE — entry point, game flow and frame loop. Owner: architect.
+; Prefix main_. Modules live in src/ (one owner each, see game.json);
+; contracts are the ';;' lines in each module header
+; (node tools/lccgame.js api games/scrap).
+;
+; Flow:  title (ui_title) → main_new_game → frame loop → end screen
+;        (ui_end_screen) → title again, or quit.
+; Frame: ply_handle (drains keys until ONE action or no keys left)
+;        → [PR_ACTED: main_turn] → ren_draw → ui_draw → video_present
+;        → sleep FRAME_MS → [game over: end screen]
+; main_turn (after each player action, DESIGN.md "Turn system"):
+;        stairs taken? climb (new floor or win)
+;        else act_run (enemies act until the player's next-act time)
+;        → prt_tick (energy regen, self-repair) → st_turn++ → fov_update
+;
+;; main_start      (entry)  seed RNG, bind display, title → game → end loop; halts on quit
+;; main_new_game   ()       reset game cells, ui_init prt_init act_init ply_init, depth START_DEPTH, first floor, GAME_PLAY
+;; main_new_floor  ()       dun_generate(st_depth), act_clear, itm_clear, act_spawn_floor, itm_spawn_floor, fov_reset, fov_update; player acts first
+;; main_turn       ()       advance the world after a player action (see above)
+; =====================================================================
+        .lccplus
+        .start main_start
+        .include "video_defs.ap"
+        .include "src/defs.ap"
+
+main_start:
+        clear
+        mov r0, 0
+        cursor r0
+        millis r0
+        st r0, st_seed
+        srand r0
+        lea r0, st_screen
+        bl video_bind
+main_title:
+        mov r0, GAME_TITLE
+        st r0, st_game_state
+        bl ui_title             ; r0 = 1 start, 0 quit (runs its own frames)
+        cmp r0, 0
+        brz main_quit
+        bl main_new_game
+
+main_loop:
+        bl ply_handle           ; r0 = PR_NONE / PR_ACTED / PR_QUIT
+        cmp r0, PR_QUIT
+        brz main_quit
+        cmp r0, PR_ACTED
+        brnz main_render
+        bl main_turn
+main_render:
+        bl ren_draw
+        bl ui_draw
+        bl video_present
+        ld r0, st_frame
+        add r0, r0, 1
+        st r0, st_frame
+        mov r0, FRAME_MS
+        sleep r0
+        ld r0, st_game_state
+        cmp r0, GAME_PLAY
+        brz main_loop
+        bl ui_end_screen        ; dead or won: r0 = 1 play again, 0 quit
+        cmp r0, 0
+        brnz main_title
+main_quit:
+        clear
+        mov r0, 1
+        cursor r0
+        halt
+
+; ---- new game ---------------------------------------------------------------
+main_new_game:
+        push r0
+        push lr
+        mov r0, START_DEPTH
+        st r0, st_depth
+        st r0, st_depth_best
+        mov r0, 0
+        st r0, st_turn
+        st r0, st_time
+        st r0, st_ply_next
+        st r0, st_kills
+        st r0, st_climb
+        st r0, st_death_cause
+        mov r0, MODE_MAP
+        st r0, st_mode
+        mov r0, -1
+        st r0, st_target
+        bl ui_init
+        bl prt_init
+        bl act_init
+        bl ply_init
+        bl main_new_floor
+        mov r0, GAME_PLAY
+        st r0, st_game_state
+        lea r0, main_s_welcome
+        bl ui_msg
+        pop lr
+        pop r0
+        ret
+
+; ---- generate and populate the floor at st_depth ----------------------------
+main_new_floor:
+        push r0
+        push lr
+        ld r0, st_depth
+        bl dun_generate         ; sets st_px/st_py, stairs, rooms
+        bl act_clear
+        bl itm_clear
+        ld r0, st_depth
+        bl act_spawn_floor
+        ld r0, st_depth
+        bl itm_spawn_floor
+        ld r0, st_time          ; player acts first on a new floor
+        st r0, st_ply_next
+        mov r0, -1
+        st r0, st_target
+        bl fov_reset
+        bl fov_update
+        pop lr
+        pop r0
+        ret
+
+; ---- advance the world after one player action -------------------------------
+main_turn:
+        push r0
+        push r1
+        push lr
+        ld r0, st_climb
+        cmp r0, 0
+        brz main_turn_world
+        mov r0, 0               ; took the stairs: climb one depth
+        st r0, st_climb
+        ld r0, st_depth
+        sub r0, r0, 1
+        st r0, st_depth
+        brp main_turn_floor
+        mov r0, GAME_WON        ; climbed out of depth 1: surface reached
+        st r0, st_game_state
+        mov r0, 0
+        st r0, st_depth_best
+        br main_turn_count
+main_turn_floor:
+        ld r1, st_depth_best    ; best = min(best, depth)
+        cmp r0, r1
+        brgt main_turn_gen
+        st r0, st_depth_best
+main_turn_gen:
+        bl main_new_floor
+        lea r0, main_s_climb
+        bl ui_msg
+        ld r0, st_depth
+        bl ui_msg_addn
+        br main_turn_count
+main_turn_world:
+        ld r0, st_ply_next      ; elapsed = player's action cost (before act_run rebases)
+        ld r1, st_time
+        sub r0, r0, r1
+        mov r1, r0
+        bl act_run
+        mov r0, r1
+        bl prt_tick
+main_turn_count:
+        ld r0, st_turn          ; saturating turn counter
+        add r0, r0, 1
+        brn main_turn_fov
+        st r0, st_turn
+main_turn_fov:
+        bl fov_update
+        pop lr
+        pop r1
+        pop r0
+        ret
+
+main_s_welcome: .string "Core online. Depth 10. Climb to the surface."
+main_s_climb:   .string "You climb to depth "
+
+; ---- modules (state first: it is used by everything) ---------------------------
+        .include "src/state.ap"
+        .include "src/dungeon.ap"
+        .include "src/fov.ap"
+        .include "src/parts.ap"
+        .include "src/items.ap"
+        .include "src/actors.ap"
+        .include "src/combat.ap"
+        .include "src/player.ap"
+        .include "src/render.ap"
+        .include "src/ui.ap"
+; ---- stdlib ---------------------------------------------------------------------
+        .include "video.ap"
+        .include "util.ap"

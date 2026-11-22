@@ -1,0 +1,32 @@
+; ---------------------------------------------------------------------
+; Module: items (prefix itm_) — owner WP6. Parts lying on the floor:
+; st_items pool of MAX_ITEMS records (I_PART, I_X, I_Y, I_HP; I_PART =
+; PART_NONE marks a free record). At most one item per tile.
+; All routines: args r0..r4, result r0, all other registers preserved.
+;
+;; itm_clear        ()                         -> -        free every record (new floor / new game)
+;; itm_place        r0=x r1=y r2=part r3=hp    -> r0=item index, or -1 (pool full or no free walkable tile). If (x,y) already holds an item, uses the nearest walkable
+;;                   item-free tile within distance 2 (not stairs).
+;; itm_at           r0=x r1=y                  -> r0=item index on that tile, -1 none
+;; itm_remove       r0=item index              -> -        free the record
+;; itm_spawn_floor  r0=depth                   -> -        place LOOT_MIN..LOOT_MAX random parts (prt_random_part) at 50-100% integrity on random room floor tiles
+;;                   (dun_random_floor), not on the player or stairs
+; ---------------------------------------------------------------------
+
+; WP0 stub: the floor never holds items.
+itm_clear:
+        ret
+
+itm_place:
+        mov r0, -1
+        ret
+
+itm_at:
+        mov r0, -1
+        ret
+
+itm_remove:
+        ret
+
+itm_spawn_floor:
+        ret

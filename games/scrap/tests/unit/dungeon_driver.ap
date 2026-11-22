@@ -1,0 +1,58 @@
+; Unit driver for src/dungeon.ap (WP1 owns and extends this file).
+; Pattern: include only defs, state and the module under test (plus any
+; module it calls, or a stub of your own in tests/unit/), call routines,
+; store each result in a drv_* cell, halt; dungeon.test.json checks them.
+; The assertions below hold for the WP0 stub *and* the real module
+; (outside-the-map handling); WP1 adds generation cases (rooms, stairs,
+; reachability, determinism).
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+drv_main:
+        mov r0, 7
+        bl dun_generate
+        mov r0, -1              ; x = -1: outside
+        mov r1, 0
+        bl dun_get
+        st r0, drv_get_left
+        mov r0, MAP_W           ; x = 64: outside
+        mov r1, 3
+        bl dun_walkable
+        st r0, drv_walk_right
+        mov r0, 0               ; y = 24: outside
+        mov r1, MAP_H
+        bl dun_opaque
+        st r0, drv_opaque_bottom
+        mov r0, 5
+        mov r1, -1              ; y = -1: outside
+        bl dun_room_of
+        st r0, drv_room_top
+        mov r1, 0               ; drv_start_in = 1 if st_px/st_py lie on the map
+        ld r0, st_px
+        cmp r0, 0
+        brn drv_out
+        mov r2, MAP_W
+        cmp r0, r2
+        brlt drv_x_ok
+        br drv_out
+drv_x_ok:
+        ld r0, st_py
+        cmp r0, 0
+        brn drv_out
+        mov r2, MAP_H
+        cmp r0, r2
+        brlt drv_in
+        br drv_out
+drv_in:
+        mov r1, 1
+drv_out:
+        st r1, drv_start_in
+        halt
+drv_get_left:      .word 99
+drv_walk_right:    .word 99
+drv_opaque_bottom: .word 99
+drv_room_top:      .word 99
+drv_start_in:      .word 99
+        .include "../../src/state.ap"
+        .include "../../src/dungeon.ap"

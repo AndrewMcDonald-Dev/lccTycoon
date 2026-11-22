@@ -1,0 +1,99 @@
+; ---------------------------------------------------------------------
+; Module: parts (prefix prt_) — owner WP3. The part catalog (static table
+; prt_catalog, PART_COUNT records of PART_SIZE words, id 1..PART_COUNT,
+; layout P_* in defs.ap, values in DESIGN.md "Part catalog"), the loadout
+; (st_slots: 2 propulsion, 1 power, 3 weapon, 2 utility) and inventory
+; (st_inv), attaching/detaching, derived stats, energy and self-repair,
+; and how incoming damage is spread over the attached parts and the core.
+; Readers may access st_slots/st_inv records directly (S_PART, S_HP);
+; only this module writes them.
+; All routines: args r0..r4, result r0, all other registers preserved.
+;
+;; prt_init         ()               -> -        new game: starting loadout (2× PT_STUB_LEGS, PT_CELL_PACK, PT_RIVET_GUN, PT_SPARK_PROD, all at full integrity), empty
+;;                   inventory, st_core_hp=CORE_MAX, prt_recalc, st_energy=st_energy_max, accumulators 0
+;; prt_recalc       ()               -> -        recompute st_move_cost (avg P_M_COST of attached propulsion, +LIMP_EXTRA if only one, CRAWL_COST if none), st_evade (best
+;;                   P_M_EVADE), st_regen (CORE_REGEN + P_E_REGEN), st_energy_max (CORE_ECAP + P_E_CAP; clamps st_energy), st_sight (SIGHT_BASE + sensors, <= SIGHT_MAX), st_acc_bonus
+;;                   (targeting), st_repair_turns (best repair part, 0 none)
+;; prt_info         r0=part id       -> r0=address of its catalog record, 0 if id is not 1..PART_COUNT
+;; prt_name         r0=part id       -> r0=name string ("-" for PART_NONE / invalid)
+;; prt_kind         r0=part id       -> r0=PK_* (PK_NONE for invalid)
+;; prt_slot_kind    r0=slot          -> r0=PK_* that slot 0..NUM_SLOTS-1 accepts
+;; prt_attach       r0=inv index     -> r0=slot attached to, or -1 (empty inventory entry). Uses the first free slot of the part's kind; if all are full, swaps with the
+;;                   first slot of that kind (old part goes to the vacated inventory entry). prt_recalc.
+;; prt_detach       r0=slot          -> r0=inventory index it went to, -1 slot empty, -2 inventory full (nothing changed). prt_recalc.
+;; prt_inv_add      r0=part r1=hp    -> r0=inventory index used, -1 inventory full
+;; prt_inv_clear    r0=inv index     -> -        empty an inventory entry (callers read S_PART/S_HP first, e.g. to drop it)
+;; prt_damage       r0=damage        -> r0=slot hit 0..NUM_SLOTS-1, or -1 = the core. Core chance CORE_HIT_PCT + CORE_HIT_EMPTY × empty slots, else a random attached part
+;;                   weighted by P_COVER; armor parts reduce damage to themselves by P_U_VALUE (min 1). Part at 0 → slot emptied, message "<name> destroyed!" (ui_msg, A_BAD), prt_recalc. Core
+;;                   at 0 → st_core_hp=0 and st_game_state=GAME_DEAD (caller sets st_death_cause).
+;; prt_tick         r0=elapsed TU    -> -        per TIME_TURN accumulated: st_energy += st_regen (<= max); every st_repair_turns turns repair 1 point on the most damaged
+;;                   attached part (core if none damaged)
+;; prt_spend_energy r0=amount        -> r0=1 deducted, 0 not enough energy (nothing deducted)
+;; prt_random_part  r0=depth         -> r0=random part id with P_TIER allowed at that depth (TIER2_DEPTH/TIER3_DEPTH)
+;; prt_free_slots   ()               -> r0=number of empty loadout slots 0..NUM_SLOTS
+; ---------------------------------------------------------------------
+
+; WP0 stub: empty loadout, core and energy full, base derived stats.
+prt_init:
+        push r0
+        mov r0, CORE_MAX
+        st r0, st_core_hp
+        mov r0, CORE_ECAP
+        st r0, st_energy
+        pop r0
+        ret
+
+prt_recalc:
+        ret
+
+prt_info:
+        mov r0, 0
+        ret
+
+prt_name:
+        lea r0, prt_s_none
+        ret
+
+prt_kind:
+        mov r0, PK_NONE
+        ret
+
+prt_slot_kind:
+        mov r0, PK_NONE
+        ret
+
+prt_attach:
+        mov r0, -1
+        ret
+
+prt_detach:
+        mov r0, -1
+        ret
+
+prt_inv_add:
+        mov r0, -1
+        ret
+
+prt_inv_clear:
+        ret
+
+prt_damage:
+        mov r0, -1
+        ret
+
+prt_tick:
+        ret
+
+prt_spend_energy:
+        mov r0, 0
+        ret
+
+prt_random_part:
+        mov r0, PART_NONE
+        ret
+
+prt_free_slots:
+        mov r0, NUM_SLOTS
+        ret
+
+prt_s_none:     .string "-"

@@ -1,0 +1,38 @@
+; ---------------------------------------------------------------------
+; Module: combat (prefix cbt_) — owner WP8. Hit chance, attack resolution
+; player→enemy (fire, melee) and enemy→player, robot destruction, part
+; drops, combat messages. Formulas: DESIGN.md "Combat". Damage to the
+; player goes through prt_damage; drops through itm_place; freeing an
+; enemy through act_kill. Energy through prt_spend_energy.
+; All routines: args r0..r4, result r0, all other registers preserved.
+;
+;; cbt_hit_chance    r0=accuracy% r1=distance   -> r0=accuracy - HIT_DIST_PEN×(distance-1), clamped HIT_MIN..HIT_MAX
+;; cbt_player_fire   r0=enemy index             -> r0=number of weapons fired (0 = none had range >= distance and energy; caller spends no time). Fires every ranged weapon
+;;                   slot (P_W_MELEE 0) in slot order: spend P_W_ENERGY, roll hit (P_W_ACC + st_acc_bonus), damage rand(DMIN..DMAX) via cbt_damage_enemy; message per shot; stops once the
+;;                   target is destroyed.
+;; cbt_player_melee  r0=enemy index             -> -        bump attack with every melee weapon slot (each spends P_W_ENERGY if it can, else is skipped); with none usable, a
+;;                   core ram RAM_DMIN..RAM_DMAX at RAM_ACC. Messages.
+;; cbt_enemy_attack  r0=enemy index             -> -        that enemy attacks the player: hit = cbt_hit_chance(ET_ACC, dist) - st_evade (>= HIT_MIN); damage
+;;                   rand(ET_DMIN..ET_DMAX) → prt_damage; message "<name> hits <part|core> for N" / "<name> misses"; if the core dies sets st_death_cause = the enemy's type.
+;; cbt_damage_enemy  r0=enemy index r1=damage   -> r0=1 destroyed, 0 still alive. On destruction: message "<name> destroyed.", st_kills++, ET_DROP_PCT chance to itm_place
+;;                   one random part from ET_DROP at rand(DROP_HP_MIN..100)% integrity on its tile, act_kill. Clears st_target if it was the target.
+; ---------------------------------------------------------------------
+
+; WP0 stub: nothing hits.
+cbt_hit_chance:
+        mov r0, HIT_MIN
+        ret
+
+cbt_player_fire:
+        mov r0, 0
+        ret
+
+cbt_player_melee:
+        ret
+
+cbt_enemy_attack:
+        ret
+
+cbt_damage_enemy:
+        mov r0, 0
+        ret

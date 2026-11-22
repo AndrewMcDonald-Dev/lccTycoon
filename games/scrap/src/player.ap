@@ -1,0 +1,139 @@
+; ---------------------------------------------------------------------
+; Module: player (prefix ply_) — owner WP9. Input → actions. Drains the
+; keys queued this frame and dispatches them by st_mode (MODE_*):
+;   MODE_MAP    hjkl yubn / arrows move or bump-attack, '.' or space wait,
+;               g pick up, e equip menu, r remove menu, x drop menu,
+;               f targeting, '<' stairs, ? help, Q quit prompt
+;   MODE_TARGET Tab or ] next target, [ previous, f or Enter fire, Esc cancel
+;   MODE_EQUIP  1-4 attach that inventory part, Esc cancel
+;   MODE_REMOVE 1-8 detach that loadout slot, Esc cancel
+;   MODE_DROP   1-4 drop that inventory part, Esc cancel
+;   MODE_HELP   any key closes
+;   MODE_QUIT   y / Y quits, any other key cancels
+; Every action adds its TU cost to st_ply_next (ply_spend); main_turn then
+; lets the world catch up. At most one action per frame: ply_handle stops
+; draining after an action, so later keys wait for the next frame.
+; Menus return to MODE_MAP after a choice or Esc.
+; All routines: args r0..r4, result r0, all other registers preserved.
+;
+;; ply_init          ()            -> -        new game: st_mode = MODE_MAP, st_target = -1
+;; ply_handle        ()            -> r0=PR_*  nbain keys one by one into ply_key until one returns PR_ACTED / PR_QUIT, or no key is left (PR_NONE)
+;; ply_key           r0=key        -> r0=PR_*  dispatch one key by st_mode. KEY_ESC reads the next byte with nbain: 0 → Esc; KEY_CSI → reads the arrow code (65..68) and
+;;                   treats it as a 4-way move (MODE_MAP only)
+;; ply_move          r0=dx r1=dy   -> r0=PR_*  enemy on the target tile → cbt_player_melee, cost TIME_MELEE; walkable and free → move (T_DOOR becomes T_DOOR_OPEN), cost
+;;                   st_move_cost, message naming an item on the new tile; blocked → PR_NONE, no time
+;; ply_spend         r0=TU         -> -        st_ply_next += TU (the action's cost)
+;; ply_pickup        ()            -> r0=PR_*  item on the player's tile → prt_inv_add, itm_remove, message, TIME_PICKUP; nothing / inventory full → message, PR_NONE
+;; ply_equip         r0=inv index  -> r0=PR_*  prt_attach; attached → message, TIME_SWAP; empty entry → PR_NONE
+;; ply_remove        r0=slot       -> r0=PR_*  prt_detach; detached → message, TIME_SWAP; empty slot / inventory full → message, PR_NONE
+;; ply_drop          r0=inv index  -> r0=PR_*  itm_place on the player's tile (or nearby), prt_inv_clear, message, TIME_DROP; empty entry / no room → PR_NONE
+;; ply_target        r0=dir        -> -        st_target = act_next_visible(st_target, dir); entering MODE_TARGET starts from -1 (nearest); no visible enemy → message, back to MODE_MAP
+;; ply_fire          ()            -> r0=PR_*  cbt_player_fire(st_target); fired → MODE_MAP, TIME_FIRE; nothing could fire → message, stay in MODE_TARGET, PR_NONE
+;; ply_stairs        ()            -> r0=PR_*  on T_STAIRS → st_climb = 1, TIME_STAIRS; else message, PR_NONE
+; ---------------------------------------------------------------------
+
+; WP0 stub: the quit prompt (Q, then y/Y quits, any other key cancels) and
+; '.' wait (TIME_WAIT, exercises main_turn). WP9 keeps both behaviors.
+ply_init:
+        push r0
+        mov r0, MODE_MAP
+        st r0, st_mode
+        mov r0, -1
+        st r0, st_target
+        pop r0
+        ret
+
+ply_handle:
+        push lr
+ply_handle_lp:
+        nbain r0
+        cmp r0, 0
+        brz ply_handle_ret
+        bl ply_key
+        cmp r0, PR_NONE
+        brz ply_handle_lp
+        br ply_handle_out       ; acted or quit
+ply_handle_ret:
+        mov r0, PR_NONE
+ply_handle_out:
+        pop lr
+        ret
+
+ply_key:
+        push r1
+        ld r1, st_mode
+        cmp r1, MODE_QUIT
+        brnz ply_key_map
+        mov r1, MODE_MAP        ; any key answers the prompt
+        st r1, st_mode
+        mov r1, KEY_YES
+        cmp r0, r1
+        brz ply_key_quit
+        mov r1, KEY_YES2
+        cmp r0, r1
+        brz ply_key_quit
+        br ply_key_none
+ply_key_map:
+        mov r1, KEY_WAIT
+        cmp r0, r1
+        brnz ply_key_notwait
+        mov r0, TIME_WAIT
+        push lr
+        bl ply_spend
+        pop lr
+        mov r0, PR_ACTED
+        pop r1
+        ret
+ply_key_notwait:
+        mov r1, KEY_QUIT
+        cmp r0, r1
+        brnz ply_key_none
+        mov r1, MODE_QUIT
+        st r1, st_mode
+ply_key_none:
+        mov r0, PR_NONE
+        pop r1
+        ret
+ply_key_quit:
+        mov r0, PR_QUIT
+        pop r1
+        ret
+
+ply_move:
+        mov r0, PR_NONE
+        ret
+
+ply_spend:
+        push r1
+        ld r1, st_ply_next
+        add r1, r1, r0
+        st r1, st_ply_next
+        pop r1
+        ret
+
+ply_pickup:
+        mov r0, PR_NONE
+        ret
+
+ply_equip:
+        mov r0, PR_NONE
+        ret
+
+ply_remove:
+        mov r0, PR_NONE
+        ret
+
+ply_drop:
+        mov r0, PR_NONE
+        ret
+
+ply_target:
+        ret
+
+ply_fire:
+        mov r0, PR_NONE
+        ret
+
+ply_stairs:
+        mov r0, PR_NONE
+        ret

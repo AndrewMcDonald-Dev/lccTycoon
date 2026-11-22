@@ -1,0 +1,36 @@
+; ---------------------------------------------------------------------
+; Module: fov (prefix fov_) — owner WP2. Field of view and line of sight.
+; st_fov holds FOV_VISIBLE (seen this turn) and FOV_KNOWN (remembered)
+; per tile; only this module writes it. Opacity comes from dun_opaque.
+; Radius is st_sight (Chebyshev, written by prt_recalc). Suggested method:
+; cast a Bresenham ray from the player to every tile on the square of
+; radius st_sight, stop at the first opaque tile (that tile is visible).
+; All routines: args r0..r4, result r0, all other registers preserved.
+;
+;; fov_reset    ()                          -> -       clear st_fov (new floor: nothing known)
+;; fov_update   ()                          -> -       clear every FOV_VISIBLE, then mark tiles in sight of (st_px,st_py) within st_sight as FOV_VISIBLE|FOV_KNOWN (the
+;;                   player's tile always); walls bounding a lit floor are visible
+;; fov_visible  r0=x r1=y                   -> r0=1 if FOV_VISIBLE, 0 otherwise or outside
+;; fov_known    r0=x r1=y                   -> r0=1 if FOV_KNOWN, 0 otherwise or outside
+;; fov_los      r0=x0 r1=y0 r2=x1 r3=y1     -> r0=1 if no opaque tile lies strictly between the two points on the Bresenham line (endpoints ignored), else 0; symmetric
+;;                   enough for enemy shots and sighting
+; ---------------------------------------------------------------------
+
+; WP0 stub: nothing is ever visible.
+fov_reset:
+        ret
+
+fov_update:
+        ret
+
+fov_visible:
+        mov r0, 0
+        ret
+
+fov_known:
+        mov r0, 0
+        ret
+
+fov_los:
+        mov r0, 0
+        ret

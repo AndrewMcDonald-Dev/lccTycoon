@@ -1,0 +1,395 @@
+; =====================================================================
+; src/defs.ap — shared constants for SCRAPCORE. Defines only: no code,
+; no labels, no data (game.json prefix []). Owner: architect.
+; Included at the top of main.ap (after video_defs.ap) and of every unit
+; driver. Changing a value here is an ARCH WP; adding one is cheap.
+;
+; Units used throughout:
+;   time      time units (TU). TIME_TURN = 100 TU = one "normal" action.
+;             Actors act when their next-act time comes up (scheduler in
+;             actors.ap). st_turn counts player actions, not TU.
+;   coords    x = column 0..MAP_W-1, y = row 0..MAP_H-1 (map = viewport,
+;             tile (x,y) is screen cell (VIEW_ROW+y, VIEW_COL+x))
+;   index     packed tile index (y << MAP_SHIFT) | x  (x = idx & MAP_XMASK,
+;             y = idx >> MAP_SHIFT)
+;   percent   0..100 (hit chances, drop chances)
+;   integrity part / core hit points, 0..max (catalog P_MAXHP, CORE_MAX)
+;   depth     10 (start, deepest) .. 1 (top floor); climbing the '<' on
+;             depth 1 wins
+; =====================================================================
+
+; ---- frame / screen --------------------------------------------------
+        .define FRAME_MS        50      ; 20 fps; a turn needs a key, so idle frames are cheap
+        .define SCR_COLS        100
+        .define SCR_ROWS        30
+        .define SCR_CELLS       SCR_COLS*SCR_ROWS
+
+; ---- screen regions (row/col in the 100x30 display block) ------------
+        .define VIEW_ROW        0       ; map viewport = whole floor, no scrolling
+        .define VIEW_COL        0
+        .define VIEW_ROWS       24      ; = MAP_H
+        .define VIEW_COLS       64      ; = MAP_W
+        .define PANEL_ROW       0       ; right panel
+        .define PANEL_COL       64
+        .define PANEL_ROWS      24
+        .define PANEL_COLS      36
+        .define MSG_ROW         24      ; message log rows 24..28, newest at MSG_ROW+MSG_ROWS-1
+        .define MSG_ROWS        5
+        .define HELP_ROW        29      ; key help for the current mode
+; panel rows (PANEL_COL-relative layout, see DESIGN.md "Screen layout")
+        .define PR_TITLE        0       ; "SCRAPCORE  Depth 10  Turn 123"
+        .define PR_CORE         1       ; core integrity bar
+        .define PR_ENERGY       2       ; energy bar
+        .define PR_STATS        3       ; move cost, sight, kills
+        .define PR_LOAD_HDR     4       ; "-- Loadout --"
+        .define PR_LOAD         5       ; 8 slot rows 5..12
+        .define PR_INV_HDR      13      ; "-- Carried --"
+        .define PR_INV          14      ; 4 inventory rows 14..17
+        .define PR_TGT_HDR      18      ; "-- Target --"
+        .define PR_TGT          19      ; target rows 19..21
+        .define PR_HERE         23      ; "Here: <item on the player's tile>"
+        .define BAR_W           10      ; bar width in cells (ui_bar)
+
+; ---- map ---------------------------------------------------------------
+        .define MAP_W           64
+        .define MAP_H           24
+        .define MAP_SHIFT       6       ; index = (y << MAP_SHIFT) | x
+        .define MAP_XMASK       63
+        .define MAP_SIZE        MAP_W*MAP_H
+; st_map tile word: bits 0-3 kind (T_*); bits 4-15 reserved (0)
+        .define T_KIND_MASK     0x000F
+        .define T_OUT           -1      ; dun_get result outside the map
+        .define T_ROCK          0       ; solid, never dug (drawn blank) — blocks move + sight
+        .define T_FLOOR         1
+        .define T_WALL          2       ; room/corridor wall — blocks move + sight
+        .define T_DOOR          3       ; closed door: walkable (opens when entered), blocks sight
+        .define T_DOOR_OPEN     4       ; open door: walkable, see-through
+        .define T_STAIRS        5       ; '<' up to the next (shallower) depth
+        .define T_RUBBLE        6       ; floor variant (cosmetic), walkable, see-through
+        .define T_KIND_COUNT    7
+; st_fov visibility word per tile (W: fov only)
+        .define FOV_VISIBLE     1       ; in line of sight this turn
+        .define FOV_KNOWN       2       ; seen at least once on this floor (remembered)
+
+; ---- dungeon generator -------------------------------------------------
+        .define MAX_ROOMS       12
+        .define ROOM_SIZE       4       ; st_rooms record
+        .define ROOM_SHIFT      2
+        .define RM_X            0       ; interior top-left x (walls at RM_X-1 / RM_X+RM_W)
+        .define RM_Y            1
+        .define RM_W            2       ; interior width 3..ROOM_MAX_W
+        .define RM_H            3       ; interior height 3..ROOM_MAX_H
+        .define ROOM_MIN_W      4
+        .define ROOM_MAX_W      12
+        .define ROOM_MIN_H      3
+        .define ROOM_MAX_H      7
+        .define ROOMS_MIN       6       ; generator target room count ROOMS_MIN..MAX_ROOMS
+        .define DOOR_PCT        35      ; chance a room/corridor junction gets a door
+        .define RUBBLE_PCT      4       ; chance a floor tile is rubble
+
+; ---- directions (dx,dy tables live in player/actors; these name them) ---
+        .define DIR_N           0
+        .define DIR_NE          1
+        .define DIR_E           2
+        .define DIR_SE          3
+        .define DIR_S           4
+        .define DIR_SW          5
+        .define DIR_W           6
+        .define DIR_NW          7
+        .define DIR_COUNT       8
+
+; ---- time & scheduler ----------------------------------------------------
+        .define TIME_TURN       100     ; TU per "turn" (regen, repair and st_turn pacing)
+        .define TIME_WAIT       100     ; '.' / space
+        .define TIME_MELEE      100     ; bump attack
+        .define TIME_FIRE       100     ; firing all ranged weapons
+        .define TIME_PICKUP     100     ; 'g'
+        .define TIME_SWAP       150     ; attach (equip) or detach (remove) a part
+        .define TIME_DROP       50      ; 'x'
+        .define TIME_STAIRS     100     ; '<'
+        .define TIME_REBASE     16384   ; act_run subtracts this from all times when st_time reaches it
+; player movement cost by propulsion (P_M_COST in the catalog); no propulsion:
+        .define CRAWL_COST      250     ; core dragging itself
+        .define LIMP_EXTRA      30      ; only one propulsion part attached: + this
+
+; ---- core & derived stats ------------------------------------------------
+        .define CORE_MAX        40      ; core integrity; 0 = game over
+        .define CORE_ECAP       20      ; energy capacity with no power part
+        .define CORE_REGEN      1       ; energy per TIME_TURN with no power part
+        .define SIGHT_BASE      8       ; FOV radius (tiles, Chebyshev) before sensors
+        .define SIGHT_MAX       14
+        .define CORE_HIT_PCT    10      ; chance an incoming hit strikes the core...
+        .define CORE_HIT_EMPTY  8       ; ...plus this per empty slot (8 empty = 74%)
+        .define RAM_DMIN        1       ; bump attack with no melee weapon
+        .define RAM_DMAX        3
+        .define RAM_ACC         70
+
+; ---- parts: slots, inventory, catalog -------------------------------------
+        .define NUM_SLOTS       8       ; loadout slots, st_slots
+        .define SLOT_PROP0      0       ; slots 0,1 propulsion
+        .define NUM_PROP        2
+        .define SLOT_POWER      2       ; slot 2 power
+        .define NUM_POWER       1
+        .define SLOT_WEAP0      3       ; slots 3,4,5 weapons
+        .define NUM_WEAP        3
+        .define SLOT_UTIL0      6       ; slots 6,7 utility
+        .define NUM_UTIL        2
+        .define NUM_INV         4       ; carried, unattached parts, st_inv
+        .define SLOT_SIZE       2       ; st_slots / st_inv record
+        .define SLOT_SHIFT      1
+        .define S_PART          0       ; part id, PART_NONE = empty
+        .define S_HP            1       ; current integrity 1..P_MAXHP
+; part kinds
+        .define PK_NONE         0
+        .define PK_PROP         1
+        .define PK_POWER        2
+        .define PK_WEAPON       3
+        .define PK_UTIL         4
+; catalog record (static table prt_catalog in parts.ap), id 1..PART_COUNT
+        .define PART_NONE       0
+        .define PART_COUNT      23
+        .define PART_SIZE       16
+        .define PART_SHIFT      4
+        .define P_KIND          0       ; PK_*
+        .define P_NAME          1       ; address of a NUL-terminated name, <= PART_NAME_MAX chars
+        .define P_CELL          2       ; glyph | fg color, shown on the floor
+        .define P_MAXHP         3       ; max integrity
+        .define P_TIER          4       ; 1..3, appears from depth TIER_DEPTH_n on
+        .define P_COVER         5       ; weight when an incoming hit picks a part (armor high, hover low)
+        .define P_S0            6       ; kind-specific stats P_S0..P_S5:
+        .define P_S1            7
+        .define P_S2            8
+        .define P_S3            9
+        .define P_S4            10
+        .define P_S5            11
+; weapon stats
+        .define P_W_DMIN        6
+        .define P_W_DMAX        7
+        .define P_W_RANGE       8       ; tiles; 1 = melee only
+        .define P_W_ENERGY      9       ; energy per shot (melee: per swing)
+        .define P_W_ACC         10      ; base hit chance %
+        .define P_W_MELEE       11      ; 1 = melee weapon (bump), 0 = ranged (fire)
+; propulsion stats
+        .define P_M_COST        6       ; TU per step
+        .define P_M_EVADE       7       ; % subtracted from enemy hit chance (best attached part counts)
+        .define P_M_TYPE        8       ; MT_*
+; power stats
+        .define P_E_REGEN       6       ; energy per TIME_TURN
+        .define P_E_CAP         7       ; capacity added to CORE_ECAP
+; utility stats
+        .define P_U_TYPE        6       ; UT_*
+        .define P_U_VALUE       7       ; armor: damage reduction on this part; sensor: +sight;
+                                        ; repair: turns per 1 point repaired; target: +accuracy %
+        .define PART_NAME_MAX   12
+; propulsion types
+        .define MT_LEGS         1
+        .define MT_WHEELS       2
+        .define MT_TREADS       3
+        .define MT_HOVER        4
+; utility types
+        .define UT_ARMOR        1
+        .define UT_SENSOR       2
+        .define UT_REPAIR       3
+        .define UT_TARGET       4
+; part ids (catalog order; DESIGN.md "Part catalog")
+        .define PT_STUB_LEGS    1
+        .define PT_STRUT_LEGS   2
+        .define PT_CASTER       3
+        .define PT_RIM_WHEELS   4
+        .define PT_GRIP_TREADS  5
+        .define PT_SIEGE_TREADS 6
+        .define PT_LIFT_FAN     7
+        .define PT_SKIMMER      8
+        .define PT_CELL_PACK    9
+        .define PT_ARC_BATTERY  10
+        .define PT_FUSION_KNOT  11
+        .define PT_SPARK_PROD   12
+        .define PT_RIVET_GUN    13
+        .define PT_SCATTER      14
+        .define PT_PULSE_RIFLE  15
+        .define PT_CUTTER_ARM   16
+        .define PT_COIL_LANCE   17
+        .define PT_RAM_HAMMER   18
+        .define PT_SCRAP_PLATE  19
+        .define PT_HEX_ARMOR    20
+        .define PT_OPTIC_MAST   21
+        .define PT_PATCH_DRONE  22
+        .define PT_AIM_GYRO     23
+; tiers by depth: depth >= TIER2_DEPTH+1 → tier 1 only, etc.
+        .define TIER2_DEPTH     7       ; depth 7..4 allows tier <= 2
+        .define TIER3_DEPTH     3       ; depth 3..1 allows tier <= 3
+; floor glyphs per kind (P_CELL glyph), colors per tier
+        .define GL_PROP         '='
+        .define GL_POWER        '*'
+        .define GL_WEAPON       '/'
+        .define GL_UTIL         '&'
+        .define A_TIER1         FG_WHITE
+        .define A_TIER2         FG_BCYAN
+        .define A_TIER3         FG_BMAGENTA
+
+; ---- floor items: st_items pool --------------------------------------------
+        .define MAX_ITEMS       32
+        .define ITEM_SIZE       4
+        .define ITEM_SHIFT      2
+        .define I_PART          0       ; part id, PART_NONE = free slot
+        .define I_X             1
+        .define I_Y             2
+        .define I_HP            3       ; integrity
+        .define LOOT_MIN        3       ; random parts lying on each new floor
+        .define LOOT_MAX        5
+
+; ---- enemies: type table (static act_types in actors.ap) + st_enemies pool ---
+        .define ETYPE_COUNT     7
+        .define ETYPE_SIZE      16
+        .define ETYPE_SHIFT     4
+        .define ET_NAME         0       ; address of name string
+        .define ET_CELL         1       ; glyph | fg color
+        .define ET_HP           2       ; max hp
+        .define ET_SPEED        3       ; TU per step
+        .define ET_ATK_TIME     4       ; TU per attack
+        .define ET_DMIN         5
+        .define ET_DMAX         6
+        .define ET_RANGE        7       ; 1 = melee, 0 = never attacks
+        .define ET_ACC          8       ; base hit chance %
+        .define ET_AI           9       ; AI_*
+        .define ET_DLO          10      ; appears on depths ET_DHI..ET_DLO (ET_DLO <= ET_DHI;
+        .define ET_DHI          11      ;   depth 10 = deepest)
+        .define ET_DROP         12      ; address of drop list: count, then part ids
+        .define ET_DROP_PCT     13      ; chance % to drop one part when destroyed
+        .define ET_SIGHT        14      ; tiles it can see the player from
+        .define ET_WEIGHT       15      ; relative spawn weight
+; enemy type ids (0 = free slot)
+        .define EN_NONE         0
+        .define EN_FLIT         1       ; 'f' fast weak melee drone
+        .define EN_SCUTTLER     2       ; 's' melee crawler
+        .define EN_RIFLER       3       ; 'r' ranged, keeps distance
+        .define EN_WATCHER      4       ; 'W' stationary turret
+        .define EN_BULWARK      5       ; 'B' slow tank, heavy melee
+        .define EN_STALKER      6       ; 'k' fast ranged hunter (depths 4..1)
+        .define EN_TINKER       7       ; 't' non-hostile worker, flees, drops utility parts
+; AI kinds
+        .define AI_MELEE        1
+        .define AI_RANGED       2
+        .define AI_TURRET       3
+        .define AI_WORKER       4
+; enemy instance record
+        .define MAX_ENEMIES     24
+        .define ENEMY_SIZE      16
+        .define ENEMY_SHIFT     4
+        .define E_TYPE          0       ; EN_* (EN_NONE = free slot)
+        .define E_X             1
+        .define E_Y             2
+        .define E_HP            3       ; 1..ET_HP
+        .define E_NEXT          4       ; next-act time (TU, same clock as st_time)
+        .define E_STATE         5       ; ES_*
+        .define E_TX            6       ; last known player x / wander target x
+        .define E_TY            7
+        .define E_ALERT         8       ; actions left before a hunting enemy gives up (0 idle)
+        .define E_FLAGS         9       ; EF_* bits
+        .define E_SPARE         10      ; 10..15 free for the actors WP
+; enemy states / flags
+        .define ES_IDLE         0       ; wander
+        .define ES_HUNT         1       ; chase / attack toward E_TX,E_TY
+        .define ES_FLEE         2       ; move away from the player
+        .define EF_SEEN         1       ; player has seen it (one "spotted" message)
+        .define ALERT_TURNS     12      ; E_ALERT on sighting
+        .define FLEE_PCT        25      ; hp below this % of max → ES_FLEE (not turrets)
+        .define SPAWN_BASE      4       ; enemies per floor = SPAWN_BASE + (11-depth)/2 (+ 1 worker)
+        .define SPAWN_SAFE      6       ; no spawn within this distance of the player start
+
+; ---- combat ------------------------------------------------------------------
+        .define HIT_MIN         10      ; hit chance clamp %
+        .define HIT_MAX         95
+        .define HIT_DIST_PEN    3       ; -% per tile of distance beyond 1
+        .define DROP_HP_MIN     50      ; dropped part integrity = rand(DROP_HP_MIN..100)% of max
+
+; ---- score -----------------------------------------------------------------------
+        .define SCORE_DEPTH     100     ; per depth climbed above 10
+        .define SCORE_KILL      10      ; per robot destroyed
+        .define SCORE_WIN       1000    ; reaching the surface
+        .define START_DEPTH     10
+
+; ---- game state / modes -------------------------------------------------------------
+        .define GAME_TITLE      0
+        .define GAME_PLAY       1
+        .define GAME_DEAD       2
+        .define GAME_WON        3
+; st_mode: which input mode the player is in (W: player; read: ui, render)
+        .define MODE_MAP        0       ; normal play
+        .define MODE_TARGET     1       ; 'f': choosing a target (st_target)
+        .define MODE_EQUIP      2       ; 'e': pick inventory 1-4 to attach
+        .define MODE_REMOVE     3       ; 'r': pick slot 1-8 to detach
+        .define MODE_DROP       4       ; 'x': pick inventory 1-4 to drop
+        .define MODE_HELP       5       ; '?': help overlay, any key closes
+        .define MODE_QUIT       6       ; 'Q': "Quit? y/n"
+; ply_handle / ply_key results
+        .define PR_NONE         0       ; no time passed
+        .define PR_ACTED        1       ; player acted: st_ply_next advanced
+        .define PR_QUIT         2       ; quit confirmed
+; death causes (st_death_cause): EN_* of the killer, or:
+        .define CAUSE_NONE      0
+
+; ---- messages: st_msg_text ring of MSG_COUNT strings of MSG_LEN words ------------
+        .define MSG_COUNT       8       ; ring slots (MSG_ROWS newest are shown)
+        .define MSG_LEN         64      ; incl. NUL (63 chars max)
+        .define MSG_SHIFT       6
+
+; ---- keys (all expressible in the harness key script; see DESIGN.md "Controls") ----
+        .define KEY_N           'k'     ; vi-keys
+        .define KEY_S           'j'
+        .define KEY_W           'h'
+        .define KEY_E           'l'
+        .define KEY_NW          'y'
+        .define KEY_NE          'u'
+        .define KEY_SW          'b'
+        .define KEY_SE          'n'
+        .define KEY_WAIT        '.'
+        .define KEY_WAIT2       ' '
+        .define KEY_PICKUP      'g'
+        .define KEY_EQUIP       'e'
+        .define KEY_REMOVE      'r'
+        .define KEY_DROP        'x'
+        .define KEY_FIRE        'f'
+        .define KEY_NEXT        ']'
+        .define KEY_PREV        '['
+        .define KEY_TAB         9
+        .define KEY_ENTER       10
+        .define KEY_STAIRS      '<'     ; key script: <lt>
+        .define KEY_HELP        '?'
+        .define KEY_QUIT        'Q'
+        .define KEY_YES         'y'
+        .define KEY_YES2        'Y'
+        .define KEY_ESC         27
+        .define KEY_CSI         91      ; '[' right after ESC: arrow sequence
+        .define KEY_ARR_UP      65      ; ESC [ A
+        .define KEY_ARR_DOWN    66
+        .define KEY_ARR_RIGHT   67
+        .define KEY_ARR_LEFT    68
+
+; ---- palette (cells = glyph | fg | bg) ----------------------------------------------
+        .define GL_PLAYER       '@'
+        .define A_PLAYER        FG_BWHITE
+        .define GL_FLOOR        250     ; ·
+        .define GL_WALL         '#'
+        .define GL_DOOR         '+'
+        .define GL_DOOR_OPEN    39      ; '
+        .define GL_STAIRS       '<'
+        .define GL_RUBBLE       ','
+        .define A_FLOOR         FG_WHITE        ; visible tiles
+        .define A_WALL          FG_BWHITE
+        .define A_DOOR          FG_YELLOW
+        .define A_STAIRS        FG_BYELLOW
+        .define A_RUBBLE        FG_GRAY
+        .define A_MEMORY        FG_BLUE         ; remembered (known, not visible) tiles, any kind
+        .define A_TARGET_BG     BG_RED          ; bg of the targeted enemy in MODE_TARGET
+        .define A_TEXT          FG_WHITE
+        .define A_DIM           FG_GRAY
+        .define A_TITLE         FG_BYELLOW
+        .define A_LABEL         FG_BCYAN        ; panel section headers
+        .define A_GOOD          FG_BGREEN       ; bars > 60%
+        .define A_WARN          FG_BYELLOW      ; bars 30..60%
+        .define A_BAD           FG_BRED         ; bars < 30%, damage messages
+        .define A_MSG           FG_WHITE        ; default message color
+        .define A_MSG_OLD       FG_GRAY         ; older messages
+        .define A_HELP          FG_BLACK|BG_WHITE
+        .define A_SELECT        FG_BLACK|BG_BCYAN ; menu selection / pickable rows

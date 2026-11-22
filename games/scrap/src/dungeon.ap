@@ -1,0 +1,58 @@
+; ---------------------------------------------------------------------
+; Module: dungeon (prefix dun_) — owner WP1. Floor generation (rooms +
+; corridors, optional doors, one '<' stairs), tile access, walkability,
+; opacity, random floor tiles for spawns, distance metric.
+; Tile kinds and room layout: defs.ap (T_*, RM_*). st_map is the only
+; tile store; nothing else writes it.
+; All routines: args r0..r4, result r0, all other registers preserved.
+;
+;; dun_generate     r0=depth                   -> -        fill st_map (T_ROCK, then rooms ROOMS_MIN..MAX_ROOMS of T_FLOOR walled by T_WALL, L-shaped corridors connecting
+;;                   every room, T_DOOR at DOOR_PCT of room exits, T_RUBBLE sprinkled); writes st_rooms/st_room_count; puts T_STAIRS in a room far from st_start_room; sets st_px/st_py inside
+;;                   st_start_room, st_stairs_x/y. Every floor tile reachable from the start. Deterministic for a given rand seed. Depth may tune size/density.
+;; dun_get          r0=x r1=y                  -> r0=tile kind T_*, T_OUT (-1) outside the map
+;; dun_set          r0=x r1=y r2=kind          -> -        store a tile kind (ignored outside)
+;; dun_walkable     r0=x r1=y                  -> r0=1 for T_FLOOR T_DOOR T_DOOR_OPEN T_STAIRS T_RUBBLE, 0 otherwise or outside (ignores actors and items)
+;; dun_opaque       r0=x r1=y                  -> r0=1 for T_ROCK T_WALL T_DOOR or outside, 0 otherwise
+;; dun_random_floor ()                         -> r0=index (y<<MAP_SHIFT)|x of a random T_FLOOR tile inside a room (callers check occupancy and retry)
+;; dun_room_of      r0=x r1=y                  -> r0=room index whose interior holds (x,y), -1 if none
+;; dun_dist         r0=x0 r1=y0 r2=x1 r3=y1    -> r0=Chebyshev distance max(|dx|,|dy|)
+; ---------------------------------------------------------------------
+
+; WP0 stub: st_map stays all T_ROCK; the player starts mid-map.
+dun_generate:
+        push r0
+        mov r0, MAP_W/2
+        st r0, st_px
+        mov r0, MAP_H/2
+        st r0, st_py
+        mov r0, 0
+        st r0, st_room_count
+        pop r0
+        ret
+
+dun_get:
+        mov r0, T_OUT
+        ret
+
+dun_set:
+        ret
+
+dun_walkable:
+        mov r0, 0
+        ret
+
+dun_opaque:
+        mov r0, 1
+        ret
+
+dun_random_floor:
+        mov r0, 0
+        ret
+
+dun_room_of:
+        mov r0, -1
+        ret
+
+dun_dist:
+        mov r0, 0
+        ret

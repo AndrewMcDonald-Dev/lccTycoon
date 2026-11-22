@@ -1,0 +1,74 @@
+; ---------------------------------------------------------------------
+; Module: actors (prefix act_) — owner WP7. Enemy type table (static
+; act_types, ETYPE_COUNT records of ETYPE_SIZE words, ids 1..ETYPE_COUNT,
+; layout ET_* in defs.ap, values in DESIGN.md "Enemy table"), the enemy
+; pool st_enemies (E_*), spawning per depth, the action-time scheduler
+; and enemy AI. Owns a private distance field (BFS from the player over
+; dun_walkable tiles, MAP_SIZE words, recomputed once per act_run) used
+; for chasing and fleeing. Attacks go through cbt_enemy_attack.
+; All routines: args r0..r4, result r0, all other registers preserved.
+;
+;; act_init         ()                  -> -        new game: act_clear
+;; act_clear        ()                  -> -        free every enemy record (E_TYPE = EN_NONE)
+;; act_spawn_floor  r0=depth            -> -        spawn SPAWN_BASE + (11-depth)/2 hostile enemies (types whose ET_DHI >= depth >= ET_DLO, by ET_WEIGHT) plus one EN_TINKER,
+;;                   on random floor tiles (dun_random_floor) not in st_start_room and >= SPAWN_SAFE from the player, never two on one tile
+;; act_spawn        r0=type r1=x r2=y   -> r0=enemy index, -1 pool full. Full hp, ES_IDLE, E_NEXT = st_time + rand(0..ET_SPEED)
+;; act_at           r0=x r1=y           -> r0=index of the enemy on that tile, -1 none
+;; act_run          ()                  -> -        recompute the distance field, then repeatedly let the enemy with the smallest E_NEXT < st_ply_next act (act_think; ties →
+;;                   lower index) until none is left or st_game_state != GAME_PLAY; set st_time = st_ply_next; if st_time >= TIME_REBASE subtract TIME_REBASE from st_time, st_ply_next and
+;;                   every E_NEXT
+;; act_think        r0=index            -> -        one action of that enemy, adds its cost (ET_SPEED for a step, ET_ATK_TIME for an attack, TIME_WAIT otherwise) to E_NEXT.
+;;                   Sight: dist <= ET_SIGHT and fov_los → ES_HUNT, E_TX/TY = player, E_ALERT = ALERT_TURNS, first sighting while fov_visible posts "<name> spotted." AI_MELEE: adjacent →
+;;                   attack, else step down the distance field. AI_RANGED: in range with LOS → attack; dist <= 2 → step away. AI_TURRET: never moves. AI_WORKER: never attacks, flees when it
+;;                   sees the player. hp < FLEE_PCT% → ES_FLEE (not turrets). Idle: random walk. Steps never enter the player's or another enemy's tile; entering T_DOOR makes it T_DOOR_OPEN.
+;; act_type_info    r0=type             -> r0=address of the type record, 0 if invalid
+;; act_name         r0=index            -> r0=name string of that enemy's type
+;; act_kill         r0=index            -> -        free the record (combat calls it after drops)
+;; act_next_visible r0=from r1=dir      -> r0=index of the next enemy (any type) on a fov_visible tile after index `from` in pool order (r1 = +1 / -1, wrapping); from = -1 →
+;;                   the nearest visible enemy; -1 if none visible
+; ---------------------------------------------------------------------
+
+; WP0 stub: no enemies; the clock follows the player.
+act_init:
+        ret
+
+act_clear:
+        ret
+
+act_spawn_floor:
+        ret
+
+act_spawn:
+        mov r0, -1
+        ret
+
+act_at:
+        mov r0, -1
+        ret
+
+act_run:
+        push r0
+        ld r0, st_ply_next
+        st r0, st_time
+        pop r0
+        ret
+
+act_think:
+        ret
+
+act_type_info:
+        mov r0, 0
+        ret
+
+act_name:
+        lea r0, act_s_none
+        ret
+
+act_kill:
+        ret
+
+act_next_visible:
+        mov r0, -1
+        ret
+
+act_s_none:     .string "?"

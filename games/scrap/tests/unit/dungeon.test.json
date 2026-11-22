@@ -1,0 +1,9 @@
+{
+  "game": "dungeon_driver.ap",
+  "scenarios": [
+    { "name": "outside the map: T_OUT, not walkable, opaque, no room; start inside the map",
+      "expect": { "status": "halted",
+        "memory": { "drv_get_left": -1, "drv_walk_right": 0, "drv_opaque_bottom": 1, "drv_room_top": -1,
+                    "drv_start_in": 1 } } }
+  ]
+}
