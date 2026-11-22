@@ -182,7 +182,8 @@ function runOpts(opt, manifest) {
 
 function profileReport(b, r) {
   // attribute each address to the nearest preceding label (routine) and file (module)
-  const labels = b.listing.filter(l => l.label && !l.label.startsWith('__far')).map(l => ({ addr: l.addr, label: l.label }));
+  // listing rows carry only some labels; the symbol table has them all
+  const labels = Object.entries(b.symbols).filter(([l]) => !l.startsWith('__far')).map(([label, addr]) => ({ addr, label }));
   labels.sort((x, y) => x.addr - y.addr);
   const byLabel = new Map();
   const byFile = new Map();
