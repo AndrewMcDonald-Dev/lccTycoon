@@ -1,0 +1,672 @@
+; ---------------------------------------------------------------------
+; Module: fov (prefix fov_) — owner WP2. Field of view and line of sight.
+; st_fov holds FOV_VISIBLE (seen this turn) and FOV_KNOWN (remembered)
+; per tile; only this module writes it. Opacity comes from dun_opaque.
+; Radius is st_sight (Chebyshev, written by prt_recalc). Method:
+; 4-quadrant symmetric shadowcasting with exact integer slopes for
+; fov_update (guarantees full Chebyshev-radius coverage, zero wall gaps,
+; and symmetry), and canonically ordered Bresenham line for fov_los.
+; All routines: args r0..r4, result r0, all other registers preserved.
+;
+;; fov_reset    ()                          -> -       clear st_fov (new floor: nothing known)
+;; fov_update   ()                          -> -       clear every FOV_VISIBLE, then mark tiles in sight of (st_px,st_py) within st_sight as FOV_VISIBLE|FOV_KNOWN (the
+;;                   player's tile always); walls bounding a lit floor are visible
+;; fov_visible  r0=x r1=y                   -> r0=1 if FOV_VISIBLE, 0 otherwise or outside
+;; fov_known    r0=x r1=y                   -> r0=1 if FOV_KNOWN, 0 otherwise or outside
+;; fov_los      r0=x0 r1=y0 r2=x1 r3=y1     -> r0=1 if no opaque tile lies strictly between the two points on the Bresenham line (endpoints ignored), else 0; symmetric
+;;                   enough for enemy shots and sighting
+; ---------------------------------------------------------------------
+
+; ---- fov_reset () -> - ----------------------------------------------
+fov_reset:
+        push r0
+        push r1
+        push r2
+        lea r0, st_fov
+        mov r1, 0
+        ld r2, fov_c_map_size
+fov_reset_lp:
+        str r1, r0, 0
+        str r1, r0, 1
+        str r1, r0, 2
+        str r1, r0, 3
+        str r1, r0, 4
+        str r1, r0, 5
+        str r1, r0, 6
+        str r1, r0, 7
+        add r0, r0, 8
+        sub r2, r2, 8
+        brp fov_reset_lp
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; ---- fov_visible r0=x r1=y -> r0=0|1 --------------------------------
+fov_visible:
+        push r1
+        push r2
+        cmp r0, 0
+        brn fov_vis_zero
+        mov r2, MAP_W
+        cmp r0, r2
+        brlt fov_vis_xok
+        br fov_vis_zero
+fov_vis_xok:
+        cmp r1, 0
+        brn fov_vis_zero
+        mov r2, MAP_H
+        cmp r1, r2
+        brlt fov_vis_in
+        br fov_vis_zero
+fov_vis_in:
+        sll r1, MAP_SHIFT
+        add r1, r1, r0
+        lea r2, st_fov
+        add r2, r2, r1
+        ldr r0, r2, 0
+        and r0, r0, FOV_VISIBLE
+        brz fov_vis_zero
+        mov r0, 1
+        pop r2
+        pop r1
+        ret
+fov_vis_zero:
+        mov r0, 0
+        pop r2
+        pop r1
+        ret
+
+; ---- fov_known r0=x r1=y -> r0=0|1 ----------------------------------
+fov_known:
+        push r1
+        push r2
+        cmp r0, 0
+        brn fov_knw_zero
+        mov r2, MAP_W
+        cmp r0, r2
+        brlt fov_knw_xok
+        br fov_knw_zero
+fov_knw_xok:
+        cmp r1, 0
+        brn fov_knw_zero
+        mov r2, MAP_H
+        cmp r1, r2
+        brlt fov_knw_in
+        br fov_knw_zero
+fov_knw_in:
+        sll r1, MAP_SHIFT
+        add r1, r1, r0
+        lea r2, st_fov
+        add r2, r2, r1
+        ldr r0, r2, 0
+        and r0, r0, FOV_KNOWN
+        brz fov_knw_zero
+        mov r0, 1
+        pop r2
+        pop r1
+        ret
+fov_knw_zero:
+        mov r0, 0
+        pop r2
+        pop r1
+        ret
+
+; ---- fov_update () -> - ---------------------------------------------
+fov_update:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+
+        ; 1. Clear FOV_VISIBLE on every tile, preserving FOV_KNOWN (8x unrolled)
+        lea r0, st_fov
+        ld r2, fov_c_map_size
+fov_upd_clr:
+        ldr r1, r0, 0
+        and r1, r1, FOV_KNOWN
+        str r1, r0, 0
+        ldr r1, r0, 1
+        and r1, r1, FOV_KNOWN
+        str r1, r0, 1
+        ldr r1, r0, 2
+        and r1, r1, FOV_KNOWN
+        str r1, r0, 2
+        ldr r1, r0, 3
+        and r1, r1, FOV_KNOWN
+        str r1, r0, 3
+        ldr r1, r0, 4
+        and r1, r1, FOV_KNOWN
+        str r1, r0, 4
+        ldr r1, r0, 5
+        and r1, r1, FOV_KNOWN
+        str r1, r0, 5
+        ldr r1, r0, 6
+        and r1, r1, FOV_KNOWN
+        str r1, r0, 6
+        ldr r1, r0, 7
+        and r1, r1, FOV_KNOWN
+        str r1, r0, 7
+        add r0, r0, 8
+        sub r2, r2, 8
+        brp fov_upd_clr
+
+        ; 2. Cache origin & sight radius; always mark player's tile (if in bounds)
+        ld r0, st_px
+        st r0, fov_px
+        ld r1, st_py
+        st r1, fov_py
+        ld r2, st_sight
+        st r2, fov_rad
+
+        cmp r0, 0
+        brn fov_upd_chk_r
+        mov r3, MAP_W
+        cmp r0, r3
+        brlt fov_upd_px_ok
+        br fov_upd_chk_r
+fov_upd_px_ok:
+        cmp r1, 0
+        brn fov_upd_chk_r
+        mov r3, MAP_H
+        cmp r1, r3
+        brlt fov_upd_mark_p
+        br fov_upd_chk_r
+fov_upd_mark_p:
+        sll r1, MAP_SHIFT
+        add r1, r1, r0
+        lea r3, st_fov
+        add r3, r3, r1
+        mov r0, FOV_VISIBLE|FOV_KNOWN
+        str r0, r3, 0
+
+fov_upd_chk_r:
+        ld r0, fov_rad
+        cmp r0, 1
+        brlt fov_upd_done
+
+        ; 3. Scan 4 quadrants: N, S, E, W
+        ; Quadrant 0: North (row_dx=0, row_dy=-1, col_dx=1, col_dy=0)
+        mov r0, 0
+        st r0, fov_row_dx
+        st r0, fov_col_dy
+        mov r0, -1
+        st r0, fov_row_dy
+        mov r0, 1
+        st r0, fov_col_dx
+        mov r0, 1
+        mov r1, -1
+        mov r2, 1
+        mov r3, 1
+        mov r4, 1
+        bl fov_scan
+
+        ; Quadrant 1: South (row_dx=0, row_dy=+1, col_dx=1, col_dy=0)
+        mov r0, 1
+        st r0, fov_row_dy
+        mov r0, 1
+        mov r1, -1
+        mov r2, 1
+        mov r3, 1
+        mov r4, 1
+        bl fov_scan
+
+        ; Quadrant 2: East (row_dx=+1, row_dy=0, col_dx=0, col_dy=1)
+        mov r0, 1
+        st r0, fov_row_dx
+        st r0, fov_col_dy
+        mov r0, 0
+        st r0, fov_row_dy
+        st r0, fov_col_dx
+        mov r0, 1
+        mov r1, -1
+        mov r2, 1
+        mov r3, 1
+        mov r4, 1
+        bl fov_scan
+
+        ; Quadrant 3: West (row_dx=-1, row_dy=0, col_dx=0, col_dy=1)
+        mov r0, -1
+        st r0, fov_row_dx
+        mov r0, 1
+        mov r1, -1
+        mov r2, 1
+        mov r3, 1
+        mov r4, 1
+        bl fov_scan
+
+fov_upd_done:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; ---- internal: fov_floor_div r0=a(signed) r1=b(>0) -> r0=floor(a/b) --
+; Preserves r1..r4, fp, sp, lr.
+fov_floor_div:
+        cmp r0, 0
+        brlt fov_fdiv_neg
+        div r0, r1
+        ret
+fov_fdiv_neg:
+        not r0, r0
+        add r0, r0, 1
+        add r0, r0, r1
+        sub r0, r0, 1
+        div r0, r1
+        not r0, r0
+        add r0, r0, 1
+        ret
+
+; ---- internal: fov_scan r0=row r1=sNum r2=sDen r3=eNum r4=eDen -------
+; Symmetric shadowcasting scan for the active quadrant (fov_row_*/fov_col_*).
+; Clobbers r0..r4; preserves fp, sp, lr.
+; Stack frame locals:
+;   fp-1  row       fp-2  sNum      fp-3  sDen      fp-4  eNum
+;   fp-5  eDen      fp-6  col       fp-7  maxCol    fp-8  prevWall
+;   fp-9  mx        fp-10 my        fp-11 limitLo   fp-12 limitHi
+;   fp-13 curLo     fp-14 curHi
+fov_scan:
+        push lr
+        push fp
+        mov fp, sp
+        sub sp, sp, 14
+        str r0, fp, -1
+        str r1, fp, -2
+        str r2, fp, -3
+        str r3, fp, -4
+        str r4, fp, -5
+
+fov_sc_row:
+        ldr r0, fp, -1          ; row
+        ld r1, fov_rad
+        cmp r0, r1
+        brgt fov_sc_ret
+
+        ; limitLo = row * sNum; minCol = floor((2*limitLo + sDen) / (2*sDen))
+        ldr r1, fp, -2          ; sNum
+        mul r0, r1
+        str r0, fp, -11         ; limitLo
+        add r0, r0, r0          ; 2*limitLo
+        ldr r1, fp, -3          ; sDen
+        add r0, r0, r1          ; 2*limitLo + sDen
+        add r1, r1, r1          ; 2*sDen
+        bl fov_floor_div
+        ; clamp minCol >= -row
+        ldr r1, fp, -1
+        not r1, r1
+        add r1, r1, 1           ; -row
+        cmp r0, r1
+        brgt fov_sc_min_ok
+        bre fov_sc_min_ok
+        mov r0, r1
+fov_sc_min_ok:
+        str r0, fp, -6          ; col = minCol
+
+        ; limitHi = row * eNum; maxCol = floor((2*limitHi + eDen - 1) / (2*eDen))
+        ldr r0, fp, -1          ; row
+        ldr r1, fp, -4          ; eNum
+        mul r0, r1
+        str r0, fp, -12         ; limitHi
+        add r0, r0, r0          ; 2*limitHi
+        ldr r1, fp, -5          ; eDen
+        add r0, r0, r1          ; 2*limitHi + eDen
+        sub r0, r0, 1           ; 2*limitHi + eDen - 1
+        add r1, r1, r1          ; 2*eDen
+        bl fov_floor_div
+        ; clamp maxCol <= row
+        ldr r1, fp, -1
+        cmp r0, r1
+        brlt fov_sc_max_ok
+        bre fov_sc_max_ok
+        mov r0, r1
+fov_sc_max_ok:
+        str r0, fp, -7          ; maxCol
+
+        ; if minCol > maxCol, nothing in this row
+        ldr r1, fp, -6          ; r1 = minCol
+        cmp r1, r0
+        brgt fov_sc_ret
+
+        ; curLo = minCol * sDen; curHi = minCol * eDen
+        mov r0, r1
+        ldr r2, fp, -3
+        mul r0, r2
+        str r0, fp, -13
+        mov r0, r1
+        ldr r2, fp, -5
+        mul r0, r2
+        str r0, fp, -14
+
+        ; mx = fov_px + row * fov_row_dx + minCol * fov_col_dx
+        ldr r2, fp, -1          ; row
+        ld r3, fov_row_dx
+        mul r3, r2
+        ld r0, fov_px
+        add r0, r0, r3
+        ld r3, fov_col_dx
+        mul r3, r1
+        add r0, r0, r3
+        str r0, fp, -9
+
+        ; my = fov_py + row * fov_row_dy + minCol * fov_col_dy
+        ld r3, fov_row_dy
+        mul r3, r2
+        ld r0, fov_py
+        add r0, r0, r3
+        ld r3, fov_col_dy
+        mul r3, r1
+        add r0, r0, r3
+        str r0, fp, -10
+
+        mov r0, -1
+        str r0, fp, -8          ; prevWall = -1
+
+fov_sc_col:
+        ldr r0, fp, -9          ; mx
+        ldr r1, fp, -10         ; my
+        bl dun_opaque           ; r0 = 1 if opaque/outside, 0 if transparent
+        mov r4, r0              ; r4 = isWall
+
+        cmp r4, 0
+        brnz fov_sc_wall_mark
+
+        ; Transparent tile (guaranteed in bounds since dun_opaque returned 0):
+        ; mark iff curLo >= limitLo && curHi <= limitHi
+        ldr r0, fp, -13         ; curLo
+        ldr r1, fp, -11         ; limitLo
+        cmp r0, r1
+        brlt fov_sc_trans
+        ldr r0, fp, -14         ; curHi
+        ldr r1, fp, -12         ; limitHi
+        cmp r0, r1
+        brgt fov_sc_trans
+        br fov_sc_do_mark
+
+fov_sc_wall_mark:
+        ; Opaque tile: mark if inside map bounds
+        ldr r0, fp, -9          ; mx
+        cmp r0, 0
+        brn fov_sc_trans
+        mov r2, MAP_W
+        cmp r0, r2
+        brlt fov_sc_wx_ok
+        br fov_sc_trans
+fov_sc_wx_ok:
+        ldr r1, fp, -10         ; my
+        cmp r1, 0
+        brn fov_sc_trans
+        mov r2, MAP_H
+        cmp r1, r2
+        brlt fov_sc_do_mark
+        br fov_sc_trans
+
+fov_sc_do_mark:
+        ldr r0, fp, -9
+        ldr r1, fp, -10
+        sll r1, MAP_SHIFT
+        add r1, r1, r0
+        lea r2, st_fov
+        add r2, r2, r1
+        mov r3, FOV_VISIBLE|FOV_KNOWN
+        str r3, r2, 0
+
+fov_sc_trans:
+        ldr r0, fp, -8          ; prevWall
+        cmp r4, 0
+        brnz fov_sc_chk_fw
+
+        ; isWall == 0: if prevWall == 1, wall -> floor transition
+        cmp r0, 1
+        brne fov_sc_set_prev
+        ldr r1, fp, -6          ; col
+        add r1, r1, r1
+        sub r1, r1, 1           ; sNum = 2*col - 1
+        str r1, fp, -2
+        ldr r2, fp, -1          ; row
+        add r2, r2, r2          ; sDen = 2*row
+        str r2, fp, -3
+        ; refresh limitLo = row * sNum and curLo = col * sDen
+        ldr r0, fp, -1
+        mul r0, r1
+        str r0, fp, -11
+        ldr r0, fp, -6
+        mul r0, r2
+        str r0, fp, -13
+        br fov_sc_set_prev
+
+fov_sc_chk_fw:
+        ; isWall == 1: if prevWall == 0, floor -> wall transition -> recurse
+        cmp r0, 0
+        brne fov_sc_set_prev
+        ldr r0, fp, -1          ; row
+        ld r1, fov_rad
+        cmp r0, r1
+        brgt fov_sc_set_prev
+        bre fov_sc_set_prev
+        add r0, r0, 1           ; row + 1
+        ldr r1, fp, -2          ; sNum
+        ldr r2, fp, -3          ; sDen
+        ldr r3, fp, -6          ; col
+        add r3, r3, r3
+        sub r3, r3, 1           ; new eNum = 2*col - 1
+        ldr r4, fp, -1          ; row
+        add r4, r4, r4          ; new eDen = 2*row
+        bl fov_scan
+        mov r4, 1               ; restore isWall = 1
+
+fov_sc_set_prev:
+        str r4, fp, -8          ; prevWall = isWall
+
+        ; Advance col
+        ldr r0, fp, -6
+        add r0, r0, 1
+        ldr r1, fp, -7          ; maxCol
+        cmp r0, r1
+        brgt fov_sc_row_end
+        str r0, fp, -6
+
+        ; mx += fov_col_dx, my += fov_col_dy
+        ldr r0, fp, -9
+        ld r1, fov_col_dx
+        add r0, r0, r1
+        str r0, fp, -9
+        ldr r0, fp, -10
+        ld r1, fov_col_dy
+        add r0, r0, r1
+        str r0, fp, -10
+
+        ; curLo += sDen, curHi += eDen
+        ldr r0, fp, -13
+        ldr r1, fp, -3
+        add r0, r0, r1
+        str r0, fp, -13
+        ldr r0, fp, -14
+        ldr r1, fp, -5
+        add r0, r0, r1
+        str r0, fp, -14
+        br fov_sc_col
+
+fov_sc_row_end:
+        ; Tail step: if row ended on floor (prevWall == 0), continue to row + 1
+        ldr r0, fp, -8
+        cmp r0, 0
+        brnz fov_sc_ret
+        ldr r0, fp, -1
+        add r0, r0, 1
+        str r0, fp, -1
+        br fov_sc_row
+
+fov_sc_ret:
+        mov sp, fp
+        pop fp
+        pop lr
+        ret
+
+; ---- fov_los r0=x0 r1=y0 r2=x1 r3=y1 -> r0=0|1 ----------------------
+; Canonically orders endpoints so fov_los(A,B) == fov_los(B,A) always.
+; Outside-map endpoints return 0. Endpoints themselves are not tested
+; for opacity; only tiles strictly between them are tested via dun_opaque.
+fov_los:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        push fp
+        mov fp, sp
+        sub sp, sp, 8
+        ; locals:
+        ;   fp-1 x    fp-2 y    fp-3 x1   fp-4 y1
+        ;   fp-5 dx   fp-6 dy   fp-7 sy   fp-8 err
+
+        ; Bounds check (x0, y0)
+        cmp r0, 0
+        brn fov_los_false
+        mov r4, MAP_W
+        cmp r4, r0
+        brlt fov_los_false
+        bre fov_los_false
+        cmp r1, 0
+        brn fov_los_false
+        mov r4, MAP_H
+        cmp r4, r1
+        brlt fov_los_false
+        bre fov_los_false
+
+        ; Bounds check (x1, y1)
+        cmp r2, 0
+        brn fov_los_false
+        mov r4, MAP_W
+        cmp r4, r2
+        brlt fov_los_false
+        bre fov_los_false
+        cmp r3, 0
+        brn fov_los_false
+        mov r4, MAP_H
+        cmp r4, r3
+        brlt fov_los_false
+        bre fov_los_false
+
+        ; Canonical ordering: ensure x0 < x1, or (x0 == x1 && y0 <= y1)
+        cmp r0, r2
+        brlt fov_los_ordered
+        brgt fov_los_swap
+        ; x0 == x1
+        cmp r1, r3
+        brlt fov_los_ordered
+        bre fov_los_true        ; identical endpoints -> 1
+fov_los_swap:
+        mov r4, r0
+        mov r0, r2
+        mov r2, r4
+        mov r4, r1
+        mov r1, r3
+        mov r3, r4
+
+fov_los_ordered:
+        str r0, fp, -1          ; x = x0
+        str r1, fp, -2          ; y = y0
+        str r2, fp, -3          ; x1
+        str r3, fp, -4          ; y1
+
+        ; dx = x1 - x0 (>= 0)
+        sub r4, r2, r0
+        str r4, fp, -5
+
+        ; dy = y1 - y0; sy = (dy >= 0) ? 1 : -1; dy = |dy|
+        sub r4, r3, r1
+        cmp r4, 0
+        brlt fov_los_neg_dy
+        mov r0, 1
+        str r0, fp, -7          ; sy = +1
+        str r4, fp, -6          ; dy
+        br fov_los_init_err
+fov_los_neg_dy:
+        not r4, r4
+        add r4, r4, 1
+        str r4, fp, -6          ; dy = -dy
+        mov r0, -1
+        str r0, fp, -7          ; sy = -1
+
+fov_los_init_err:
+        ldr r0, fp, -5          ; dx
+        ldr r1, fp, -6          ; dy
+        sub r0, r0, r1          ; err = dx - dy
+        str r0, fp, -8
+
+fov_los_lp:
+        ldr r0, fp, -8          ; err
+        add r3, r0, r0          ; r3 = e2 = 2 * err
+
+        ; if e2 + dy > 0: err -= dy; x += 1
+        ldr r1, fp, -6          ; dy
+        add r2, r3, r1          ; e2 + dy
+        cmp r2, 0
+        brlt fov_los_no_x
+        bre fov_los_no_x
+        sub r0, r0, r1          ; err -= dy
+        ldr r2, fp, -1          ; x
+        add r2, r2, 1
+        str r2, fp, -1
+fov_los_no_x:
+        ; if e2 < dx: err += dx; y += sy
+        ldr r1, fp, -5          ; dx
+        cmp r3, r1
+        brgt fov_los_no_y
+        bre fov_los_no_y
+        add r0, r0, r1          ; err += dx
+        ldr r2, fp, -2          ; y
+        ldr r1, fp, -7          ; sy
+        add r2, r2, r1
+        str r2, fp, -2
+fov_los_no_y:
+        str r0, fp, -8          ; save err
+
+        ; Check if we reached (x1, y1)
+        ldr r0, fp, -1          ; x
+        ldr r2, fp, -3          ; x1
+        cmp r0, r2
+        brne fov_los_chk_op
+        ldr r1, fp, -2          ; y
+        ldr r2, fp, -4          ; y1
+        cmp r1, r2
+        bre fov_los_true        ; reached endpoint -> clear!
+
+fov_los_chk_op:
+        ldr r0, fp, -1          ; x
+        ldr r1, fp, -2          ; y
+        bl dun_opaque
+        cmp r0, 0
+        brnz fov_los_false
+        br fov_los_lp
+
+fov_los_true:
+        mov r0, 1
+        br fov_los_ret
+fov_los_false:
+        mov r0, 0
+fov_los_ret:
+        mov sp, fp
+        pop fp
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; ---- private constants & scratch ------------------------------------
+fov_c_map_size: .word MAP_SIZE
+fov_px:         .word 0
+fov_py:         .word 0
+fov_rad:        .word 0
+fov_row_dx:     .word 0
+fov_row_dy:     .word 0
+fov_col_dx:     .word 0
+fov_col_dy:     .word 0

@@ -1,0 +1,81 @@
+; =====================================================================
+; src/state.ap — all shared game state (data only). Owner: architect.
+; Prefix st_. Every cell: units, range, who writes it ("W:" = writers).
+; Modules keep private scratch/static tables (part catalog, enemy types,
+; distance fields, strings) in their own file; anything two modules read
+; lives here. Initial values are reset by the *_init routines on a new
+; game (main_new_game), so a second game after the end screen is clean.
+;
+;; (data only — every st_* cell is documented in this file)
+;; st_map     MAP_SIZE tile words (T_*), index (y<<MAP_SHIFT)|x  W: dungeon
+;; st_fov     MAP_SIZE words FOV_VISIBLE|FOV_KNOWN               W: fov
+;; st_rooms   MAX_ROOMS × ROOM_SIZE (RM_*), st_room_count        W: dungeon
+;; st_slots   NUM_SLOTS × SLOT_SIZE (S_PART, S_HP) loadout       W: parts
+;; st_inv     NUM_INV × SLOT_SIZE carried parts                  W: parts
+;; st_enemies MAX_ENEMIES × ENEMY_SIZE (E_*)                     W: actors, combat (E_HP, kill)
+;; st_items   MAX_ITEMS × ITEM_SIZE (I_*) parts on the floor     W: items
+;; st_msg_text MSG_COUNT × MSG_LEN strings + st_msg_attr/head   W: ui_msg*
+;; st_screen  100x30 display block (header + st_cells), bound by main; regions in defs.ap
+;; player     st_px st_py st_ply_next st_core_hp st_energy      W: player (pos/time), parts (hp/energy), combat
+;; derived    st_move_cost st_regen st_energy_max st_sight st_acc_bonus st_evade st_repair_turns  W: prt_recalc only
+;; game       st_game_state st_mode st_depth st_turn st_time st_kills st_target st_climb st_death_cause
+; =====================================================================
+
+; ---- game / loop -------------------------------------------------------
+st_game_state:  .word GAME_TITLE    ; GAME_* — W: main (PLAY/WON), combat+parts (DEAD)
+st_frame:       .word 0             ; frames since start, wraps — W: main
+st_mode:        .word MODE_MAP      ; MODE_* input mode — W: player
+st_depth:       .word START_DEPTH   ; current depth 10..1 — W: main
+st_depth_best:  .word START_DEPTH   ; shallowest depth reached (score) — W: main
+st_turn:        .word 0             ; player actions taken this game, saturates 32767 — W: main
+st_time:        .word 0             ; scheduler clock, TU; rebased by act_run — W: actors (act_run)
+st_kills:       .word 0             ; robots destroyed this game — W: combat
+st_target:      .word -1            ; enemy index targeted in MODE_TARGET, -1 none — W: player
+st_climb:       .word 0             ; 1 = player took the stairs this action; main climbs — W: player (set), main (clear)
+st_death_cause: .word CAUSE_NONE    ; EN_* that destroyed the core — W: combat
+st_seed:        .word 0             ; RNG seed used for this game (millis) — W: main
+
+; ---- player ----------------------------------------------------------------
+st_px:          .word 0             ; player tile x 0..MAP_W-1 — W: dungeon (floor start), player (moves)
+st_py:          .word 0             ; player tile y 0..MAP_H-1
+st_ply_next:    .word 0             ; player's next-act time (TU); player acts when <= every E_NEXT — W: player (+cost), actors (rebase)
+st_core_hp:     .word CORE_MAX      ; core integrity 0..CORE_MAX; 0 = dead — W: parts (prt_damage, repair)
+st_energy:      .word CORE_ECAP     ; 0..st_energy_max — W: parts (regen, prt_spend_energy)
+st_regen_acc:   .word 0             ; TU accumulated toward the next TIME_TURN of regen/repair — W: parts
+st_repair_acc:  .word 0             ; turns counted toward the next self-repair point — W: parts
+
+; ---- derived stats (recomputed by prt_recalc after any loadout change) ---------
+st_move_cost:   .word CRAWL_COST    ; TU per step — W: parts (prt_recalc)
+st_regen:       .word CORE_REGEN    ; energy per TIME_TURN
+st_energy_max:  .word CORE_ECAP     ; energy capacity
+st_sight:       .word SIGHT_BASE    ; FOV radius in tiles, <= SIGHT_MAX
+st_acc_bonus:   .word 0             ; + hit chance % for the player's weapons
+st_evade:       .word 0             ; - hit chance % for attacks on the player
+st_repair_turns: .word 0            ; turns per 1 integrity repaired, 0 = no repair part
+
+; ---- dungeon -----------------------------------------------------------------------
+st_stairs_x:    .word 0             ; the '<' tile of this floor — W: dungeon
+st_stairs_y:    .word 0
+st_room_count:  .word 0             ; rooms in st_rooms 0..MAX_ROOMS — W: dungeon
+st_start_room:  .word 0             ; room the player starts in (no spawns there) — W: dungeon
+st_rooms:       .zero MAX_ROOMS*ROOM_SIZE ; RM_* records — W: dungeon
+
+; ---- message ring (W: ui_msg* only; read: ui) ---------------------------------------
+st_msg_head:    .word 0             ; slot of the newest message 0..MSG_COUNT-1
+st_msg_attr:    .zero MSG_COUNT     ; color attr of each slot (A_MSG default)
+st_msg_text:    .zero MSG_COUNT*MSG_LEN ; slot i at st_msg_text + (i << MSG_SHIFT), NUL-terminated
+
+; ---- tables -------------------------------------------------------------------------------
+st_slots:       .zero NUM_SLOTS*SLOT_SIZE ; loadout: slot i at st_slots + (i << SLOT_SHIFT) — W: parts
+st_inv:         .zero NUM_INV*SLOT_SIZE   ; carried parts, same layout — W: parts
+st_enemies:     .zero MAX_ENEMIES*ENEMY_SIZE ; E_* records — W: actors (all), combat (E_HP, act_kill via actors)
+st_items:       .zero MAX_ITEMS*ITEM_SIZE ; I_* records — W: items
+st_map:         .zero MAP_SIZE      ; tile words T_* — W: dungeon
+st_fov:         .zero MAP_SIZE      ; FOV_* bits — W: fov
+
+; ---- display block (100x30), bound once by main -------------------------------------------
+st_screen:      .word SCR_COLS      ; header: cols, rows, top, left
+                .word SCR_ROWS
+                .word 0
+                .word 0
+st_cells:       .zero SCR_CELLS     ; cell = glyph | fg | bg ; regions in defs.ap

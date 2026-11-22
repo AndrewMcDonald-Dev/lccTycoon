@@ -1,0 +1,522 @@
+; ---------------------------------------------------------------------
+; Module: items (prefix itm_) — owner WP6. Parts lying on the floor:
+; st_items pool of MAX_ITEMS records (I_PART, I_X, I_Y, I_HP; I_PART =
+; PART_NONE marks a free record). At most one item per tile.
+; All routines: args r0..r4, result r0, all other registers preserved.
+;
+;; itm_clear        ()                         -> -        free every record (new floor / new game)
+;; itm_place        r0=x r1=y r2=part r3=hp    -> r0=item index, or -1 (pool full or no free walkable tile). If (x,y) already holds an item, uses the nearest walkable
+;;                   item-free tile within distance 2 (not stairs).
+;; itm_at           r0=x r1=y                  -> r0=item index on that tile, -1 none
+;; itm_remove       r0=item index              -> -        free the record
+;; itm_spawn_floor  r0=depth                   -> -        place LOOT_MIN..LOOT_MAX random parts (prt_random_part) at 50-100% integrity on random room floor tiles
+;;                   (dun_random_floor), not on the player or stairs
+; ---------------------------------------------------------------------
+
+; ---- clear pool -------------------------------------------------------------
+itm_clear:
+        push r0
+        push r1
+        push r2
+        lea r0, st_items
+        mov r1, 0
+        mov r2, MAX_ITEMS*ITEM_SIZE
+itm_clr_lp:
+        str r1, r0, 0
+        add r0, r0, 1
+        sub r2, r2, 1
+        brp itm_clr_lp
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; ---- find item at (x, y) ----------------------------------------------------
+itm_at:
+        push r1
+        push r2
+        push r3
+        push r4
+        mov r2, 0               ; index 0..MAX_ITEMS-1
+        lea r3, st_items
+itm_at_lp:
+        ldr r4, r3, I_PART
+        cmp r4, PART_NONE
+        brz itm_at_next
+        ldr r4, r3, I_X
+        cmp r4, r0
+        brnz itm_at_next
+        ldr r4, r3, I_Y
+        cmp r4, r1
+        brz itm_at_found
+itm_at_next:
+        add r3, r3, ITEM_SIZE
+        add r2, r2, 1
+        mov r4, MAX_ITEMS
+        cmp r4, r2              ; MAX_ITEMS > index
+        brgt itm_at_lp
+        mov r0, -1
+        br itm_at_done
+itm_at_found:
+        mov r0, r2
+itm_at_done:
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; ---- remove item by index ---------------------------------------------------
+itm_remove:
+        push r0
+        push r1
+        push r2
+        cmp r0, 0
+        brn itm_rem_done
+        mov r1, MAX_ITEMS
+        cmp r0, r1
+        brlt itm_rem_ok
+        br itm_rem_done
+itm_rem_ok:
+        sll r0, ITEM_SHIFT
+        lea r1, st_items
+        add r1, r1, r0
+        mov r2, PART_NONE
+        str r2, r1, I_PART
+        mov r2, 0
+        str r2, r1, I_X
+        str r2, r1, I_Y
+        str r2, r1, I_HP
+itm_rem_done:
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; ---- place item at (x, y) or nearest free walkable non-stairs tile (<= 2) ---
+; Locals relative to fp:
+;   fp-1  base_x
+;   fp-2  base_y
+;   fp-3  part
+;   fp-4  hp
+;   fp-5  slot_idx
+;   fp-6  cand_x
+;   fp-7  cand_y
+itm_place:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        push fp
+        mov fp, sp
+        sub sp, sp, 7
+        str r0, fp, -1
+        str r1, fp, -2
+        str r2, fp, -3
+        str r3, fp, -4
+
+        ; reject invalid part id (<= 0)
+        cmp r2, 0
+        brn itm_pl_fail
+        brz itm_pl_fail
+
+        ; reject out-of-bounds base coordinates
+        cmp r0, 0
+        brn itm_pl_fail
+        mov r4, MAP_W
+        cmp r4, r0
+        brgt itm_pl_xok
+        br itm_pl_fail
+itm_pl_xok:
+        cmp r1, 0
+        brn itm_pl_fail
+        mov r4, MAP_H
+        cmp r4, r1
+        brgt itm_pl_yok
+        br itm_pl_fail
+itm_pl_yok:
+
+        ; find first free slot in st_items
+        mov r0, 0
+        lea r1, st_items
+itm_pl_slot_lp:
+        ldr r2, r1, I_PART
+        cmp r2, PART_NONE
+        brz itm_pl_slot_ok
+        add r1, r1, ITEM_SIZE
+        add r0, r0, 1
+        mov r2, MAX_ITEMS
+        cmp r0, r2
+        brlt itm_pl_slot_lp
+        br itm_pl_fail
+itm_pl_slot_ok:
+        str r0, fp, -5
+
+        ; check 25 offsets (distance 0, 1, 2) in order of increasing distance
+        mov r3, 25
+        lea r4, itm_place_offsets
+itm_pl_off_lp:
+        ldr r0, r4, 0           ; dx
+        ldr r1, fp, -1          ; base_x
+        add r0, r0, r1          ; cand_x
+        ldr r1, r4, 1           ; dy
+        ldr r2, fp, -2          ; base_y
+        add r1, r1, r2          ; cand_y
+        str r0, fp, -6
+        str r1, fp, -7
+
+        bl dun_walkable
+        cmp r0, 0
+        brz itm_pl_off_next
+
+        ldr r0, fp, -6
+        ldr r1, fp, -7
+        bl dun_get
+        cmp r0, T_STAIRS
+        bre itm_pl_off_next
+
+        ldr r0, fp, -6
+        ldr r1, fp, -7
+        bl itm_at
+        cmp r0, 0
+        brn itm_pl_commit       ; -1 => free
+
+itm_pl_off_next:
+        add r4, r4, 2
+        sub r3, r3, 1
+        brp itm_pl_off_lp
+        br itm_pl_fail
+
+itm_pl_commit:
+        ldr r0, fp, -5          ; slot_idx
+        mov r1, r0
+        sll r1, ITEM_SHIFT
+        lea r2, st_items
+        add r2, r2, r1
+        ldr r1, fp, -3
+        str r1, r2, I_PART
+        ldr r1, fp, -6
+        str r1, r2, I_X
+        ldr r1, fp, -7
+        str r1, r2, I_Y
+        ldr r1, fp, -4
+        str r1, r2, I_HP
+        br itm_pl_out
+
+itm_pl_fail:
+        mov r0, -1
+itm_pl_out:
+        mov sp, fp
+        pop fp
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; ---- spawn per-floor loot ---------------------------------------------------
+; Locals relative to fp:
+;   fp-1  depth
+;   fp-2  remaining count
+;   fp-3  x
+;   fp-4  y
+itm_spawn_floor:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        push fp
+        mov fp, sp
+        sub sp, sp, 4
+        str r0, fp, -1          ; depth
+
+        mov r0, LOOT_MIN
+        mov r1, LOOT_MAX
+        bl rng_range
+        str r0, fp, -2          ; count in [LOOT_MIN, LOOT_MAX]
+
+itm_sf_lp:
+        ldr r0, fp, -2
+        cmp r0, 0
+        brp itm_sf_one
+        br itm_sf_done
+itm_sf_one:
+        bl itm_find_spawn_tile  ; r0 = packed idx or -1
+        cmp r0, 0
+        brn itm_sf_done
+        mov r1, r0
+        mov r2, MAP_XMASK
+        and r0, r0, r2          ; x
+        srl r1, MAP_SHIFT       ; y
+        str r0, fp, -3
+        str r1, fp, -4
+
+        ; choose a random part valid for this depth
+        ldr r0, fp, -1
+        bl prt_random_part
+        mov r2, r0              ; r2 = part id
+        bl prt_info
+        cmp r0, 0
+        brz itm_sf_next
+        ldr r3, r0, P_MAXHP     ; r3 = max integrity
+
+        ; integrity = rng_range(DROP_HP_MIN..100)% of P_MAXHP (rounded half-up, >= 1)
+        mov r0, DROP_HP_MIN
+        mov r1, 100
+        bl rng_range
+        mul r3, r0
+        mov r0, 50
+        add r3, r3, r0
+        mov r0, 100
+        div r3, r0
+        cmp r3, 1
+        brgt itm_sf_hp_ok
+        bre itm_sf_hp_ok
+        mov r3, 1
+itm_sf_hp_ok:
+        ldr r0, fp, -3          ; x
+        ldr r1, fp, -4          ; y
+        bl itm_place
+        cmp r0, 0
+        brn itm_sf_done         ; pool full
+itm_sf_next:
+        ldr r0, fp, -2
+        sub r0, r0, 1
+        str r0, fp, -2
+        br itm_sf_lp
+
+itm_sf_done:
+        mov sp, fp
+        pop fp
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; ---- internal: check (r0=x, r1=y) is valid for floor loot spawn -------------
+; Valid = walkable, not T_STAIRS, not player tile, not stairs coords, no item.
+itm_spawn_tile_ok:
+        push r1
+        push r2
+        push lr
+        ld r2, st_px
+        cmp r0, r2
+        brnz itm_sto_not_ply
+        ld r2, st_py
+        cmp r1, r2
+        brz itm_sto_no
+itm_sto_not_ply:
+        ld r2, st_stairs_x
+        cmp r0, r2
+        brnz itm_sto_not_st
+        ld r2, st_stairs_y
+        cmp r1, r2
+        brz itm_sto_no
+itm_sto_not_st:
+        mov r2, r0              ; preserve x across calls
+        bl dun_walkable
+        cmp r0, 0
+        brz itm_sto_no
+        mov r0, r2
+        bl dun_get
+        cmp r0, T_STAIRS
+        bre itm_sto_no
+        mov r0, r2
+        bl itm_at
+        cmp r0, 0
+        brn itm_sto_yes         ; -1 => free
+itm_sto_no:
+        mov r0, 0
+        pop lr
+        pop r2
+        pop r1
+        ret
+itm_sto_yes:
+        mov r0, 1
+        pop lr
+        pop r2
+        pop r1
+        ret
+
+; ---- internal: pick a free room floor tile for loot -> packed idx or -1 -----
+; Locals relative to fp:
+;   fp-1  rooms left
+;   fp-2  room ptr
+;   fp-3  x_end
+;   fp-4  y_end
+;   fp-5  cur_x
+;   fp-6  cur_y
+itm_find_spawn_tile:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        push fp
+        mov fp, sp
+        sub sp, sp, 6
+
+        ; Phase 1: up to 64 random room floor attempts
+        mov r3, 64
+itm_fst_rnd_lp:
+        bl dun_random_floor
+        mov r4, r0              ; packed idx
+        mov r1, r0
+        mov r2, MAP_XMASK
+        and r0, r0, r2
+        srl r1, MAP_SHIFT
+        bl itm_spawn_tile_ok
+        cmp r0, 0
+        brnz itm_fst_rnd_ok
+        sub r3, r3, 1
+        brp itm_fst_rnd_lp
+        br itm_fst_scan
+itm_fst_rnd_ok:
+        mov r0, r4
+        br itm_fst_out
+
+        ; Phase 2: deterministic fallback across all room interiors
+itm_fst_scan:
+        ld r0, st_room_count
+        cmp r0, 0
+        brlt itm_fst_none
+        brz itm_fst_none
+        str r0, fp, -1
+        lea r0, st_rooms
+        str r0, fp, -2
+itm_fst_rm_lp:
+        ldr r4, fp, -2
+        ldr r1, r4, RM_Y
+        ldr r2, r4, RM_H
+        add r2, r1, r2
+        str r2, fp, -4          ; y_end
+        str r1, fp, -6          ; cur_y
+itm_fst_y_lp:
+        ldr r1, fp, -6
+        ldr r2, fp, -4
+        cmp r1, r2
+        brlt itm_fst_y_ok
+        br itm_fst_rm_next
+itm_fst_y_ok:
+        ldr r4, fp, -2
+        ldr r0, r4, RM_X
+        ldr r2, r4, RM_W
+        add r2, r0, r2
+        str r2, fp, -3          ; x_end
+        str r0, fp, -5          ; cur_x
+itm_fst_x_lp:
+        ldr r0, fp, -5
+        ldr r2, fp, -3
+        cmp r0, r2
+        brlt itm_fst_x_ok
+        br itm_fst_y_next
+itm_fst_x_ok:
+        ldr r1, fp, -6
+        bl dun_get
+        cmp r0, T_FLOOR
+        brnz itm_fst_x_next
+        ldr r0, fp, -5
+        ldr r1, fp, -6
+        bl itm_spawn_tile_ok
+        cmp r0, 0
+        brz itm_fst_x_next
+        ldr r0, fp, -6
+        sll r0, MAP_SHIFT
+        ldr r1, fp, -5
+        or r0, r1
+        br itm_fst_out
+itm_fst_x_next:
+        ldr r0, fp, -5
+        add r0, r0, 1
+        str r0, fp, -5
+        br itm_fst_x_lp
+itm_fst_y_next:
+        ldr r1, fp, -6
+        add r1, r1, 1
+        str r1, fp, -6
+        br itm_fst_y_lp
+itm_fst_rm_next:
+        ldr r4, fp, -2
+        add r4, r4, ROOM_SIZE
+        str r4, fp, -2
+        ldr r0, fp, -1
+        sub r0, r0, 1
+        str r0, fp, -1
+        brp itm_fst_rm_lp
+itm_fst_none:
+        mov r0, -1
+itm_fst_out:
+        mov sp, fp
+        pop fp
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; ---- offset table for itm_place (25 pairs: dx, dy), ordered by distance -----
+itm_place_offsets:
+        ; dist 0
+        .word 0
+        .word 0
+        ; dist 1 cardinal
+        .word 0
+        .word -1
+        .word 1
+        .word 0
+        .word 0
+        .word 1
+        .word -1
+        .word 0
+        ; dist 1 diagonal
+        .word 1
+        .word -1
+        .word 1
+        .word 1
+        .word -1
+        .word 1
+        .word -1
+        .word -1
+        ; dist 2 cardinal
+        .word 0
+        .word -2
+        .word 2
+        .word 0
+        .word 0
+        .word 2
+        .word -2
+        .word 0
+        ; dist 2 knight
+        .word 1
+        .word -2
+        .word 2
+        .word -1
+        .word 2
+        .word 1
+        .word 1
+        .word 2
+        .word -1
+        .word 2
+        .word -2
+        .word 1
+        .word -2
+        .word -1
+        .word -1
+        .word -2
+        ; dist 2 diagonal
+        .word 2
+        .word -2
+        .word 2
+        .word 2
+        .word -2
+        .word 2
+        .word -2
+        .word -2

@@ -1,0 +1,763 @@
+; Unit driver for src/fov.ap (WP2).
+; Writes st_map directly and provides a local dun_opaque stub (matching the
+; dun_opaque contract) so WP2 tests run independently of WP1's concurrent edits.
+;
+; Frames (separated by sleep):
+;   Frame 0: setup open map, fov_reset
+;   Frame 1: single fov_update at radius 8 on completely open map (worst-case perf!)
+;   Frame 2: verify open-room FOV, walls, pillar, room corners, closed/open door,
+;            known persistence, fov_reset, fov_los (clear/blocked/endpoints/symmetry),
+;            outside-map queries, corner origin, and register preservation; then halt.
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        ; ---- Frame 0: setup open map (all T_FLOOR) + fov_reset ----
+        mov r0, T_FLOOR
+        bl drv_fill_map
+        mov r0, 32
+        st r0, st_px
+        mov r0, 12
+        st r0, st_py
+        mov r0, 8
+        st r0, st_sight
+        bl fov_reset
+        mov r0, 1
+        sleep r0
+
+        ; ---- Frame 1: measure worst-case fov_update at radius 8 ----
+        bl fov_update
+        mov r0, 1
+        sleep r0
+
+        ; ---- Frame 2: verify all acceptance criteria ----
+
+        ; 1. Open room: every tile with max(|dx|,|dy|) <= 8 is visible & known;
+        ;    nothing beyond radius 8 is visible or known.
+        mov r0, 0
+        st r0, drv_open_in_cnt
+        st r0, drv_open_in_bad
+        st r0, drv_open_out_bad
+        mov r1, 0               ; y = 0..MAP_H-1
+drv_open_y:
+        mov r0, 0               ; x = 0..MAP_W-1
+drv_open_x:
+        ; compute chebyshev dist to (32, 12)
+        mov r2, 32
+        sub r2, r0, r2
+        cmp r2, 0
+        brp drv_odx_ok
+        bre drv_odx_ok
+        not r2, r2
+        add r2, r2, 1
+drv_odx_ok:
+        mov r3, 12
+        sub r3, r1, r3
+        cmp r3, 0
+        brp drv_ody_ok
+        bre drv_ody_ok
+        not r3, r3
+        add r3, r3, 1
+drv_ody_ok:
+        cmp r2, r3
+        brgt drv_od_max
+        mov r2, r3
+drv_od_max:
+        ; r2 = cheb dist
+        push r0
+        push r1
+        push r2
+        bl fov_visible
+        mov r3, r0              ; r3 = vis
+        pop r2
+        pop r1
+        pop r0
+        push r0
+        push r1
+        push r2
+        push r3
+        bl fov_known
+        mov r4, r0              ; r4 = known
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+
+        cmp r2, 8
+        brgt drv_open_out
+        ; inside radius 8: expect vis=1, known=1
+        push r0
+        ld r0, drv_open_in_cnt
+        add r0, r0, 1
+        st r0, drv_open_in_cnt
+        cmp r3, 1
+        brne drv_open_in_err
+        cmp r4, 1
+        brne drv_open_in_err
+        pop r0
+        br drv_open_next
+drv_open_in_err:
+        ld r0, drv_open_in_bad
+        add r0, r0, 1
+        st r0, drv_open_in_bad
+        pop r0
+        br drv_open_next
+
+drv_open_out:
+        ; beyond radius 8: expect vis=0, known=0
+        push r0
+        cmp r3, 0
+        brnz drv_open_out_err
+        cmp r4, 0
+        brnz drv_open_out_err
+        pop r0
+        br drv_open_next
+drv_open_out_err:
+        ld r0, drv_open_out_bad
+        add r0, r0, 1
+        st r0, drv_open_out_bad
+        pop r0
+
+drv_open_next:
+        add r0, r0, 1
+        mov r2, MAP_W
+        cmp r0, r2
+        brlt drv_open_x
+        add r1, r1, 1
+        mov r2, MAP_H
+        cmp r1, r2
+        brlt drv_open_y
+
+        ; 2. Wall hides what is behind it, but wall itself is visible;
+        ;    also test walled room corners + single pillar shadow.
+        mov r0, T_FLOOR
+        bl drv_fill_map
+        ; Vertical wall at x=15, y=0..MAP_H-1
+        mov r1, 0
+drv_wall_lp:
+        mov r0, 15
+        mov r2, T_WALL
+        bl drv_set_tile
+        add r1, r1, 1
+        mov r2, MAP_H
+        cmp r1, r2
+        brlt drv_wall_lp
+
+        mov r0, 12
+        st r0, st_px
+        mov r0, 12
+        st r0, st_py
+        mov r0, 8
+        st r0, st_sight
+        bl fov_reset
+        bl fov_update
+
+        mov r0, 14              ; floor before wall -> 1
+        mov r1, 12
+        bl fov_visible
+        st r0, drv_wall_front
+        mov r0, 15              ; wall itself -> 1
+        mov r1, 12
+        bl fov_visible
+        st r0, drv_wall_self
+        mov r0, 15              ; wall angled -> 1
+        mov r1, 9
+        bl fov_visible
+        st r0, drv_wall_self2
+        mov r0, 16              ; directly behind wall -> 0
+        mov r1, 12
+        bl fov_visible
+        st r0, drv_wall_behind
+        mov r0, 16              ; behind wall also not known -> 0
+        mov r1, 12
+        bl fov_known
+        st r0, drv_wall_behind_k
+        mov r0, 17              ; further behind wall -> 0
+        mov r1, 10
+        bl fov_visible
+        st r0, drv_wall_behind2
+
+        ; Single pillar at (10, 12) (player at (12, 12)): hides (9, 12) & (8, 12)
+        mov r0, 10
+        mov r1, 12
+        mov r2, T_WALL
+        bl drv_set_tile
+        bl fov_reset
+        bl fov_update
+        mov r0, 10
+        mov r1, 12
+        bl fov_visible
+        st r0, drv_pil_self     ; 1
+        mov r0, 9
+        mov r1, 12
+        bl fov_visible
+        st r0, drv_pil_behind   ; 0
+        mov r0, 10
+        mov r1, 10
+        bl fov_visible
+        st r0, drv_pil_side     ; 1
+
+        ; 3. Closed door blocks; open door does not.
+        ; Wall is still at x=15, y=0..23. Put closed door at (15, 12).
+        mov r0, 15
+        mov r1, 12
+        mov r2, T_DOOR
+        bl drv_set_tile
+        bl fov_reset
+        bl fov_update
+        mov r0, 15
+        mov r1, 12
+        bl fov_visible
+        st r0, drv_cdoor_self   ; 1
+        mov r0, 16
+        mov r1, 12
+        bl fov_visible
+        st r0, drv_cdoor_behind ; 0
+        mov r0, 17
+        mov r1, 12
+        bl fov_visible
+        st r0, drv_cdoor_behind2 ; 0
+
+        ; Open the door at (15, 12): now (16, 12) and (17, 12) are visible!
+        mov r0, 15
+        mov r1, 12
+        mov r2, T_DOOR_OPEN
+        bl drv_set_tile
+        bl fov_update
+        mov r0, 15
+        mov r1, 12
+        bl fov_visible
+        st r0, drv_odoor_self   ; 1
+        mov r0, 16
+        mov r1, 12
+        bl fov_visible
+        st r0, drv_odoor_behind ; 1
+        mov r0, 17
+        mov r1, 12
+        bl fov_visible
+        st r0, drv_odoor_behind2 ; 1
+        ; Wall tiles beside door still block tiles directly behind them
+        mov r0, 16
+        mov r1, 8
+        bl fov_visible
+        st r0, drv_odoor_side_blk ; 0
+
+        ; 4. Walled room: all 4 corner walls bounding a lit floor are visible
+        mov r0, T_ROCK
+        bl drv_fill_map
+        ; Room walls x=5..13, y=5..11; floor interior x=6..12, y=6..10
+        mov r1, 5
+drv_rm_wy:
+        mov r0, 5
+drv_rm_wx:
+        mov r2, T_WALL
+        bl drv_set_tile
+        add r0, r0, 1
+        cmp r0, 14
+        brlt drv_rm_wx
+        add r1, r1, 1
+        cmp r1, 12
+        brlt drv_rm_wy
+        mov r1, 6
+drv_rm_fy:
+        mov r0, 6
+drv_rm_fx:
+        mov r2, T_FLOOR
+        bl drv_set_tile
+        add r0, r0, 1
+        cmp r0, 13
+        brlt drv_rm_fx
+        add r1, r1, 1
+        cmp r1, 11
+        brlt drv_rm_fy
+        ; Put T_STAIRS and T_RUBBLE inside room (must be transparent)
+        mov r0, 8
+        mov r1, 8
+        mov r2, T_STAIRS
+        bl drv_set_tile
+        mov r0, 10
+        mov r1, 8
+        mov r2, T_RUBBLE
+        bl drv_set_tile
+
+        mov r0, 9
+        st r0, st_px
+        mov r0, 8
+        st r0, st_py
+        mov r0, 8
+        st r0, st_sight
+        bl fov_reset
+        bl fov_update
+        ; Sum of 4 corners visible -> should be 4
+        mov r3, 0
+        mov r0, 5
+        mov r1, 5
+        bl fov_visible
+        add r3, r3, r0
+        mov r0, 13
+        mov r1, 5
+        bl fov_visible
+        add r3, r3, r0
+        mov r0, 5
+        mov r1, 11
+        bl fov_visible
+        add r3, r3, r0
+        mov r0, 13
+        mov r1, 11
+        bl fov_visible
+        add r3, r3, r0
+        st r3, drv_room_corners ; 4
+        ; Tile beyond stairs & rubble still visible -> 1
+        mov r0, 7
+        mov r1, 8
+        bl fov_visible
+        st r0, drv_thru_stairs  ; 1
+        mov r0, 11
+        mov r1, 8
+        bl fov_visible
+        st r0, drv_thru_rubble  ; 1
+        ; T_ROCK outside room wall -> 0
+        mov r0, 4
+        mov r1, 8
+        bl fov_visible
+        st r0, drv_rock_behind  ; 0
+
+        ; 5. Known persists after moving away while visible clears; fov_reset clears both
+        mov r0, T_FLOOR
+        bl drv_fill_map
+        mov r0, 10
+        st r0, st_px
+        mov r0, 10
+        st r0, st_py
+        mov r0, 4
+        st r0, st_sight
+        bl fov_reset
+        bl fov_update
+        ; Move far away to (40, 10)
+        mov r0, 40
+        st r0, st_px
+        mov r0, 10
+        st r0, st_py
+        bl fov_update
+        mov r0, 10
+        mov r1, 10
+        bl fov_visible
+        st r0, drv_old_vis      ; 0
+        mov r0, 10
+        mov r1, 10
+        bl fov_known
+        st r0, drv_old_known    ; 1
+        mov r0, 40
+        mov r1, 10
+        bl fov_visible
+        st r0, drv_new_vis      ; 1
+        mov r0, 40
+        mov r1, 10
+        bl fov_known
+        st r0, drv_new_known    ; 1
+        ; fov_reset clears known too
+        bl fov_reset
+        mov r0, 10
+        mov r1, 10
+        bl fov_known
+        st r0, drv_rst_old_k    ; 0
+        mov r0, 40
+        mov r1, 10
+        bl fov_visible
+        st r0, drv_rst_new_v    ; 0
+
+        ; 6. fov_los: clear, blocked, open door, endpoints ignored, symmetry
+        mov r0, T_FLOOR
+        bl drv_fill_map
+        ; Obstacles: wall at (20, 10), wall at (22, 11), closed door at (25, 10), open door at (25, 14)
+        mov r0, 20
+        mov r1, 10
+        mov r2, T_WALL
+        bl drv_set_tile
+        mov r0, 22
+        mov r1, 11
+        mov r2, T_WALL
+        bl drv_set_tile
+        mov r0, 25
+        mov r1, 10
+        mov r2, T_DOOR
+        bl drv_set_tile
+        mov r0, 25
+        mov r1, 14
+        mov r2, T_DOOR_OPEN
+        bl drv_set_tile
+
+        ; Clear horizontal (10,5) -> (18,5)
+        mov r0, 10
+        mov r1, 5
+        mov r2, 18
+        mov r3, 5
+        bl fov_los
+        st r0, drv_los_clear    ; 1
+
+        ; Blocked by wall (18,10) -> (22,10)
+        mov r0, 18
+        mov r1, 10
+        mov r2, 22
+        mov r3, 10
+        bl fov_los
+        st r0, drv_los_wall     ; 0
+
+        ; Blocked by closed door (23,10) -> (27,10)
+        mov r0, 23
+        mov r1, 10
+        mov r2, 27
+        mov r3, 10
+        bl fov_los
+        st r0, drv_los_cdoor    ; 0
+
+        ; Clear through open door (23,14) -> (27,14)
+        mov r0, 23
+        mov r1, 14
+        mov r2, 27
+        mov r3, 14
+        bl fov_los
+        st r0, drv_los_odoor    ; 1
+
+        ; Endpoints ignored: (18,10) -> (20,10) where (20,10) is T_WALL -> 1
+        mov r0, 18
+        mov r1, 10
+        mov r2, 20
+        mov r3, 10
+        bl fov_los
+        st r0, drv_los_endpt    ; 1
+
+        ; Same point (20,10) -> (20,10) -> 1
+        mov r0, 20
+        mov r1, 10
+        mov r2, 20
+        mov r3, 10
+        bl fov_los
+        st r0, drv_los_same     ; 1
+
+        ; Symmetry loop over drv_los_pairs table (12 pairs including midpoint ties!)
+        mov r0, 0
+        st r0, drv_los_asym
+        lea r4, drv_los_pairs
+        ld r0, drv_los_pair_cnt
+        st r0, drv_tmp_cnt
+drv_sym_lp:
+        ld r0, drv_tmp_cnt
+        cmp r0, 0
+        brz drv_sym_done
+        sub r0, r0, 1
+        st r0, drv_tmp_cnt
+        ldr r0, r4, 0           ; x0
+        ldr r1, r4, 1           ; y0
+        ldr r2, r4, 2           ; x1
+        ldr r3, r4, 3           ; y1
+        bl fov_los
+        st r0, drv_tmp_a        ; A -> B
+        ldr r0, r4, 2           ; x1
+        ldr r1, r4, 3           ; y1
+        ldr r2, r4, 0           ; x0
+        ldr r3, r4, 1           ; y0
+        bl fov_los
+        ld r1, drv_tmp_a        ; B -> A vs A -> B
+        cmp r0, r1
+        bre drv_sym_ok
+        ld r0, drv_los_asym
+        add r0, r0, 1
+        st r0, drv_los_asym
+drv_sym_ok:
+        add r4, r4, 4
+        br drv_sym_lp
+drv_sym_done:
+
+        ; 7. Outside-map queries return 0 (visible, known, los)
+        ; Make entire map known+visible first so outside check can't pass by accident
+        mov r0, T_FLOOR
+        bl drv_fill_map
+        mov r0, 0
+        st r0, st_px
+        mov r0, 0
+        st r0, st_py
+        mov r0, 8
+        st r0, st_sight
+        bl fov_reset
+        bl fov_update
+        ; Corner origin (0,0) must be visible
+        mov r0, 0
+        mov r1, 0
+        bl fov_visible
+        st r0, drv_corner_00    ; 1
+
+        mov r4, 0               ; sum of outside-map results (must stay 0)
+        mov r0, -1
+        mov r1, 0
+        bl fov_visible
+        add r4, r4, r0
+        mov r0, MAP_W
+        mov r1, 0
+        bl fov_visible
+        add r4, r4, r0
+        mov r0, 0
+        mov r1, -1
+        bl fov_visible
+        add r4, r4, r0
+        mov r0, 0
+        mov r1, MAP_H
+        bl fov_visible
+        add r4, r4, r0
+        mov r0, -1
+        mov r1, 0
+        bl fov_known
+        add r4, r4, r0
+        mov r0, MAP_W
+        mov r1, 0
+        bl fov_known
+        add r4, r4, r0
+        mov r0, 0
+        mov r1, -1
+        bl fov_known
+        add r4, r4, r0
+        mov r0, 0
+        mov r1, MAP_H
+        bl fov_known
+        add r4, r4, r0
+        ; fov_los outside endpoints
+        mov r0, -1
+        mov r1, 0
+        mov r2, 2
+        mov r3, 0
+        bl fov_los
+        add r4, r4, r0
+        mov r0, 2
+        mov r1, 0
+        mov r2, MAP_W
+        mov r3, 0
+        bl fov_los
+        add r4, r4, r0
+        mov r0, 0
+        mov r1, -1
+        mov r2, 0
+        mov r3, 2
+        bl fov_los
+        add r4, r4, r0
+        mov r0, 0
+        mov r1, 2
+        mov r2, 0
+        mov r3, MAP_H
+        bl fov_los
+        add r4, r4, r0
+        st r4, drv_outside_sum  ; 0
+
+        ; 8. Register preservation check across all 5 routines
+        mov r0, 11
+        mov r1, 12
+        mov r2, 13
+        mov r3, 14
+        mov r4, 15
+        bl fov_reset
+        cmp r0, 11
+        brne drv_reg_fail
+        cmp r1, 12
+        brne drv_reg_fail
+        cmp r2, 13
+        brne drv_reg_fail
+        cmp r3, 14
+        brne drv_reg_fail
+        cmp r4, 15
+        brne drv_reg_fail
+        bl fov_update
+        cmp r0, 11
+        brne drv_reg_fail
+        cmp r1, 12
+        brne drv_reg_fail
+        cmp r2, 13
+        brne drv_reg_fail
+        cmp r3, 14
+        brne drv_reg_fail
+        cmp r4, 15
+        brne drv_reg_fail
+        ; Test fov_visible / fov_known / fov_los preserve r1..r4
+        mov r0, 2
+        mov r1, 3
+        mov r2, 13
+        mov r3, 14
+        mov r4, 15
+        bl fov_visible
+        cmp r1, 3
+        brne drv_reg_fail
+        cmp r2, 13
+        brne drv_reg_fail
+        cmp r3, 14
+        brne drv_reg_fail
+        cmp r4, 15
+        brne drv_reg_fail
+        mov r0, 2
+        bl fov_known
+        cmp r1, 3
+        brne drv_reg_fail
+        cmp r2, 13
+        brne drv_reg_fail
+        cmp r3, 14
+        brne drv_reg_fail
+        cmp r4, 15
+        brne drv_reg_fail
+        mov r0, 1
+        mov r1, 2
+        mov r2, 5
+        mov r3, 4
+        mov r4, 15
+        bl fov_los
+        cmp r1, 2
+        brne drv_reg_fail
+        cmp r2, 5
+        brne drv_reg_fail
+        cmp r3, 4
+        brne drv_reg_fail
+        cmp r4, 15
+        brne drv_reg_fail
+        mov r0, 1
+        st r0, drv_regs_ok
+        br drv_done
+drv_reg_fail:
+        mov r0, 0
+        st r0, drv_regs_ok
+
+drv_done:
+        halt
+
+; ---- driver helpers -------------------------------------------------
+; drv_fill_map r0=tile kind
+drv_fill_map:
+        push r0
+        push r1
+        push r2
+        lea r1, st_map
+        ld r2, drv_c_map_size
+drv_fm_lp:
+        str r0, r1, 0
+        add r1, r1, 1
+        sub r2, r2, 1
+        brp drv_fm_lp
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; drv_set_tile r0=x r1=y r2=kind
+drv_set_tile:
+        push r0
+        push r1
+        push r3
+        sll r1, MAP_SHIFT
+        add r1, r1, r0
+        lea r3, st_map
+        add r3, r3, r1
+        str r2, r3, 0
+        pop r3
+        pop r1
+        pop r0
+        ret
+
+; Local dun_opaque stub matching src/dungeon.ap contract:
+; r0=x r1=y -> r0=1 for T_ROCK T_WALL T_DOOR or outside, 0 otherwise
+dun_opaque:
+        push r1
+        push r2
+        cmp r0, 0
+        brn drv_op_yes
+        mov r2, MAP_W
+        cmp r0, r2
+        brlt drv_op_xok
+        br drv_op_yes
+drv_op_xok:
+        cmp r1, 0
+        brn drv_op_yes
+        mov r2, MAP_H
+        cmp r1, r2
+        brlt drv_op_in
+        br drv_op_yes
+drv_op_in:
+        sll r1, MAP_SHIFT
+        add r1, r1, r0
+        lea r2, st_map
+        add r2, r2, r1
+        ldr r0, r2, 0
+        cmp r0, T_ROCK
+        bre drv_op_yes
+        cmp r0, T_WALL
+        bre drv_op_yes
+        cmp r0, T_DOOR
+        bre drv_op_yes
+        mov r0, 0
+        pop r2
+        pop r1
+        ret
+drv_op_yes:
+        mov r0, 1
+        pop r2
+        pop r1
+        ret
+
+; ---- test data & result cells ---------------------------------------
+drv_c_map_size:     .word MAP_SIZE
+drv_tmp_cnt:        .word 0
+drv_tmp_a:          .word 0
+drv_los_pair_cnt:   .word 12
+drv_los_pairs:
+        ; (x0, y0, x1, y1) pairs covering slopes, ties, obstacles, doors
+        .word 18, 10, 22, 10    ; horizontal across wall (20,10)
+        .word 20, 8,  20, 12    ; vertical across wall (20,10)
+        .word 19, 9,  23, 11    ; dx=4, dy=2 midpoint tie near (20,10) & (22,11)
+        .word 19, 10, 23, 12    ; dx=4, dy=2 shifted by 1
+        .word 20, 11, 24, 10    ; dx=4, dy=-1 near (22,11)
+        .word 19, 9,  22, 10    ; dx=3, dy=1 near wall
+        .word 18, 8,  24, 14    ; 45 deg diagonal
+        .word 24, 8,  18, 14    ; anti-diagonal across (20,12)/(22,10)
+        .word 23, 10, 27, 10    ; across closed door (25,10)
+        .word 23, 14, 27, 14    ; across open door (25,14)
+        .word 21, 9,  23, 13    ; steep dx=2, dy=4 across (22,11)
+        .word 10, 5,  17, 8     ; completely open shallow slope
+
+drv_open_in_cnt:    .word 99
+drv_open_in_bad:    .word 99
+drv_open_out_bad:   .word 99
+drv_wall_front:     .word 99
+drv_wall_self:      .word 99
+drv_wall_self2:     .word 99
+drv_wall_behind:    .word 99
+drv_wall_behind_k:  .word 99
+drv_wall_behind2:   .word 99
+drv_pil_self:       .word 99
+drv_pil_behind:     .word 99
+drv_pil_side:       .word 99
+drv_cdoor_self:     .word 99
+drv_cdoor_behind:   .word 99
+drv_cdoor_behind2:  .word 99
+drv_odoor_self:     .word 99
+drv_odoor_behind:   .word 99
+drv_odoor_behind2:  .word 99
+drv_odoor_side_blk: .word 99
+drv_room_corners:   .word 99
+drv_thru_stairs:    .word 99
+drv_thru_rubble:    .word 99
+drv_rock_behind:    .word 99
+drv_old_vis:        .word 99
+drv_old_known:      .word 99
+drv_new_vis:        .word 99
+drv_new_known:      .word 99
+drv_rst_old_k:      .word 99
+drv_rst_new_v:      .word 99
+drv_los_clear:      .word 99
+drv_los_wall:       .word 99
+drv_los_cdoor:      .word 99
+drv_los_odoor:      .word 99
+drv_los_endpt:      .word 99
+drv_los_same:       .word 99
+drv_los_asym:       .word 99
+drv_corner_00:      .word 99
+drv_outside_sum:    .word 99
+drv_regs_ok:        .word 99
+
+        .include "../../src/state.ap"
+        .include "../../src/fov.ap"

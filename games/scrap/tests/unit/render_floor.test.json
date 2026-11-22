@@ -1,0 +1,29 @@
+{
+  "game": "render_floor_driver.ap",
+  "scenarios": [
+    {
+      "name": "renders a real generated dungeon floor with real FOV, catalog item, target highlight, stairs, and remembered memory tiles",
+      "keys": "_ _ _",
+      "expect": {
+        "status": "halted",
+        "maxStepsPerFrame": 250000,
+        "frames": [
+          {
+            "frame": 0,
+            "screen": { "contains": ["@", "#", "·", "/", "r", "SCRAPCORE"] }
+          },
+          {
+            "frame": 1,
+            "screen": { "contains": ["@", "r", "TARGET:"] },
+            "bg": { "contains": ["r"] }
+          },
+          {
+            "frame": 2,
+            "screen": { "contains": ["@", "<", "#", "·"] },
+            "colors": { "contains": ["bbbbbb", "Y"] }
+          }
+        ]
+      }
+    }
+  ]
+}

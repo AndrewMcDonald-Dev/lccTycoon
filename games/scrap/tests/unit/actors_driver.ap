@@ -1,0 +1,1329 @@
+; Unit driver for src/actors.ap (WP7): type table, pool, scheduler, AI, targeting.
+; Links real dungeon.ap + fov.ap, plus lightweight local stubs for cbt_enemy_attack
+; and ui_msg/ui_msg_add so attacks and spotted messages can be counted and verified.
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        mov r0, 123
+        srand r0
+        mov r0, GAME_PLAY
+        st r0, st_game_state
+
+        ; ============================================================
+        ; 1. Type table, act_type_info, act_name, pool, act_at, act_kill
+        ; ============================================================
+        bl act_init
+        mov r0, 0
+        bl act_type_info
+        st r0, drv_ti_0         ; expect 0
+        mov r0, 8
+        bl act_type_info
+        st r0, drv_ti_8         ; expect 0
+
+        ; Spot-check all 7 enemy type records against DESIGN.md
+        mov r0, EN_FLIT
+        bl act_type_info
+        ldr r1, r0, ET_HP
+        st r1, drv_flit_hp      ; 6
+        ldr r1, r0, ET_SPEED
+        st r1, drv_flit_spd     ; 50
+        ldr r1, r0, ET_ATK_TIME
+        st r1, drv_flit_atk     ; 60
+        ldr r1, r0, ET_DLO
+        st r1, drv_flit_dlo     ; 5
+        ldr r1, r0, ET_DHI
+        st r1, drv_flit_dhi     ; 10
+        ldr r1, r0, ET_DROP
+        ldr r2, r1, 0           ; drop count = 4
+        st r2, drv_flit_dcnt
+        ldr r2, r1, 1           ; first drop = 7 (PT_LIFT_FAN)
+        st r2, drv_flit_d0
+
+        mov r0, EN_WATCHER
+        bl act_type_info
+        ldr r1, r0, ET_DMIN
+        st r1, drv_wat_dmin     ; 2
+        ldr r1, r0, ET_DMAX
+        st r1, drv_wat_dmax     ; 5
+        ldr r1, r0, ET_ACC
+        st r1, drv_wat_acc      ; 55
+
+        mov r0, EN_BULWARK
+        bl act_type_info
+        ldr r1, r0, ET_HP
+        st r1, drv_bul_hp       ; 40
+        ldr r1, r0, ET_SPEED
+        st r1, drv_bul_spd      ; 150
+        ldr r1, r0, ET_ATK_TIME
+        st r1, drv_bul_atk      ; 120
+        ldr r1, r0, ET_DMIN
+        st r1, drv_bul_dmin     ; 4
+        ldr r1, r0, ET_DMAX
+        st r1, drv_bul_dmax     ; 8
+        ldr r1, r0, ET_DROP_PCT
+        st r1, drv_bul_dpct     ; 70
+
+        mov r0, EN_STALKER
+        bl act_type_info
+        ldr r1, r0, ET_HP
+        st r1, drv_stk_hp       ; 22
+        ldr r1, r0, ET_RANGE
+        st r1, drv_stk_rng      ; 7
+        ldr r1, r0, ET_SIGHT
+        st r1, drv_stk_sgt      ; 10
+        ldr r1, r0, ET_DHI
+        st r1, drv_stk_dhi      ; 4
+
+        mov r0, EN_TINKER
+        bl act_type_info
+        ldr r1, r0, ET_AI
+        st r1, drv_tnk_ai       ; AI_WORKER (4)
+        ldr r1, r0, ET_DROP_PCT
+        st r1, drv_tnk_dpct     ; 80
+
+        ; Fill all 24 slots, check 25th returns -1, kill slot 5, reuse slot 5
+        bl act_clear
+        mov r3, 0
+        mov r4, 0               ; ok count
+drv_fill_lp:
+        mov r0, EN_SCUTTLER
+        mov r1, r3
+        mov r2, 1
+        bl act_spawn
+        cmp r0, r3
+        brne drv_fill_next
+        add r4, r4, 1
+drv_fill_next:
+        add r3, r3, 1
+        mov r0, MAX_ENEMIES
+        cmp r3, r0
+        brlt drv_fill_lp
+        st r4, drv_pool_fill    ; expect 24
+
+        mov r0, EN_FLIT
+        mov r1, 30
+        mov r2, 1
+        bl act_spawn
+        st r0, drv_pool_full    ; expect -1
+
+        mov r0, 5
+        mov r1, 1
+        bl act_at
+        st r0, drv_at_hit       ; expect 5
+
+        mov r0, 5
+        bl act_kill
+        mov r0, 5
+        mov r1, 1
+        bl act_at
+        st r0, drv_at_killed    ; expect -1
+
+        mov r0, EN_WATCHER
+        mov r1, 10
+        mov r2, 10
+        bl act_spawn
+        st r0, drv_pool_reuse   ; expect 5
+
+        ; Check act_name on slot 5 ("Watcher") -> first char 'W' (87), and empty slot -> '?'
+        mov r0, 5
+        bl act_name
+        ldr r1, r0, 0
+        st r1, drv_name_ch      ; expect 'W' (87)
+        mov r0, 5
+        bl act_kill
+        mov r0, 5
+        bl act_name
+        ldr r1, r0, 0
+        st r1, drv_name_dead    ; expect '?' (63)
+
+        ; ============================================================
+        ; 2. Scheduler: Flit 2x per 100 TU, Bulwark 2x per 300 TU,
+        ;    ties go to player, ties between enemies go to lower index
+        ; ============================================================
+        bl drv_make_open_room
+        bl act_clear
+        mov r0, 0
+        st r0, st_time
+        st r0, st_ply_next
+        mov r0, 10
+        st r0, st_px
+        mov r0, 10
+        st r0, st_py
+
+        ; Spawn Flit at (15, 10) [dist 5, visible, steps at 50 TU]
+        ; Set E_NEXT = 0 deterministically
+        mov r0, EN_FLIT
+        mov r1, 15
+        mov r2, 10
+        bl act_spawn
+        st r0, drv_tmp0
+        bl drv_zero_next        ; slot 0 E_NEXT = 0
+        ; Player spends 100 TU -> Flit should step twice: 15 -> 14 -> 13, E_NEXT = 100
+        mov r0, 100
+        st r0, st_ply_next
+        bl act_run
+        lea r2, st_enemies
+        ldr r0, r2, E_X
+        st r0, drv_flit_x1      ; expect 13 (moved 2 steps!)
+        ldr r0, r2, E_NEXT
+        st r0, drv_flit_n1      ; expect 100 (tie went to player, did not take 3rd step)
+
+        ; Bulwark test: step 150 TU -> acts 2 times across 3 turns of 100 TU
+        bl act_clear
+        mov r0, 0
+        st r0, st_time
+        st r0, st_ply_next
+        mov r0, EN_BULWARK
+        mov r1, 15
+        mov r2, 10
+        bl act_spawn            ; slot 0
+        mov r0, 0
+        bl drv_zero_next        ; E_NEXT = 0
+        ; Turn 1: ply_next = 100 -> acts once (x: 15 -> 14, next = 150)
+        mov r0, 100
+        st r0, st_ply_next
+        bl act_run
+        lea r2, st_enemies
+        ldr r0, r2, E_X
+        st r0, drv_bul_x1       ; expect 14
+        ; Turn 2: ply_next = 200 -> acts once (x: 14 -> 13, next = 300)
+        mov r0, 200
+        st r0, st_ply_next
+        bl act_run
+        lea r2, st_enemies
+        ldr r0, r2, E_X
+        st r0, drv_bul_x2       ; expect 13
+        ; Turn 3: ply_next = 300 -> tie (300 == 300) -> 0 actions! (x stays 13)
+        ld r0, drv_k_300
+        st r0, st_ply_next
+        bl act_run
+        lea r2, st_enemies
+        ldr r0, r2, E_X
+        st r0, drv_bul_x3       ; expect 13
+
+        ; Tie-breaking between enemies: two adjacent Scuttlers with same E_NEXT = 50
+        ; Slot 0 must attack before Slot 1!
+        bl act_clear
+        bl drv_reset_cbt
+        mov r0, 0
+        st r0, st_time
+        mov r0, EN_SCUTTLER
+        mov r1, 11
+        mov r2, 10
+        bl act_spawn            ; slot 0
+        mov r0, EN_SCUTTLER
+        mov r1, 9
+        mov r2, 10
+        bl act_spawn            ; slot 1
+        lea r2, st_enemies
+        mov r0, 50
+        str r0, r2, E_NEXT
+        str r0, r2, ENEMY_SIZE+E_NEXT
+        mov r0, 100
+        st r0, st_ply_next
+        bl act_run
+        ld r0, drv_cbt_cnt
+        st r0, drv_tie_cnt      ; expect 2
+        ld r0, drv_cbt_log0
+        st r0, drv_tie_first    ; expect 0
+        ld r0, drv_cbt_log1
+        st r0, drv_tie_second   ; expect 1
+
+        ; ============================================================
+        ; 3. Time rebase (TIME_REBASE = 16384) preserves order
+        ; ============================================================
+        bl act_clear
+        bl drv_reset_cbt
+        ld r0, drv_k_16300
+        st r0, st_time
+        ; Spawn two adjacent Scuttlers: slot 0 at 16350, slot 1 at 16420
+        mov r0, EN_SCUTTLER
+        mov r1, 11
+        mov r2, 10
+        bl act_spawn            ; slot 0
+        mov r0, EN_SCUTTLER
+        mov r1, 9
+        mov r2, 10
+        bl act_spawn            ; slot 1
+        lea r2, st_enemies
+        ld r0, drv_k_16350
+        str r0, r2, E_NEXT      ; slot 0: 16350 (acts this turn -> 16450 -> rebased 66)
+        ld r0, drv_k_16420
+        str r0, r2, ENEMY_SIZE+E_NEXT ; slot 1: 16420 (waits -> rebased 36)
+        ld r0, drv_k_16400
+        st r0, st_ply_next
+        bl act_run
+        ld r0, st_time
+        st r0, drv_rb_time      ; expect 16400 - 16384 = 16
+        ld r0, st_ply_next
+        st r0, drv_rb_pnext     ; expect 16
+        lea r2, st_enemies
+        ldr r0, r2, E_NEXT
+        st r0, drv_rb_e0        ; expect 16450 - 16384 = 66
+        ldr r0, r2, ENEMY_SIZE+E_NEXT
+        st r0, drv_rb_e1        ; expect 16420 - 16384 = 36
+        ; Next turn: ply_next = 116 -> slot 1 (36) MUST act before slot 0 (66)!
+        bl drv_reset_cbt
+        mov r0, 116
+        st r0, st_ply_next
+        bl act_run
+        ld r0, drv_cbt_log0
+        st r0, drv_rb_order0    ; expect 1
+        ld r0, drv_cbt_log1
+        st r0, drv_rb_order1    ; expect 0
+
+        ; Stop immediately when st_game_state becomes GAME_DEAD during combat
+        bl act_clear
+        bl drv_reset_cbt
+        mov r0, 1
+        st r0, drv_cbt_kill_ply
+        mov r0, 0
+        st r0, st_time
+        mov r0, EN_SCUTTLER
+        mov r1, 11
+        mov r2, 10
+        bl act_spawn
+        mov r0, EN_SCUTTLER
+        mov r1, 9
+        mov r2, 10
+        bl act_spawn
+        lea r2, st_enemies
+        mov r0, 10
+        str r0, r2, E_NEXT
+        str r0, r2, ENEMY_SIZE+E_NEXT
+        mov r0, 100
+        st r0, st_ply_next
+        bl act_run
+        ld r0, drv_cbt_cnt
+        st r0, drv_dead_stop    ; expect 1 (second enemy did not act after death!)
+        mov r0, 0
+        st r0, drv_cbt_kill_ply
+        mov r0, GAME_PLAY
+        st r0, st_game_state
+
+        ; ============================================================
+        ; 4. AI: Melee hunt around wall obstacle, corridor, door opening,
+        ;    and collision/flanking (no walls, no overlap with player/robot)
+        ; ============================================================
+        mov r0, 1
+        sleep r0
+        bl drv_make_open_room
+        ; Put a vertical wall barrier at x=12, y=8..11 (gap at y=12)
+        mov r0, 12
+        mov r1, 8
+        mov r2, T_WALL
+        bl dun_set
+        mov r0, 12
+        mov r1, 9
+        mov r2, T_WALL
+        bl dun_set
+        mov r0, 12
+        mov r1, 10
+        mov r2, T_WALL
+        bl dun_set
+        mov r0, 12
+        mov r1, 11
+        mov r2, T_WALL
+        bl dun_set
+        ; Player at (10, 10), Scuttler at (14, 10) already hunting (player spotted earlier)
+        ; Wall blocks direct path; BFS must route it around y=12 to reach player!
+        bl act_clear
+        bl drv_reset_cbt
+        mov r0, 0
+        st r0, st_time
+        st r0, st_ply_next
+        mov r0, 10
+        st r0, st_px
+        mov r0, 10
+        st r0, st_py
+        mov r0, EN_SCUTTLER
+        mov r1, 14
+        mov r2, 10
+        bl act_spawn            ; slot 0
+        lea r2, st_enemies
+        mov r0, 0
+        str r0, r2, E_NEXT
+        mov r0, ES_HUNT
+        str r0, r2, E_STATE
+        mov r0, 10
+        str r0, r2, E_TX
+        str r0, r2, E_TY
+        mov r0, ALERT_TURNS
+        str r0, r2, E_ALERT
+        ; Run 8 turns of 100 TU; verify never on wall or player and attacks by end!
+        mov r3, 8
+        mov r4, 0               ; bad moves
+drv_obs_lp:
+        ld r0, st_ply_next
+        mov r1, 100
+        add r0, r0, r1
+        st r0, st_ply_next
+        bl act_run
+        lea r2, st_enemies
+        ldr r0, r2, E_X
+        ldr r1, r2, E_Y
+        bl dun_walkable
+        cmp r0, 0
+        brnz drv_obs_chk_p
+        add r4, r4, 1
+drv_obs_chk_p:
+        lea r2, st_enemies
+        ldr r0, r2, E_X
+        ld r1, st_px
+        cmp r0, r1
+        brne drv_obs_next
+        ldr r0, r2, E_Y
+        ld r1, st_py
+        cmp r0, r1
+        brne drv_obs_next
+        add r4, r4, 1
+drv_obs_next:
+        sub r3, r3, 1
+        brp drv_obs_lp
+        st r4, drv_obs_bad      ; expect 0 (never on wall or player)
+        ld r0, drv_cbt_cnt
+        cmp r0, 0
+        brp drv_obs_hit_ok
+        mov r0, 0
+        br drv_obs_hit_st
+drv_obs_hit_ok:
+        mov r0, 1
+drv_obs_hit_st:
+        st r0, drv_obs_reached  ; expect 1 (navigated around wall and attacked!)
+
+        ; Door opening: closed T_DOOR at (11, 10), player at (10, 10), Scuttler at (12, 10)
+        ; Wait: closed door blocks LOS, so put Scuttler already ES_HUNT toward (10, 10)
+        ; and put player at (9, 10) so Scuttler steps onto (11, 10) and opens door!
+        bl drv_make_open_room
+        mov r0, 11
+        mov r1, 9
+        mov r2, T_WALL
+        bl dun_set
+        mov r0, 11
+        mov r1, 10
+        mov r2, T_DOOR
+        bl dun_set
+        mov r0, 11
+        mov r1, 11
+        mov r2, T_WALL
+        bl dun_set
+        bl act_clear
+        mov r0, 0
+        st r0, st_time
+        st r0, st_ply_next
+        mov r0, 9
+        st r0, st_px
+        mov r0, 10
+        st r0, st_py
+        mov r0, EN_SCUTTLER
+        mov r1, 12
+        mov r2, 10
+        bl act_spawn
+        lea r2, st_enemies
+        mov r0, 0
+        str r0, r2, E_NEXT
+        mov r0, ES_HUNT
+        str r0, r2, E_STATE
+        mov r0, 9
+        str r0, r2, E_TX
+        mov r0, 10
+        str r0, r2, E_TY
+        mov r0, ALERT_TURNS
+        str r0, r2, E_ALERT
+        mov r0, 100
+        st r0, st_ply_next
+        bl act_run
+        mov r0, 11
+        mov r1, 10
+        bl dun_get
+        st r0, drv_door_tile    ; expect T_DOOR_OPEN (4)
+
+        ; Collision / no overlap between two robots + flanking
+        bl drv_make_open_room
+        bl act_clear
+        mov r0, 0
+        st r0, st_time
+        st r0, st_ply_next
+        mov r0, 10
+        st r0, st_px
+        mov r0, 10
+        st r0, st_py
+        ; Robot 0 at (11, 10) [adjacent, will attack not move], Robot 1 at (12, 10)
+        mov r0, EN_SCUTTLER
+        mov r1, 11
+        mov r2, 10
+        bl act_spawn            ; slot 0
+        mov r0, EN_SCUTTLER
+        mov r1, 12
+        mov r2, 10
+        bl act_spawn            ; slot 1
+        lea r2, st_enemies
+        mov r0, 0
+        str r0, r2, E_NEXT
+        str r0, r2, ENEMY_SIZE+E_NEXT
+        mov r0, 100
+        st r0, st_ply_next
+        bl act_run
+        ; Slot 1 must NOT be at (11, 10), and should flank to dist 1 (x=11, y=9 or 11)!
+        lea r2, st_enemies
+        ldr r0, r2, ENEMY_SIZE+E_X
+        ldr r1, r2, ENEMY_SIZE+E_Y
+        mov r3, 0
+        cmp r0, 11
+        brne drv_flk_no_ov
+        cmp r1, 10
+        brne drv_flk_no_ov
+        mov r3, 1               ; overlapped!
+drv_flk_no_ov:
+        st r3, drv_no_overlap   ; expect 0
+        ld r2, st_px
+        ld r3, st_py
+        bl dun_dist
+        st r0, drv_flank_dist   ; expect 1 (flanked diagonally to player!)
+
+        ; ============================================================
+        ; 5. Ranged AI (Rifler): shoot at range 4, back off at dist 2,
+        ;    approach at dist 8
+        ; ============================================================
+        mov r0, 1
+        sleep r0
+        bl drv_make_open_room
+        bl act_clear
+        bl drv_reset_cbt
+        mov r0, 0
+        st r0, st_time
+        st r0, st_ply_next
+        mov r0, 10
+        st r0, st_px
+        mov r0, 10
+        st r0, st_py
+        ; Rifler at (14, 10): dist 4 (in range 6, > 2) with LOS -> must shoot, NOT move!
+        mov r0, EN_RIFLER
+        mov r1, 14
+        mov r2, 10
+        bl act_spawn
+        mov r0, 0
+        bl drv_zero_next
+        mov r0, 100
+        st r0, st_ply_next
+        bl act_run
+        ld r0, drv_cbt_cnt
+        st r0, drv_rng_shot     ; expect 1
+        lea r2, st_enemies
+        ldr r0, r2, E_X
+        st r0, drv_rng_stayx    ; expect 14 (did not move!)
+
+        ; Rifler at (12, 10): dist 2 (<= 2) with LOS -> must step away to dist >= 3, NOT shoot!
+        bl act_clear
+        bl drv_reset_cbt
+        mov r0, 0
+        st r0, st_time
+        st r0, st_ply_next
+        mov r0, EN_RIFLER
+        mov r1, 12
+        mov r2, 10
+        bl act_spawn
+        mov r0, 0
+        bl drv_zero_next
+        mov r0, 100
+        st r0, st_ply_next
+        bl act_run
+        ld r0, drv_cbt_cnt
+        st r0, drv_rng_bk_shot  ; expect 0
+        lea r2, st_enemies
+        ldr r0, r2, E_X
+        ldr r1, r2, E_Y
+        ld r2, st_px
+        ld r3, st_py
+        bl dun_dist
+        st r0, drv_rng_bk_dist  ; expect 3
+
+        ; Rifler at (18, 10): dist 8 (<= sight 8, > range 6) -> must approach (dist 7), NOT shoot!
+        bl act_clear
+        bl drv_reset_cbt
+        mov r0, 0
+        st r0, st_time
+        st r0, st_ply_next
+        mov r0, EN_RIFLER
+        mov r1, 18
+        mov r2, 10
+        bl act_spawn
+        mov r0, 0
+        bl drv_zero_next
+        mov r0, 100
+        st r0, st_ply_next
+        bl act_run
+        ld r0, drv_cbt_cnt
+        st r0, drv_rng_ap_shot  ; expect 0
+        lea r2, st_enemies
+        ldr r0, r2, E_X
+        ldr r1, r2, E_Y
+        ld r2, st_px
+        ld r3, st_py
+        bl dun_dist
+        st r0, drv_rng_ap_dist  ; expect 7
+
+        ; ============================================================
+        ; 6. Sentry / Turret (Watcher): never moves (in range, out of range, low HP)
+        ; ============================================================
+        bl drv_make_open_room
+        bl act_clear
+        bl drv_reset_cbt
+        mov r0, 0
+        st r0, st_time
+        st r0, st_ply_next
+        mov r0, 10
+        st r0, st_px
+        mov r0, 10
+        st r0, st_py
+        ; Watcher at (12, 10) with low HP (2 of 20): shoots and does NOT move!
+        mov r0, EN_WATCHER
+        mov r1, 12
+        mov r2, 10
+        bl act_spawn
+        lea r2, st_enemies
+        mov r0, 0
+        str r0, r2, E_NEXT
+        mov r0, 2
+        str r0, r2, E_HP
+        mov r0, 100
+        st r0, st_ply_next
+        bl act_run
+        ld r0, drv_cbt_cnt
+        st r0, drv_tur_shot     ; expect 1
+        lea r2, st_enemies
+        ldr r0, r2, E_X
+        st r0, drv_tur_x        ; expect 12
+        ldr r0, r2, E_Y
+        st r0, drv_tur_y        ; expect 10
+        ; Watcher out of sight at (25, 10): still never moves, never shoots
+        bl act_clear
+        bl drv_reset_cbt
+        mov r0, 0
+        st r0, st_time
+        st r0, st_ply_next
+        mov r0, EN_WATCHER
+        mov r1, 25
+        mov r2, 10
+        bl act_spawn
+        mov r0, 0
+        bl drv_zero_next
+        mov r0, 100
+        st r0, st_ply_next
+        bl act_run
+        ld r0, drv_cbt_cnt
+        st r0, drv_tur_far_shot ; expect 0
+        lea r2, st_enemies
+        ldr r0, r2, E_X
+        st r0, drv_tur_far_x    ; expect 25
+
+        ; ============================================================
+        ; 7. Low-HP Flee & Non-hostile Worker (Tinker)
+        ; ============================================================
+        mov r0, 1
+        sleep r0
+        bl drv_make_open_room
+        bl act_clear
+        bl drv_reset_cbt
+        mov r0, 0
+        st r0, st_time
+        st r0, st_ply_next
+        mov r0, 10
+        st r0, st_px
+        mov r0, 10
+        st r0, st_py
+        ; Scuttler at (12, 10) with HP 2 (< 25% of 12) -> enters ES_FLEE and moves away!
+        mov r0, EN_SCUTTLER
+        mov r1, 12
+        mov r2, 10
+        bl act_spawn
+        lea r2, st_enemies
+        mov r0, 0
+        str r0, r2, E_NEXT
+        mov r0, 2
+        str r0, r2, E_HP
+        mov r0, 100
+        st r0, st_ply_next
+        bl act_run
+        lea r2, st_enemies
+        ldr r0, r2, E_STATE
+        st r0, drv_flee_st      ; expect ES_FLEE (2)
+        ldr r0, r2, E_X
+        ldr r1, r2, E_Y
+        ld r2, st_px
+        ld r3, st_py
+        bl dun_dist
+        st r0, drv_flee_dist    ; expect 3 (moved away from dist 2!)
+
+        ; Tinker adjacent at (11, 10): never attacks, enters ES_FLEE and moves away!
+        bl act_clear
+        bl drv_reset_cbt
+        mov r0, 0
+        st r0, st_time
+        st r0, st_ply_next
+        mov r0, EN_TINKER
+        mov r1, 11
+        mov r2, 10
+        bl act_spawn
+        mov r0, 0
+        bl drv_zero_next
+        mov r0, 80
+        st r0, st_ply_next
+        bl act_run
+        ld r0, drv_cbt_cnt
+        st r0, drv_tnk_atk      ; expect 0
+        lea r2, st_enemies
+        ldr r0, r2, E_STATE
+        st r0, drv_tnk_st       ; expect ES_FLEE (2)
+        ldr r0, r2, E_X
+        ldr r1, r2, E_Y
+        ld r2, st_px
+        ld r3, st_py
+        bl dun_dist
+        st r0, drv_tnk_dist     ; expect 2 (moved away from dist 1!)
+
+        ; ============================================================
+        ; 8. Idle robot without LOS doesn't notice; spotted message once
+        ; ============================================================
+        bl drv_make_open_room
+        ; Full vertical wall at x=12, y=1..22 splitting the room in two
+        mov r3, 1
+drv_split_lp:
+        mov r0, 12
+        mov r1, r3
+        mov r2, T_WALL
+        bl dun_set
+        add r3, r3, 1
+        mov r0, 23
+        cmp r3, r0
+        brlt drv_split_lp
+        bl act_clear
+        mov r0, 0
+        st r0, st_time
+        st r0, st_ply_next
+        st r0, drv_msg_cnt
+        mov r0, 10
+        st r0, st_px
+        mov r0, 10
+        st r0, st_py
+        mov r0, 8
+        st r0, st_sight
+        bl fov_reset
+        bl fov_update
+        ; Scuttler at (14, 10) behind the solid wall (dist 4 <= sight 6, NO LOS!)
+        mov r0, EN_SCUTTLER
+        mov r1, 14
+        mov r2, 10
+        bl act_spawn
+        mov r0, 0
+        bl drv_zero_next
+        mov r0, 100
+        st r0, st_ply_next
+        bl act_run
+        lea r2, st_enemies
+        ldr r0, r2, E_STATE
+        st r0, drv_idle_st      ; expect ES_IDLE (0)
+        ldr r0, r2, E_ALERT
+        st r0, drv_idle_al      ; expect 0
+        ld r0, drv_msg_cnt
+        st r0, drv_idle_msg     ; expect 0
+
+        ; Spotted message posted ONCE when visible and seeing player
+        mov r0, 1
+        sleep r0
+        bl drv_make_open_room
+        bl act_clear
+        mov r0, 0
+        st r0, st_time
+        st r0, st_ply_next
+        st r0, drv_msg_cnt
+        mov r0, 10
+        st r0, st_px
+        mov r0, 10
+        st r0, st_py
+        mov r0, 8
+        st r0, st_sight
+        bl fov_reset
+        bl fov_update
+        mov r0, EN_SCUTTLER
+        mov r1, 14
+        mov r2, 10
+        bl act_spawn
+        mov r0, 0
+        bl drv_zero_next
+        mov r0, 100
+        st r0, st_ply_next
+        bl act_run              ; turn 1 -> spotted!
+        mov r0, 200
+        st r0, st_ply_next
+        bl act_run              ; turn 2 -> already EF_SEEN, no second message
+        ld r0, drv_msg_cnt
+        st r0, drv_spot_cnt     ; expect 1
+        lea r2, st_enemies
+        ldr r0, r2, E_FLAGS
+        and r0, r0, EF_SEEN
+        st r0, drv_spot_flag    ; expect 1
+
+        ; Alert decay: hunting enemy that loses LOS counts down E_ALERT to 0 -> ES_IDLE
+        mov r0, 1
+        sleep r0
+        bl drv_make_open_room
+        mov r3, 1
+drv_dec_wall:
+        mov r0, 12
+        mov r1, r3
+        mov r2, T_WALL
+        bl dun_set
+        add r3, r3, 1
+        mov r0, 23
+        cmp r3, r0
+        brlt drv_dec_wall
+        bl act_clear
+        mov r0, 0
+        st r0, st_time
+        st r0, st_ply_next
+        mov r0, 10
+        st r0, st_px
+        mov r0, 10
+        st r0, st_py
+        mov r0, EN_SCUTTLER
+        mov r1, 14
+        mov r2, 10
+        bl act_spawn
+        lea r2, st_enemies
+        mov r0, 0
+        str r0, r2, E_NEXT
+        mov r0, ES_HUNT
+        str r0, r2, E_STATE
+        mov r0, 14
+        str r0, r2, E_TX
+        mov r0, 10
+        str r0, r2, E_TY
+        mov r0, 2
+        str r0, r2, E_ALERT
+        ; Turn 1: E_ALERT 2 -> 1, still ES_HUNT
+        mov r0, 100
+        st r0, st_ply_next
+        bl act_run
+        lea r2, st_enemies
+        ldr r0, r2, E_STATE
+        st r0, drv_dec_st1      ; expect ES_HUNT (1)
+        ldr r0, r2, E_ALERT
+        st r0, drv_dec_al1      ; expect 1
+        ; Turn 2: E_ALERT 1 -> 0, back to ES_IDLE!
+        mov r0, 200
+        st r0, st_ply_next
+        bl act_run
+        lea r2, st_enemies
+        ldr r0, r2, E_STATE
+        st r0, drv_dec_st2      ; expect ES_IDLE (0)
+        ldr r0, r2, E_ALERT
+        st r0, drv_dec_al2      ; expect 0
+
+        ; ============================================================
+        ; 8b. Blocked greedy hunt MUST NOT leak player position via BFS
+        ; ============================================================
+        mov r0, 1
+        sleep r0
+        bl drv_make_open_room
+        ; Vertical wall at x=15, y=6..14 (open around wall at y=5 and y=15)
+        mov r3, 6
+drv_nb_wall:
+        mov r0, 15
+        mov r1, r3
+        mov r2, T_WALL
+        bl dun_set
+        add r3, r3, 1
+        mov r0, 15
+        cmp r3, r0
+        brlt drv_nb_wall
+        bl act_clear
+        mov r0, 0
+        st r0, st_time
+        st r0, st_ply_next
+        mov r0, 18
+        st r0, st_px
+        mov r0, 10
+        st r0, st_py
+        ; Scuttler at (14,10), hunting stale E_TX=16, E_TY=10 (!= st_px,st_py), cannot see player
+        mov r0, EN_SCUTTLER
+        mov r1, 14
+        mov r2, 10
+        bl act_spawn
+        lea r2, st_enemies
+        mov r0, 0
+        str r0, r2, E_NEXT
+        mov r0, ES_HUNT
+        str r0, r2, E_STATE
+        mov r0, 16
+        str r0, r2, E_TX
+        mov r0, 10
+        str r0, r2, E_TY
+        mov r0, 5
+        str r0, r2, E_ALERT
+        mov r0, 100
+        st r0, st_ply_next
+        bl act_run              ; greedy blocked by wall -> must WAIT at (14,10), NOT BFS around wall!
+        lea r2, st_enemies
+        ldr r0, r2, E_X
+        st r0, drv_nobfs_x      ; expect 14
+        ldr r0, r2, E_Y
+        st r0, drv_nobfs_y      ; expect 10
+        ; Now set (E_TX, E_TY) == (st_px, st_py) = (18, 10): BFS IS allowed and steps around wall
+        mov r0, 18
+        str r0, r2, E_TX
+        mov r0, 10
+        str r0, r2, E_TY
+        mov r0, 200
+        st r0, st_ply_next
+        bl act_run
+        lea r2, st_enemies
+        ldr r0, r2, E_Y
+        cmp r0, 10
+        brne drv_yesbfs_ok
+        mov r0, 0
+        br drv_yesbfs_st
+drv_yesbfs_ok:
+        mov r0, 1
+drv_yesbfs_st:
+        st r0, drv_yesbfs_mv    ; expect 1 (moved vertically around wall via BFS)
+
+        ; ============================================================
+        ; 8c. act_alert: wakes ES_IDLE hostile -> ES_HUNT, worker -> ES_FLEE,
+        ;     preserves ES_FLEE, sets E_TX/E_TY/E_ALERT
+        ; ============================================================
+        bl act_clear
+        mov r0, 10
+        st r0, st_px
+        mov r0, 11
+        st r0, st_py
+        mov r0, EN_SCUTTLER
+        mov r1, 30
+        mov r2, 11
+        bl act_spawn            ; slot 0 (idle hostile)
+        mov r0, EN_TINKER
+        mov r1, 32
+        mov r2, 11
+        bl act_spawn            ; slot 1 (idle worker)
+        mov r0, EN_SCUTTLER
+        mov r1, 34
+        mov r2, 11
+        bl act_spawn            ; slot 2 (already fleeing hostile)
+        mov r0, 2
+        sll r0, ENEMY_SHIFT
+        lea r2, st_enemies
+        add r2, r2, r0
+        mov r0, ES_FLEE
+        str r0, r2, E_STATE
+        mov r0, 0
+        bl act_alert
+        mov r0, 1
+        bl act_alert
+        mov r0, 2
+        bl act_alert
+        lea r2, st_enemies
+        ldr r0, r2, E_STATE
+        st r0, drv_al_h_st      ; expect ES_HUNT (1)
+        ldr r0, r2, E_TX
+        st r0, drv_al_h_tx      ; expect 10
+        ldr r0, r2, E_TY
+        st r0, drv_al_h_ty      ; expect 11
+        ldr r0, r2, E_ALERT
+        st r0, drv_al_h_al      ; expect ALERT_TURNS (12)
+        add r2, r2, 8
+        add r2, r2, 8
+        ldr r0, r2, E_STATE
+        st r0, drv_al_w_st      ; expect ES_FLEE (2)
+        ldr r0, r2, E_ALERT
+        st r0, drv_al_w_al      ; expect ALERT_TURNS (12)
+        add r2, r2, 8
+        add r2, r2, 8
+        ldr r0, r2, E_STATE
+        st r0, drv_al_f_st      ; expect ES_FLEE (2) (not downgraded to ES_HUNT)
+        ldr r0, r2, E_ALERT
+        st r0, drv_al_f_al      ; expect ALERT_TURNS (12)
+
+        ; ============================================================
+        ; 9. act_next_visible: nearest (-1), +1 wrap, -1 wrap, none
+        ; ============================================================
+        bl drv_make_open_room
+        bl act_clear
+        mov r0, 10
+        st r0, st_px
+        mov r0, 10
+        st r0, st_py
+        mov r0, 8
+        st r0, st_sight
+        bl fov_reset
+        bl fov_update
+        ; No enemies -> -1
+        mov r0, -1
+        mov r1, 1
+        bl act_next_visible
+        st r0, drv_nv_none      ; expect -1
+        ; Slot 0: (16, 10) dist 6 (visible)
+        ; Slot 1: (30, 10) dist 20 (NOT visible)
+        ; Slot 2: (12, 10) dist 2 (visible, NEAREST!)
+        ; Slot 3: (14, 10) dist 4 (visible)
+        mov r0, EN_SCUTTLER
+        mov r1, 16
+        mov r2, 10
+        bl act_spawn            ; slot 0
+        mov r0, EN_SCUTTLER
+        mov r1, 30
+        mov r2, 10
+        bl act_spawn            ; slot 1 (out of FOV)
+        mov r0, EN_SCUTTLER
+        mov r1, 12
+        mov r2, 10
+        bl act_spawn            ; slot 2 (nearest)
+        mov r0, EN_SCUTTLER
+        mov r1, 14
+        mov r2, 10
+        bl act_spawn            ; slot 3
+        mov r0, -1
+        mov r1, 1
+        bl act_next_visible
+        st r0, drv_nv_near      ; expect 2
+        mov r0, 2
+        mov r1, 1
+        bl act_next_visible
+        st r0, drv_nv_fwd1      ; expect 3
+        mov r0, 3
+        mov r1, 1
+        bl act_next_visible
+        st r0, drv_nv_fwd2      ; expect 0 (wrapped!)
+        mov r0, 0
+        mov r1, -1
+        bl act_next_visible
+        st r0, drv_nv_bwd1      ; expect 3 (wrapped back!)
+        mov r0, 2
+        mov r1, -1
+        bl act_next_visible
+        st r0, drv_nv_bwd2      ; expect 0 (skipped invisible slot 1!)
+
+        ; Hostile preference over Tinker (AI_WORKER) on initial target pick (from=-1)
+        bl act_clear
+        mov r0, EN_TINKER
+        mov r1, 12              ; dist 2 (closer!)
+        mov r2, 10
+        bl act_spawn            ; slot 0
+        mov r0, EN_SCUTTLER
+        mov r1, 15              ; dist 5 (farther, but hostile!)
+        mov r2, 10
+        bl act_spawn            ; slot 1
+        mov r0, -1
+        mov r1, 1
+        bl act_next_visible
+        st r0, drv_nv_hostile   ; expect 1 (Scuttler preferred over closer Tinker)
+        mov r0, 1
+        mov r1, 1
+        bl act_next_visible
+        st r0, drv_nv_cyc_tnk   ; expect 0 (cycling still reaches Tinker)
+        ; Only Tinker visible -> falls back to Tinker
+        mov r0, 1
+        bl act_kill
+        mov r0, -1
+        mov r1, 1
+        bl act_next_visible
+        st r0, drv_nv_only_tnk  ; expect 0 (Tinker when no hostile visible)
+        ; Respawn slot 0 at (12, 10) for section 10 act_at check
+        bl act_clear
+        mov r0, EN_SCUTTLER
+        mov r1, 12
+        mov r2, 10
+        bl act_spawn
+
+        ; ============================================================
+        ; 10. Register preservation across public act_* routines
+        ; ============================================================
+        mov r0, EN_FLIT
+        mov r1, 11
+        mov r2, 12
+        mov r3, 13
+        mov r4, 14
+        bl act_type_info
+        cmp r1, 11
+        brnz drv_reg_bad
+        cmp r2, 12
+        brnz drv_reg_bad
+        cmp r3, 13
+        brnz drv_reg_bad
+        cmp r4, 14
+        brnz drv_reg_bad
+        mov r0, 0
+        bl act_name
+        cmp r1, 11
+        brnz drv_reg_bad
+        cmp r2, 12
+        brnz drv_reg_bad
+        cmp r3, 13
+        brnz drv_reg_bad
+        cmp r4, 14
+        brnz drv_reg_bad
+        mov r0, 12
+        mov r1, 10
+        bl act_at
+        cmp r1, 10
+        brnz drv_reg_bad
+        cmp r2, 12
+        brnz drv_reg_bad
+        cmp r3, 13
+        brnz drv_reg_bad
+        cmp r4, 14
+        brnz drv_reg_bad
+        mov r0, -1
+        mov r1, 1
+        bl act_next_visible
+        cmp r1, 1
+        brnz drv_reg_bad
+        cmp r2, 12
+        brnz drv_reg_bad
+        cmp r3, 13
+        brnz drv_reg_bad
+        cmp r4, 14
+        brnz drv_reg_bad
+        mov r0, 0
+        bl act_alert
+        cmp r0, 0
+        brnz drv_reg_bad
+        cmp r1, 1
+        brnz drv_reg_bad
+        cmp r2, 12
+        brnz drv_reg_bad
+        cmp r3, 13
+        brnz drv_reg_bad
+        cmp r4, 14
+        brnz drv_reg_bad
+        mov r0, 1
+        st r0, drv_regs_ok
+        halt
+drv_reg_bad:
+        mov r0, 0
+        st r0, drv_regs_ok
+        halt
+
+; ---- Helpers --------------------------------------------------------
+
+; Make a clean 62x22 floor room surrounded by walls
+drv_make_open_room:
+        push r0
+        push r1
+        push r2
+        push r3
+        push lr
+        ; Fill all with T_WALL
+        lea r0, st_map
+        ld r1, drv_k_mapsize
+        mov r2, T_WALL
+drv_mor_w:
+        str r2, r0, 0
+        add r0, r0, 1
+        sub r1, r1, 1
+        brp drv_mor_w
+        ; Interior [1..62] x [1..22] = T_FLOOR
+        mov r1, 1
+drv_mor_y:
+        mov r0, 1
+drv_mor_x:
+        mov r2, T_FLOOR
+        bl dun_set
+        add r0, r0, 1
+        mov r3, MAP_W-1
+        cmp r0, r3
+        brlt drv_mor_x
+        add r1, r1, 1
+        mov r3, MAP_H-1
+        cmp r1, r3
+        brlt drv_mor_y
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+drv_zero_next:
+        push r0
+        push r1
+        sll r0, ENEMY_SHIFT
+        lea r1, st_enemies
+        add r1, r1, r0
+        mov r0, 0
+        str r0, r1, E_NEXT
+        pop r1
+        pop r0
+        ret
+
+drv_reset_cbt:
+        push r0
+        mov r0, 0
+        st r0, drv_cbt_cnt
+        mov r0, -1
+        st r0, drv_cbt_log0
+        st r0, drv_cbt_log1
+        pop r0
+        ret
+
+; ---- Local stubs for combat & ui ------------------------------------
+
+cbt_enemy_attack:
+        push r0
+        push r1
+        ld r1, drv_cbt_cnt
+        cmp r1, 0
+        brne drv_cea_1
+        st r0, drv_cbt_log0
+        br drv_cea_inc
+drv_cea_1:
+        cmp r1, 1
+        brne drv_cea_inc
+        st r0, drv_cbt_log1
+drv_cea_inc:
+        add r1, r1, 1
+        st r1, drv_cbt_cnt
+        ld r1, drv_cbt_kill_ply
+        cmp r1, 0
+        brz drv_cea_done
+        mov r1, GAME_DEAD
+        st r1, st_game_state
+drv_cea_done:
+        pop r1
+        pop r0
+        ret
+
+ui_msg:
+        push r0
+        ld r0, drv_msg_cnt
+        add r0, r0, 1
+        st r0, drv_msg_cnt
+        pop r0
+        ret
+
+ui_msg_add:
+        ret
+
+; ---- Constants & results --------------------------------------------
+drv_k_mapsize:      .word MAP_SIZE
+drv_k_300:          .word 300
+drv_k_16300:        .word 16300
+drv_k_16350:        .word 16350
+drv_k_16400:        .word 16400
+drv_k_16420:        .word 16420
+
+drv_tmp0:           .word 0
+drv_cbt_cnt:        .word 0
+drv_cbt_log0:       .word -1
+drv_cbt_log1:       .word -1
+drv_cbt_kill_ply:   .word 0
+drv_msg_cnt:        .word 0
+
+; Recorded test outputs
+drv_ti_0:           .word 99
+drv_ti_8:           .word 99
+drv_flit_hp:        .word 99
+drv_flit_spd:       .word 99
+drv_flit_atk:       .word 99
+drv_flit_dlo:       .word 99
+drv_flit_dhi:       .word 99
+drv_flit_dcnt:      .word 99
+drv_flit_d0:        .word 99
+drv_wat_dmin:       .word 99
+drv_wat_dmax:       .word 99
+drv_wat_acc:        .word 99
+drv_bul_hp:         .word 99
+drv_bul_spd:        .word 99
+drv_bul_atk:        .word 99
+drv_bul_dmin:       .word 99
+drv_bul_dmax:       .word 99
+drv_bul_dpct:       .word 99
+drv_stk_hp:         .word 99
+drv_stk_rng:        .word 99
+drv_stk_sgt:        .word 99
+drv_stk_dhi:        .word 99
+drv_tnk_ai:         .word 99
+drv_tnk_dpct:       .word 99
+drv_pool_fill:      .word 99
+drv_pool_full:      .word 99
+drv_at_hit:         .word 99
+drv_at_killed:      .word 99
+drv_pool_reuse:     .word 99
+drv_name_ch:        .word 99
+drv_name_dead:      .word 99
+
+drv_flit_x1:        .word 99
+drv_flit_n1:        .word 99
+drv_bul_x1:         .word 99
+drv_bul_x2:         .word 99
+drv_bul_x3:         .word 99
+drv_tie_cnt:        .word 99
+drv_tie_first:      .word 99
+drv_tie_second:     .word 99
+drv_rb_time:        .word 99
+drv_rb_pnext:       .word 99
+drv_rb_e0:          .word 99
+drv_rb_e1:          .word 99
+drv_rb_order0:      .word 99
+drv_rb_order1:      .word 99
+drv_dead_stop:      .word 99
+
+drv_obs_bad:        .word 99
+drv_obs_reached:    .word 99
+drv_door_tile:      .word 99
+drv_no_overlap:     .word 99
+drv_flank_dist:     .word 99
+drv_rng_shot:       .word 99
+drv_rng_stayx:      .word 99
+drv_rng_bk_shot:    .word 99
+drv_rng_bk_dist:    .word 99
+drv_rng_ap_shot:    .word 99
+drv_rng_ap_dist:    .word 99
+drv_tur_shot:       .word 99
+drv_tur_x:          .word 99
+drv_tur_y:          .word 99
+drv_tur_far_shot:   .word 99
+drv_tur_far_x:      .word 99
+drv_flee_st:        .word 99
+drv_flee_dist:      .word 99
+drv_tnk_atk:        .word 99
+drv_tnk_st:         .word 99
+drv_tnk_dist:       .word 99
+drv_idle_st:        .word 99
+drv_idle_al:        .word 99
+drv_idle_msg:       .word 99
+drv_spot_cnt:       .word 99
+drv_spot_flag:      .word 99
+drv_dec_st1:        .word 99
+drv_dec_al1:        .word 99
+drv_dec_st2:        .word 99
+drv_dec_al2:        .word 99
+drv_nobfs_x:        .word 99
+drv_nobfs_y:        .word 99
+drv_yesbfs_mv:      .word 99
+drv_al_h_st:        .word 99
+drv_al_h_tx:        .word 99
+drv_al_h_ty:        .word 99
+drv_al_h_al:        .word 99
+drv_al_w_st:        .word 99
+drv_al_w_al:        .word 99
+drv_al_f_st:        .word 99
+drv_al_f_al:        .word 99
+drv_nv_none:        .word 99
+drv_nv_near:        .word 99
+drv_nv_fwd1:        .word 99
+drv_nv_fwd2:        .word 99
+drv_nv_bwd1:        .word 99
+drv_nv_bwd2:        .word 99
+drv_nv_hostile:     .word 99
+drv_nv_cyc_tnk:     .word 99
+drv_nv_only_tnk:    .word 99
+drv_regs_ok:        .word 99
+
+        .include "../../src/state.ap"
+        .include "../../src/rng.ap"
+        .include "../../src/dungeon.ap"
+        .include "../../src/fov.ap"
+        .include "../../src/actors.ap"

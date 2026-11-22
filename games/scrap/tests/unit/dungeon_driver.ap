@@ -1,0 +1,598 @@
+; Extended unit driver for src/dungeon.ap (WP1).
+; Covers:
+;   - outside-map behavior (dun_get, dun_set, dun_walkable, dun_opaque, dun_room_of)
+;   - get/set round trip across all T_* kinds and map corners
+;   - walkable/opaque per kind
+;   - dun_dist cases (0, horizontal, vertical, diagonal, symmetric, negative)
+;   - register preservation across all public dun_* routines
+;   - floor generation invariants: room count, player on T_FLOOR in st_start_room,
+;     single T_STAIRS in a room != st_start_room, full BFS reachability of stairs
+;     and of every walkable tile, dun_room_of inside vs wall, dun_random_floor
+;     always returning a room T_FLOOR tile, and determinism for a given seed.
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        ; Seed from millis so --clock in scenarios varies the seed deterministically.
+        millis r0
+        st r0, drv_seed
+        srand r0
+
+        ; 1. Generate a floor at depth 7
+        mov r0, 7
+        bl dun_generate
+
+        ; 2. Outside-map checks (original WP0 assertions + extra edges)
+        mov r0, -1
+        mov r1, 0
+        bl dun_get
+        st r0, drv_get_left
+
+        mov r0, MAP_W
+        mov r1, 0
+        bl dun_get
+        st r0, drv_get_right
+
+        mov r0, 0
+        mov r1, -1
+        bl dun_get
+        st r0, drv_get_top
+
+        mov r0, 0
+        mov r1, MAP_H
+        bl dun_get
+        st r0, drv_get_bottom
+
+        mov r0, MAP_W
+        mov r1, 3
+        bl dun_walkable
+        st r0, drv_walk_right
+
+        mov r0, -1
+        mov r1, 3
+        bl dun_walkable
+        st r0, drv_walk_left
+
+        mov r0, 0
+        mov r1, MAP_H
+        bl dun_opaque
+        st r0, drv_opaque_bottom
+
+        mov r0, 0
+        mov r1, -1
+        bl dun_opaque
+        st r0, drv_opaque_top
+
+        mov r0, 5
+        mov r1, -1
+        bl dun_room_of
+        st r0, drv_room_top
+
+        mov r0, MAP_W
+        mov r1, 5
+        bl dun_room_of
+        st r0, drv_room_right
+
+        ; 3. Player inside map, on T_FLOOR, inside st_start_room
+        mov r1, 0
+        ld r0, st_px
+        cmp r0, 0
+        brn drv_start_done
+        mov r2, MAP_W
+        cmp r0, r2
+        brlt drv_x_ok
+        br drv_start_done
+drv_x_ok:
+        ld r0, st_py
+        cmp r0, 0
+        brn drv_start_done
+        mov r2, MAP_H
+        cmp r0, r2
+        brlt drv_in
+        br drv_start_done
+drv_in:
+        mov r1, 1
+drv_start_done:
+        st r1, drv_start_in
+
+        ld r0, st_px
+        ld r1, st_py
+        bl dun_get
+        st r0, drv_ply_tile
+
+        ld r0, st_px
+        ld r1, st_py
+        bl dun_room_of
+        ld r1, st_start_room
+        cmp r0, r1
+        bre drv_ply_rm_yes
+        mov r0, 0
+        br drv_ply_rm_st
+drv_ply_rm_yes:
+        mov r0, 1
+drv_ply_rm_st:
+        st r0, drv_ply_in_start
+
+        ; 4. Room count in [ROOMS_MIN, MAX_ROOMS]
+        mov r1, 0
+        ld r0, st_room_count
+        cmp r0, ROOMS_MIN
+        brlt drv_rc_st
+        cmp r0, MAX_ROOMS
+        brgt drv_rc_st
+        mov r1, 1
+drv_rc_st:
+        st r1, drv_rooms_ok
+
+        ; 5. Stairs on T_STAIRS, in a valid room != st_start_room, unique on map
+        ld r0, st_stairs_x
+        ld r1, st_stairs_y
+        bl dun_get
+        st r0, drv_stairs_tile
+
+        ld r0, st_stairs_x
+        ld r1, st_stairs_y
+        bl dun_room_of
+        mov r1, 0
+        cmp r0, 0
+        brn drv_st_rm_st
+        ld r2, st_start_room
+        cmp r0, r2
+        bre drv_st_rm_st
+        mov r1, 1
+drv_st_rm_st:
+        st r1, drv_stairs_room_ok
+
+        ; Count T_STAIRS on st_map
+        lea r0, st_map
+        ld r1, drv_k_mapsize
+        mov r2, 0
+drv_cnt_st:
+        ldr r3, r0, 0
+        cmp r3, T_STAIRS
+        brnz drv_cnt_st_n
+        add r2, r2, 1
+drv_cnt_st_n:
+        add r0, r0, 1
+        sub r1, r1, 1
+        brp drv_cnt_st
+        st r2, drv_stairs_count
+
+        ; 6. dun_room_of on room 0 interior corner vs wall outside room 0
+        lea r4, st_rooms
+        ldr r0, r4, RM_X
+        ldr r1, r4, RM_Y
+        bl dun_room_of
+        st r0, drv_rm0_in
+        ldr r0, r4, RM_X
+        sub r0, r0, 1           ; left wall of room 0
+        ldr r1, r4, RM_Y
+        bl dun_room_of
+        st r0, drv_rm0_wall
+
+        ; 7. dun_random_floor 50 samples: every sample is T_FLOOR and inside a room
+        mov r3, 50
+        mov r4, 0               ; bad count
+drv_rf_loop:
+        bl dun_random_floor
+        mov r1, r0
+        mov r2, MAP_XMASK
+        and r0, r0, r2          ; x = idx & 63
+        srl r1, MAP_SHIFT       ; y = idx >> 6
+        push r0
+        push r1
+        bl dun_get
+        cmp r0, T_FLOOR
+        pop r1
+        pop r0
+        brnz drv_rf_bad
+        bl dun_room_of
+        cmp r0, 0
+        brn drv_rf_bad
+        br drv_rf_next
+drv_rf_bad:
+        add r4, r4, 1
+drv_rf_next:
+        sub r3, r3, 1
+        brp drv_rf_loop
+        st r4, drv_rf_bad_cnt
+
+        ; 8. BFS reachability from (st_px, st_py): stairs reached & 0 unreachable walkable tiles
+        bl drv_check_bfs
+
+        ; 9. Checksum of map for determinism check
+        bl drv_map_checksum
+        st r0, drv_cksum1
+
+        ; 10. Determinism: re-seed with same seed and regenerate depth 7
+        ld r0, drv_seed
+        srand r0
+        mov r0, 7
+        bl dun_generate
+        bl drv_map_checksum
+        ld r1, drv_cksum1
+        cmp r0, r1
+        bre drv_det_yes
+        mov r0, 0
+        br drv_det_st
+drv_det_yes:
+        mov r0, 1
+drv_det_st:
+        st r0, drv_deterministic
+
+        ; 11. dun_get / dun_set round trip + walkable/opaque per tile kind
+        mov r3, 0               ; kind = 0..T_KIND_COUNT-1
+drv_kind_loop:
+        cmp r3, T_KIND_COUNT
+        brlt drv_kind_do
+        br drv_kind_done
+drv_kind_do:
+        mov r0, 10
+        mov r1, 10
+        mov r2, r3
+        bl dun_set
+        mov r0, 10
+        mov r1, 10
+        bl dun_get
+        lea r4, drv_rt_get
+        add r4, r4, r3
+        str r0, r4, 0
+        mov r0, 10
+        mov r1, 10
+        bl dun_walkable
+        lea r4, drv_rt_walk
+        add r4, r4, r3
+        str r0, r4, 0
+        mov r0, 10
+        mov r1, 10
+        bl dun_opaque
+        lea r4, drv_rt_opaq
+        add r4, r4, r3
+        str r0, r4, 0
+        add r3, r3, 1
+        br drv_kind_loop
+drv_kind_done:
+        ; Corner round trip + out-of-bounds dun_set ignored
+        mov r0, 0
+        mov r1, 0
+        mov r2, T_DOOR_OPEN
+        bl dun_set
+        mov r0, -1
+        mov r1, 0
+        mov r2, T_WALL
+        bl dun_set
+        mov r0, 0
+        mov r1, 0
+        bl dun_get
+        st r0, drv_corner_tl
+
+        mov r0, MAP_W-1
+        mov r1, MAP_H-1
+        mov r2, T_RUBBLE
+        bl dun_set
+        mov r0, MAP_W
+        mov r1, MAP_H-1
+        mov r2, T_ROCK
+        bl dun_set
+        mov r0, MAP_W-1
+        mov r1, MAP_H-1
+        bl dun_get
+        st r0, drv_corner_br
+
+        ; 12. dun_dist cases
+        mov r0, 5
+        mov r1, 5
+        mov r2, 5
+        mov r3, 5
+        bl dun_dist
+        st r0, drv_dist_same    ; 0
+
+        mov r0, 3
+        mov r1, 4
+        mov r2, 10
+        mov r3, 4
+        bl dun_dist
+        st r0, drv_dist_horiz   ; 7
+
+        mov r0, 5
+        mov r1, 12
+        mov r2, 5
+        mov r3, 2
+        bl dun_dist
+        st r0, drv_dist_vert    ; 10
+
+        mov r0, 2
+        mov r1, 3
+        mov r2, 7
+        mov r3, 8
+        bl dun_dist
+        st r0, drv_dist_diag    ; 5
+
+        mov r0, 10
+        mov r1, 6
+        mov r2, 3
+        mov r3, 4
+        bl dun_dist
+        st r0, drv_dist_asym    ; 7
+
+        mov r0, -3
+        mov r1, -5
+        mov r2, 4
+        mov r3, 2
+        bl dun_dist
+        st r0, drv_dist_neg     ; 7
+
+        ; 13. Register preservation across dun_dist, dun_get, dun_walkable, dun_opaque, dun_room_of, dun_random_floor
+        mov r0, 1
+        mov r1, 2
+        mov r2, 11
+        mov r3, 12
+        mov r4, 13
+        bl dun_get
+        cmp r1, 2
+        brnz drv_reg_fail
+        cmp r2, 11
+        brnz drv_reg_fail
+        cmp r3, 12
+        brnz drv_reg_fail
+        cmp r4, 13
+        brnz drv_reg_fail
+        bl dun_walkable
+        cmp r1, 2
+        brnz drv_reg_fail
+        cmp r2, 11
+        brnz drv_reg_fail
+        cmp r3, 12
+        brnz drv_reg_fail
+        cmp r4, 13
+        brnz drv_reg_fail
+        bl dun_opaque
+        cmp r1, 2
+        brnz drv_reg_fail
+        cmp r2, 11
+        brnz drv_reg_fail
+        cmp r3, 12
+        brnz drv_reg_fail
+        cmp r4, 13
+        brnz drv_reg_fail
+        bl dun_room_of
+        cmp r1, 2
+        brnz drv_reg_fail
+        cmp r2, 11
+        brnz drv_reg_fail
+        cmp r3, 12
+        brnz drv_reg_fail
+        cmp r4, 13
+        brnz drv_reg_fail
+        bl dun_random_floor
+        cmp r1, 2
+        brnz drv_reg_fail
+        cmp r2, 11
+        brnz drv_reg_fail
+        cmp r3, 12
+        brnz drv_reg_fail
+        cmp r4, 13
+        brnz drv_reg_fail
+        bl dun_dist
+        cmp r1, 2
+        brnz drv_reg_fail
+        cmp r2, 11
+        brnz drv_reg_fail
+        cmp r3, 12
+        brnz drv_reg_fail
+        cmp r4, 13
+        brnz drv_reg_fail
+        mov r0, 1
+        st r0, drv_regs_ok
+        halt
+drv_reg_fail:
+        mov r0, 0
+        st r0, drv_regs_ok
+        halt
+
+; ---- BFS reachability helper (4-neighbor flood from st_px, st_py) ---
+drv_check_bfs:
+        push lr
+        ; Clear visited array
+        lea r0, drv_vis
+        ld r1, drv_k_mapsize
+        mov r2, 0
+drv_bfs_clr:
+        str r2, r0, 0
+        add r0, r0, 1
+        sub r1, r1, 1
+        brp drv_bfs_clr
+
+        ; Enqueue start tile
+        ld r0, st_py
+        sll r0, MAP_SHIFT
+        ld r1, st_px
+        or r0, r1
+        lea r2, drv_vis
+        add r2, r2, r0
+        mov r1, 1
+        str r1, r2, 0
+        lea r2, drv_q
+        str r0, r2, 0
+        mov r0, 0
+        st r0, drv_q_head
+        mov r0, 1
+        st r0, drv_q_tail
+        st r0, drv_visited_cnt
+
+drv_bfs_loop:
+        ld r0, drv_q_head
+        ld r1, drv_q_tail
+        cmp r0, r1
+        brlt drv_bfs_pop
+        br drv_bfs_tally
+drv_bfs_pop:
+        lea r2, drv_q
+        add r2, r2, r0
+        ldr r4, r2, 0           ; idx
+        add r0, r0, 1
+        st r0, drv_q_head
+        ; Unpack x, y
+        mov r0, r4
+        mov r2, MAP_XMASK
+        and r0, r0, r2          ; x
+        mov r1, r4
+        srl r1, MAP_SHIFT       ; y
+        st r0, drv_cx
+        st r1, drv_cy
+        ; Try 4 neighbors
+        add r0, r0, 1
+        bl drv_bfs_try
+        ld r0, drv_cx
+        sub r0, r0, 1
+        ld r1, drv_cy
+        bl drv_bfs_try
+        ld r0, drv_cx
+        ld r1, drv_cy
+        add r1, r1, 1
+        bl drv_bfs_try
+        ld r0, drv_cx
+        ld r1, drv_cy
+        sub r1, r1, 1
+        bl drv_bfs_try
+        br drv_bfs_loop
+
+drv_bfs_try:
+        push lr
+        push r0
+        push r1
+        bl dun_walkable
+        cmp r0, 0
+        pop r1
+        pop r0
+        brz drv_bfs_try_end
+        sll r1, MAP_SHIFT
+        or r1, r0               ; idx
+        lea r2, drv_vis
+        add r2, r2, r1
+        ldr r0, r2, 0
+        cmp r0, 0
+        brnz drv_bfs_try_end
+        mov r0, 1
+        str r0, r2, 0
+        ld r0, drv_q_tail
+        lea r2, drv_q
+        add r2, r2, r0
+        str r1, r2, 0
+        add r0, r0, 1
+        st r0, drv_q_tail
+        ld r0, drv_visited_cnt
+        add r0, r0, 1
+        st r0, drv_visited_cnt
+drv_bfs_try_end:
+        pop lr
+        ret
+
+drv_bfs_tally:
+        ; Check stairs reached
+        ld r0, st_stairs_y
+        sll r0, MAP_SHIFT
+        ld r1, st_stairs_x
+        or r0, r1
+        lea r2, drv_vis
+        add r2, r2, r0
+        ldr r0, r2, 0
+        st r0, drv_stairs_reached
+        ; Count total walkable tiles on the map
+        mov r4, 0               ; total walkable
+        mov r1, 0               ; y
+drv_tw_y:
+        mov r2, MAP_H
+        cmp r1, r2
+        brlt drv_tw_x0
+        br drv_tw_done
+drv_tw_x0:
+        mov r0, 0               ; x
+drv_tw_x:
+        mov r2, MAP_W
+        cmp r0, r2
+        brlt drv_tw_chk
+        add r1, r1, 1
+        br drv_tw_y
+drv_tw_chk:
+        push r0
+        bl dun_walkable
+        add r4, r4, r0
+        pop r0
+        add r0, r0, 1
+        br drv_tw_x
+drv_tw_done:
+        ld r0, drv_visited_cnt
+        sub r4, r4, r0
+        st r4, drv_unreachable
+        pop lr
+        ret
+
+drv_map_checksum:
+        lea r1, st_map
+        ld r2, drv_k_mapsize
+        mov r0, 0
+drv_ck_loop:
+        ldr r3, r1, 0
+        add r0, r0, r0
+        add r0, r0, r3
+        xor r0, r2
+        add r1, r1, 1
+        sub r2, r2, 1
+        brp drv_ck_loop
+        ret
+
+; ---- result cells ---------------------------------------------------
+drv_k_mapsize:      .word MAP_SIZE
+drv_seed:           .word 0
+drv_cksum1:         .word 0
+drv_q_head:         .word 0
+drv_q_tail:         .word 0
+drv_visited_cnt:    .word 0
+drv_cx:             .word 0
+drv_cy:             .word 0
+
+drv_get_left:       .word 99
+drv_get_right:      .word 99
+drv_get_top:        .word 99
+drv_get_bottom:     .word 99
+drv_walk_right:     .word 99
+drv_walk_left:      .word 99
+drv_opaque_bottom:  .word 99
+drv_opaque_top:     .word 99
+drv_room_top:       .word 99
+drv_room_right:     .word 99
+drv_start_in:       .word 99
+drv_ply_tile:       .word 99
+drv_ply_in_start:   .word 99
+drv_rooms_ok:       .word 99
+drv_stairs_tile:    .word 99
+drv_stairs_room_ok: .word 99
+drv_stairs_count:   .word 99
+drv_rm0_in:         .word 99
+drv_rm0_wall:       .word 99
+drv_rf_bad_cnt:     .word 99
+drv_stairs_reached: .word 99
+drv_unreachable:    .word 99
+drv_deterministic:  .word 99
+drv_rt_get:         .zero T_KIND_COUNT
+drv_rt_walk:        .zero T_KIND_COUNT
+drv_rt_opaq:        .zero T_KIND_COUNT
+drv_corner_tl:      .word 99
+drv_corner_br:      .word 99
+drv_dist_same:      .word 99
+drv_dist_horiz:     .word 99
+drv_dist_vert:      .word 99
+drv_dist_diag:      .word 99
+drv_dist_asym:      .word 99
+drv_dist_neg:       .word 99
+drv_regs_ok:        .word 99
+
+drv_vis:            .zero MAP_SIZE
+drv_q:              .zero MAP_SIZE
+
+        .include "../../src/state.ap"
+        .include "../../src/rng.ap"
+        .include "../../src/dungeon.ap"

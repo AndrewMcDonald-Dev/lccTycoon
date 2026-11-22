@@ -1,0 +1,448 @@
+; Unit driver for src/items.ap (WP6): pool operations, nearest-free-tile
+; placement (dist 0, dist 1 cardinal/diagonal, dist 2, stairs avoidance,
+; blocked-within-2 failure), pool full -> -1, remove/reuse, invalid inputs,
+; and calling-convention register preservation.
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        ; ---- 1. Build a controlled open floor room (x=5..24, y=3..12) -------
+        bl drv_clear_map
+        mov r1, 3
+drv_rm_y:
+        mov r0, 5
+drv_rm_x:
+        mov r2, T_FLOOR
+        bl dun_set
+        add r0, r0, 1
+        mov r3, 25
+        cmp r0, r3
+        brlt drv_rm_x
+        add r1, r1, 1
+        mov r3, 13
+        cmp r1, r3
+        brlt drv_rm_y
+
+        ; ---- 2. itm_clear, basic place / at / remove ------------------------
+        ; Dirty slot 0 first to prove itm_clear clears it
+        lea r0, st_items
+        mov r1, PT_RIVET_GUN
+        str r1, r0, I_PART
+        mov r1, 10
+        str r1, r0, I_X
+        mov r1, 6
+        str r1, r0, I_Y
+        mov r1, 12
+        str r1, r0, I_HP
+
+        bl itm_clear
+        mov r0, 10
+        mov r1, 6
+        bl itm_at
+        st r0, drv_cleared_at   ; expect -1
+
+        ; Place item A at (10, 6)
+        mov r0, 10
+        mov r1, 6
+        mov r2, PT_RIVET_GUN
+        mov r3, 9
+        bl itm_place
+        st r0, drv_p0_idx       ; expect 0
+
+        mov r0, 10
+        mov r1, 6
+        bl itm_at
+        st r0, drv_p0_at        ; expect 0
+
+        ; Check stored record fields
+        lea r4, st_items
+        ldr r0, r4, I_PART
+        st r0, drv_p0_part      ; expect PT_RIVET_GUN (13)
+        ldr r0, r4, I_X
+        st r0, drv_p0_x         ; expect 10
+        ldr r0, r4, I_Y
+        st r0, drv_p0_y         ; expect 6
+        ldr r0, r4, I_HP
+        st r0, drv_p0_hp        ; expect 9
+
+        ; Empty tile and out-of-bounds queries
+        mov r0, 11
+        mov r1, 6
+        bl itm_at
+        st r0, drv_empty_at     ; expect -1
+        mov r0, -1
+        mov r1, 6
+        bl itm_at
+        st r0, drv_oob_at       ; expect -1
+
+        ; Invalid place args: PART_NONE and out-of-bounds
+        mov r0, 11
+        mov r1, 6
+        mov r2, PART_NONE
+        mov r3, 5
+        bl itm_place
+        st r0, drv_bad_part     ; expect -1
+        mov r0, -1
+        mov r1, 6
+        mov r2, PT_CELL_PACK
+        mov r3, 10
+        bl itm_place
+        st r0, drv_bad_oob      ; expect -1
+
+        ; ---- 3. Second place on same tile goes to nearby free tile ----------
+        ; Place item B at (10, 6) -> should go to dist-1 cardinal (10, 5)
+        mov r0, 10
+        mov r1, 6
+        mov r2, PT_CELL_PACK
+        mov r3, 11
+        bl itm_place
+        st r0, drv_p1_idx       ; expect 1
+        sll r0, ITEM_SHIFT
+        lea r4, st_items
+        add r4, r4, r0
+        ldr r0, r4, I_X
+        ldr r1, r4, I_Y
+        st r0, drv_p1_x         ; expect 10
+        st r1, drv_p1_y         ; expect 5
+        bl itm_at
+        st r0, drv_p1_at        ; expect 1
+        ; Original item still at (10, 6)
+        mov r0, 10
+        mov r1, 6
+        bl itm_at
+        st r0, drv_p0_still     ; expect 0
+
+        ; ---- 4. Remove & reuse slot and tile --------------------------------
+        ; Out-of-bounds remove calls must be safe no-ops
+        mov r0, -1
+        bl itm_remove
+        mov r0, MAX_ITEMS
+        bl itm_remove
+        mov r0, 10
+        mov r1, 6
+        bl itm_at
+        st r0, drv_rem_oob_ok   ; expect 0 (still present)
+
+        ; Remove item 0 -> tile (10, 6) becomes free
+        mov r0, 0
+        bl itm_remove
+        mov r0, 10
+        mov r1, 6
+        bl itm_at
+        st r0, drv_rem_at       ; expect -1
+
+        ; Re-place at (10, 6) -> should reuse slot 0 and exact tile (10, 6)
+        mov r0, 10
+        mov r1, 6
+        mov r2, PT_SPARK_PROD
+        mov r3, 15
+        bl itm_place
+        st r0, drv_reuse_idx    ; expect 0
+        mov r0, 10
+        mov r1, 6
+        bl itm_at
+        st r0, drv_reuse_at     ; expect 0
+
+        ; ---- 5. Nearest-free-tile: stairs avoidance, dist 1 diag, dist 2 ----
+        bl itm_clear
+        bl drv_clear_map
+        ; Small cross/box around (10, 10):
+        ;   (10, 10) = T_STAIRS -> placing at (10,10) must NOT land on (10,10)
+        ;   (10, 9)  = T_WALL
+        ;   (11, 10) = T_STAIRS
+        ;   (10, 11) = T_ROCK
+        ;   (9, 10)  = T_WALL
+        ;   (11, 9)  = T_FLOOR  (dist 1 diagonal - only free dist-1 tile)
+        ;   (12, 10) = T_FLOOR  (dist 2 cardinal)
+        mov r0, 10
+        mov r1, 10
+        mov r2, T_STAIRS
+        bl dun_set
+        mov r0, 10
+        mov r1, 9
+        mov r2, T_WALL
+        bl dun_set
+        mov r0, 11
+        mov r1, 10
+        mov r2, T_STAIRS
+        bl dun_set
+        mov r0, 9
+        mov r1, 10
+        mov r2, T_WALL
+        bl dun_set
+        mov r0, 11
+        mov r1, 9
+        mov r2, T_FLOOR
+        bl dun_set
+        mov r0, 12
+        mov r1, 10
+        mov r2, T_FLOOR
+        bl dun_set
+        ; Also put a free tile at dist 3 (13, 10) to ensure dist > 2 is NOT used
+        mov r0, 13
+        mov r1, 10
+        mov r2, T_FLOOR
+        bl dun_set
+
+        ; First place at (10, 10) (stairs) -> must skip stairs & walls, land on (11, 9) (dist 1 diag)
+        mov r0, 10
+        mov r1, 10
+        mov r2, PT_OPTIC_MAST
+        mov r3, 8
+        bl itm_place
+        st r0, drv_st_idx       ; expect 0
+        lea r4, st_items
+        ldr r0, r4, I_X
+        ldr r1, r4, I_Y
+        st r0, drv_st_x         ; expect 11
+        st r1, drv_st_y         ; expect 9
+
+        ; Second place at (10, 10) -> dist 1 now full, must land on (12, 10) (dist 2)
+        mov r0, 10
+        mov r1, 10
+        mov r2, PT_AIM_GYRO
+        mov r3, 10
+        bl itm_place
+        st r0, drv_d2_idx       ; expect 1
+        sll r0, ITEM_SHIFT
+        lea r4, st_items
+        add r4, r4, r0
+        ldr r0, r4, I_X
+        ldr r1, r4, I_Y
+        st r0, drv_d2_x         ; expect 12
+        st r1, drv_d2_y         ; expect 10
+
+        ; Third place at (10, 10) -> all dist<=2 blocked/occupied/stairs; dist 3 (13,10) must NOT be used
+        mov r0, 10
+        mov r1, 10
+        mov r2, PT_HEX_ARMOR
+        mov r3, 40
+        bl itm_place
+        st r0, drv_nofree_ret   ; expect -1
+        mov r0, 13
+        mov r1, 10
+        bl itm_at
+        st r0, drv_d3_unused    ; expect -1
+
+        ; Walkable variants: T_RUBBLE, T_DOOR, T_DOOR_OPEN should accept items
+        bl itm_clear
+        mov r0, 20
+        mov r1, 10
+        mov r2, T_RUBBLE
+        bl dun_set
+        mov r0, 20
+        mov r1, 10
+        mov r2, PT_STUB_LEGS
+        mov r3, 20
+        bl itm_place
+        st r0, drv_rubble_idx   ; expect 0
+
+        ; ---- 6. Pool full -> -1, then remove one and place again ------------
+        bl itm_clear
+        bl drv_clear_map
+        ; Open floor row y=5, x=1..40 (40 walkable tiles > MAX_ITEMS=32)
+        mov r0, 1
+drv_pf_map:
+        mov r1, 5
+        mov r2, T_FLOOR
+        bl dun_set
+        add r0, r0, 1
+        mov r3, 41
+        cmp r0, r3
+        brlt drv_pf_map
+
+        ; Fill all MAX_ITEMS (32) slots at x=1..32, y=5
+        mov r4, 0               ; count placed
+drv_pf_fill:
+        add r0, r4, 1           ; x = 1..32
+        mov r1, 5
+        mov r2, PT_STUB_LEGS
+        mov r3, 20
+        bl itm_place
+        cmp r4, r0              ; expect slot index == r4
+        brnz drv_pf_bad
+        add r4, r4, 1
+        mov r1, MAX_ITEMS
+        cmp r4, r1
+        brlt drv_pf_fill
+        mov r0, 1
+        st r0, drv_fill_ok
+        br drv_pf_over
+drv_pf_bad:
+        mov r0, 0
+        st r0, drv_fill_ok
+drv_pf_over:
+        ; 33rd place on a free walkable tile (35, 5) -> must return -1
+        mov r0, 35
+        mov r1, 5
+        mov r2, PT_CELL_PACK
+        mov r3, 15
+        bl itm_place
+        st r0, drv_full_ret     ; expect -1
+
+        ; Remove slot 17, then place at (35, 5) -> must return 17
+        mov r0, 17
+        bl itm_remove
+        mov r0, 35
+        mov r1, 5
+        mov r2, PT_CELL_PACK
+        mov r3, 15
+        bl itm_place
+        st r0, drv_after_rem    ; expect 17
+
+        ; ---- 7. Register preservation across all public routines ------------
+        mov r0, 11
+        mov r1, 222
+        mov r2, 123
+        mov r3, 134
+        mov r4, 145
+        bl itm_clear
+        cmp r0, 11
+        brnz drv_reg_fail
+        mov r0, 222
+        cmp r1, r0
+        brnz drv_reg_fail
+        mov r0, 123
+        cmp r2, r0
+        brnz drv_reg_fail
+        mov r0, 134
+        cmp r3, r0
+        brnz drv_reg_fail
+        mov r0, 145
+        cmp r4, r0
+        brnz drv_reg_fail
+
+        ; Test itm_place preserves r1..r4
+        mov r0, 5
+        mov r1, 5
+        mov r2, PT_RIVET_GUN
+        mov r3, 12
+        mov r4, 77
+        bl itm_place
+        cmp r1, 5
+        brnz drv_reg_fail
+        cmp r2, PT_RIVET_GUN
+        brnz drv_reg_fail
+        cmp r3, 12
+        brnz drv_reg_fail
+        mov r0, 77
+        cmp r4, r0
+        brnz drv_reg_fail
+
+        ; Test itm_at preserves r1..r4
+        mov r0, 5
+        mov r1, 5
+        mov r2, 88
+        mov r3, 99
+        mov r4, 66
+        bl itm_at
+        cmp r1, 5
+        brnz drv_reg_fail
+        mov r0, 88
+        cmp r2, r0
+        brnz drv_reg_fail
+        mov r0, 99
+        cmp r3, r0
+        brnz drv_reg_fail
+        mov r0, 66
+        cmp r4, r0
+        brnz drv_reg_fail
+
+        ; Test itm_remove preserves r0..r4
+        mov r0, 0
+        mov r1, 51
+        mov r2, 52
+        mov r3, 53
+        mov r4, 54
+        bl itm_remove
+        cmp r0, 0
+        brnz drv_reg_fail
+        mov r0, 51
+        cmp r1, r0
+        brnz drv_reg_fail
+        mov r0, 52
+        cmp r2, r0
+        brnz drv_reg_fail
+        mov r0, 53
+        cmp r3, r0
+        brnz drv_reg_fail
+        mov r0, 54
+        cmp r4, r0
+        brnz drv_reg_fail
+
+        mov r0, 1
+        st r0, drv_regs_ok
+        halt
+drv_reg_fail:
+        mov r0, 0
+        st r0, drv_regs_ok
+        halt
+
+; Helper: zero st_map to T_ROCK
+drv_clear_map:
+        push r0
+        push r1
+        push r2
+        lea r0, st_map
+        ld r1, drv_k_mapsize
+        mov r2, T_ROCK
+drv_cm_lp:
+        str r2, r0, 0
+        add r0, r0, 1
+        sub r1, r1, 1
+        brp drv_cm_lp
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+drv_k_mapsize:  .word MAP_SIZE
+
+; Results read by items.test.json
+drv_cleared_at: .word 0
+drv_p0_idx:     .word 0
+drv_p0_at:      .word 0
+drv_p0_part:    .word 0
+drv_p0_x:       .word 0
+drv_p0_y:       .word 0
+drv_p0_hp:      .word 0
+drv_empty_at:   .word 0
+drv_oob_at:     .word 0
+drv_bad_part:   .word 0
+drv_bad_oob:    .word 0
+drv_p1_idx:     .word 0
+drv_p1_x:       .word 0
+drv_p1_y:       .word 0
+drv_p1_at:      .word 0
+drv_p0_still:   .word 0
+drv_rem_oob_ok: .word 0
+drv_rem_at:     .word 0
+drv_reuse_idx:  .word 0
+drv_reuse_at:   .word 0
+drv_st_idx:     .word 0
+drv_st_x:       .word 0
+drv_st_y:       .word 0
+drv_d2_idx:     .word 0
+drv_d2_x:       .word 0
+drv_d2_y:       .word 0
+drv_nofree_ret: .word 0
+drv_d3_unused:  .word 0
+drv_rubble_idx: .word 0
+drv_fill_ok:    .word 0
+drv_full_ret:   .word 0
+drv_after_rem:  .word 0
+drv_regs_ok:    .word 0
+
+; UI stubs needed by parts.ap (prt_damage)
+ui_msg:
+ui_msg_add:
+ui_msg_attr:
+        ret
+
+        .include "../../src/state.ap"
+        .include "../../src/rng.ap"
+        .include "../../src/dungeon.ap"
+        .include "../../src/parts.ap"
+        .include "../../src/items.ap"

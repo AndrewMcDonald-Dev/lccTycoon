@@ -1,0 +1,13 @@
+{
+  "game": "fov_perf_driver.ap",
+  "scenarios": [
+    {
+      "name": "fov_update at radius 8 on open map stays within 60K instructions",
+      "frames": 10,
+      "expect": {
+        "status": "halted",
+        "maxStepsPerFrame": 60000
+      }
+    }
+  ]
+}

@@ -1,0 +1,133 @@
+; Integration unit driver for src/render.ap with real dungeon.ap, fov.ap, parts.ap, and ui.ap.
+; Frame 0: real generated depth-10 floor, real FOV, real catalog item + stubbed Rifler (MODE_MAP)
+; Frame 1: MODE_TARGET targeting Rifler -> red target bg + target panel
+; Frame 2: player moves to stairs room and re-runs real FOV -> stairs '<' visible AND
+;          starting room tiles persist as remembered A_MEMORY (blue) while old item/enemy hide!
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        mov r0, 42
+        srand r0
+        lea r0, st_screen
+        bl video_bind
+        mov r0, START_DEPTH
+        st r0, st_depth
+        st r0, st_depth_best
+        mov r0, MODE_MAP
+        st r0, st_mode
+        mov r0, -1
+        st r0, st_target
+        bl ui_init
+        bl prt_init
+        ; Generate real floor at depth 10
+        mov r0, START_DEPTH
+        bl dun_generate
+        ; Clear items/enemies
+        lea r0, st_items
+        mov r1, 0
+        mov r2, MAX_ITEMS*ITEM_SIZE
+        bl util_memset
+        lea r0, st_enemies
+        mov r1, 0
+        ld r2, drv_c_en_words
+        bl util_memset
+        ; Place one real catalog item (Pulse Rifle) at (st_px-2, st_py) inside the start room
+        lea r4, st_items
+        mov r0, PT_PULSE_RIFLE
+        str r0, r4, I_PART
+        ld r0, st_px
+        sub r0, r0, 2
+        str r0, r4, I_X
+        ld r0, st_py
+        str r0, r4, I_Y
+        mov r0, 18
+        str r0, r4, I_HP
+        ; Place one stubbed Rifler at (st_px-1, st_py) inside the start room
+        lea r4, st_enemies
+        mov r0, EN_RIFLER
+        str r0, r4, E_TYPE
+        ld r0, st_px
+        sub r0, r0, 1
+        str r0, r4, E_X
+        ld r0, st_py
+        str r0, r4, E_Y
+        mov r0, 14
+        str r0, r4, E_HP
+        ; Frame 0: real FOV at start room (MODE_MAP)
+        bl fov_reset
+        bl fov_update
+        bl ren_draw
+        bl ui_draw
+        bl video_present
+        mov r0, FRAME_MS
+        sleep r0
+        ; Frame 1: enter MODE_TARGET targeting enemy 0
+        mov r0, MODE_TARGET
+        st r0, st_mode
+        mov r0, 0
+        st r0, st_target
+        bl ren_draw
+        bl ui_draw
+        bl video_present
+        mov r0, FRAME_MS
+        sleep r0
+        ; Frame 2: leave target mode, move player near stairs (st_stairs_x-1, st_stairs_y)
+        ; so '<' is visible AND the start room becomes remembered (A_MEMORY blue) with item/enemy hidden!
+        mov r0, MODE_MAP
+        st r0, st_mode
+        mov r0, -1
+        st r0, st_target
+        ld r0, st_stairs_x
+        sub r0, r0, 1
+        st r0, st_px
+        ld r0, st_stairs_y
+        st r0, st_py
+        bl fov_update
+        bl ren_draw
+        bl ui_draw
+        bl video_present
+        mov r0, FRAME_MS
+        sleep r0
+        halt
+
+; Minimal contract stubs for modules not included (actors, items, combat)
+act_type_info:
+        cmp r0, EN_RIFLER
+        brz drv_ai_rifler
+        mov r0, 0
+        ret
+drv_ai_rifler:
+        lea r0, drv_e_rifler
+        ret
+
+act_name:
+        lea r0, drv_s_rifler
+        ret
+
+itm_at:
+        mov r0, -1
+        ret
+
+cbt_hit_chance:
+        mov r0, 70
+        ret
+
+drv_e_rifler:
+        .word drv_s_rifler
+        .word 'r'|FG_BRED
+        .word 14
+drv_s_rifler:   .string "Rifler"
+drv_c_en_words: .word MAX_ENEMIES*ENEMY_SIZE
+
+        .include "../../src/state.ap"
+        .include "../../src/rng.ap"
+        .include "../../src/dungeon.ap"
+        .include "../../src/fov.ap"
+        .include "../../src/parts.ap"
+        .include "../../src/render.ap"
+        .include "../../src/ui.ap"
+        .include "video.ap"
+        .include "util.ap"

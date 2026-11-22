@@ -1,0 +1,13 @@
+{
+  "game": "actors_perf_driver.ap",
+  "scenarios": [
+    {
+      "name": "act_run with 12 and 24 active hunting robots stays under 300K instructions per frame",
+      "frames": 10,
+      "expect": {
+        "status": "halted",
+        "maxStepsPerFrame": 300000
+      }
+    }
+  ]
+}

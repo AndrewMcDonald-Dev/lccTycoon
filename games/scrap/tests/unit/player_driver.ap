@@ -1,0 +1,568 @@
+; Unit test driver for src/player.ap (WP9).
+; Tests every ply_* contract in isolation using real dungeon, fov, parts,
+; items, actors, ui, plus deterministic cbt_* stubs so player behavior is
+; pinned independently of combat RNG.
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        ; Init subsystems
+        lea r0, st_screen
+        bl video_bind
+        bl ui_init
+        bl prt_init
+        bl act_init
+        bl itm_clear
+        bl fov_reset
+        bl ply_init
+
+        ; 1. ply_init check
+        ld r0, st_mode
+        st r0, drv_init_mode
+        ld r0, st_target
+        st r0, drv_init_tgt
+
+        ; Build a simple 10x10 room at x=1..8, y=1..8 surrounded by walls
+        mov r1, 0
+drv_m_y:
+        mov r0, 0
+drv_m_x:
+        mov r2, T_WALL
+        cmp r0, 1
+        brlt drv_m_set
+        cmp r0, 8
+        brgt drv_m_set
+        cmp r1, 1
+        brlt drv_m_set
+        cmp r1, 8
+        brgt drv_m_set
+        mov r2, T_FLOOR
+drv_m_set:
+        bl dun_set
+        add r0, r0, 1
+        cmp r0, 10
+        brlt drv_m_x
+        add r1, r1, 1
+        cmp r1, 10
+        brlt drv_m_y
+
+        ; Place closed door at (4,4) and stairs at (6,6)
+        mov r0, 4
+        mov r1, 4
+        mov r2, T_DOOR
+        bl dun_set
+        mov r0, 6
+        mov r1, 6
+        mov r2, T_STAIRS
+        bl dun_set
+
+        ; Place player at (3,4)
+        mov r0, 3
+        st r0, st_px
+        mov r0, 4
+        st r0, st_py
+        mov r0, 0
+        st r0, st_ply_next
+        bl fov_update
+
+        ; 2. ply_move into closed door at (4,4): opens door, spends st_move_cost (100)
+        mov r0, 1
+        mov r1, 0
+        bl ply_move
+        st r0, drv_mv_door_ret
+        mov r0, 4
+        mov r1, 4
+        bl dun_get
+        st r0, drv_mv_door_tile
+        ld r0, st_ply_next
+        st r0, drv_mv_door_tu
+
+        ; 3. ply_move into wall: place player at (1,1), try (-1,0) -> PR_NONE, no TU
+        mov r0, 1
+        st r0, st_px
+        mov r0, 1
+        st r0, st_py
+        mov r0, 0
+        st r0, st_ply_next
+        mov r0, -1
+        mov r1, 0
+        bl ply_move
+        st r0, drv_mv_wall_ret
+        ld r0, st_px
+        st r0, drv_mv_wall_x
+        ld r0, st_ply_next
+        st r0, drv_mv_wall_tu
+
+        ; 4. ply_move bump attack onto enemy at (2,1) -> calls cbt_player_melee, TIME_MELEE
+        mov r0, EN_SCUTTLER
+        mov r1, 2
+        mov r2, 1
+        bl act_spawn
+        st r0, drv_en0
+        mov r0, 0
+        st r0, drv_melee_calls
+        mov r0, -1
+        st r0, drv_melee_arg
+        mov r0, 1
+        mov r1, 0
+        bl ply_move
+        st r0, drv_mv_bump_ret
+        ld r0, st_px
+        st r0, drv_mv_bump_x
+        ld r0, st_ply_next
+        st r0, drv_mv_bump_tu
+
+        ; 5. ply_pickup: nothing on tile -> PR_NONE
+        bl ply_pickup
+        st r0, drv_pk_none_ret
+
+        ; Place item on (1,1), pick up -> PR_ACTED, TIME_PICKUP, item removed
+        mov r0, 1
+        mov r1, 1
+        mov r2, PT_OPTIC_MAST
+        mov r3, 8
+        bl itm_place
+        mov r0, 0
+        st r0, st_ply_next
+        bl ply_pickup
+        st r0, drv_pk_ok_ret
+        ld r0, st_ply_next
+        st r0, drv_pk_ok_tu
+        mov r0, 1
+        mov r1, 1
+        bl itm_at
+        st r0, drv_pk_after_at
+
+        ; 6. ply_equip: attach Optic Mast from inv[0] -> sight 8 -> 11, TIME_SWAP
+        mov r0, 0
+        st r0, st_ply_next
+        mov r0, 0
+        bl ply_equip
+        st r0, drv_eq_ok_ret
+        ld r0, st_sight
+        st r0, drv_eq_sight
+        ld r0, st_ply_next
+        st r0, drv_eq_ok_tu
+        ; Empty inv[0] -> PR_NONE
+        mov r0, 0
+        bl ply_equip
+        st r0, drv_eq_emp_ret
+
+        ; 7. ply_remove: empty slot 7 -> PR_NONE; slot 6 (Optic Mast) -> PR_ACTED, sight back to 8
+        mov r0, 7
+        bl ply_remove
+        st r0, drv_rm_emp_ret
+        mov r0, 0
+        st r0, st_ply_next
+        mov r0, 6
+        bl ply_remove
+        st r0, drv_rm_ok_ret
+        ld r0, st_sight
+        st r0, drv_rm_sight
+        ld r0, st_ply_next
+        st r0, drv_rm_ok_tu
+
+        ; Fill inventory to test full-inventory pickup and remove rejections
+        mov r0, PT_CELL_PACK
+        mov r1, 15
+        bl prt_inv_add
+        mov r0, PT_CELL_PACK
+        mov r1, 15
+        bl prt_inv_add
+        mov r0, PT_CELL_PACK
+        mov r1, 15
+        bl prt_inv_add
+        ; Inventory now has 4 items (0..3)
+        mov r0, 1
+        mov r1, 1
+        mov r2, PT_SCRAP_PLATE
+        mov r3, 30
+        bl itm_place
+        mov r0, 0
+        st r0, st_ply_next
+        bl ply_pickup
+        st r0, drv_pk_full_ret
+        ld r0, st_ply_next
+        st r0, drv_pk_full_tu
+        mov r0, 0
+        bl ply_remove
+        st r0, drv_rm_full_ret
+        ld r0, st_ply_next
+        st r0, drv_rm_full_tu
+
+        ; 8. ply_drop: drop inv[0] (Optic Mast) -> placed nearby, inv[0] cleared, TIME_DROP
+        mov r0, 0
+        st r0, st_ply_next
+        mov r0, 0
+        bl ply_drop
+        st r0, drv_dr_ok_ret
+        ld r0, st_ply_next
+        st r0, drv_dr_ok_tu
+        lea r1, st_inv
+        ldr r0, r1, S_PART
+        st r0, drv_dr_inv0
+        ; Dropping empty inv[0] -> PR_NONE
+        mov r0, 0
+        bl ply_drop
+        st r0, drv_dr_emp_ret
+
+        ; 9. ply_target + ply_fire:
+        ; First with no visible enemies: move player to (3,3), clear enemies
+        bl act_clear
+        mov r0, 3
+        st r0, st_px
+        mov r0, 3
+        st r0, st_py
+        bl fov_update
+        mov r0, KEY_FIRE
+        bl ply_key
+        ld r0, st_mode
+        st r0, drv_tgt_none_mode
+        ld r0, st_target
+        st r0, drv_tgt_none_idx
+
+        ; Spawn two visible enemies: idx 0 at (5,3) dist 2, idx 1 at (4,3) dist 1 (nearest)
+        mov r0, EN_SCUTTLER
+        mov r1, 5
+        mov r2, 3
+        bl act_spawn
+        mov r0, EN_FLIT
+        mov r1, 4
+        mov r2, 3
+        bl act_spawn
+        ; Press 'f' -> enters MODE_TARGET, selects nearest (idx 1)
+        mov r0, KEY_FIRE
+        bl ply_key
+        ld r0, st_mode
+        st r0, drv_tgt_enter_mode
+        ld r0, st_target
+        st r0, drv_tgt_near
+        ; Press Tab -> cycles to idx 0
+        mov r0, KEY_TAB
+        bl ply_key
+        ld r0, st_target
+        st r0, drv_tgt_tab
+        ; Press '[' -> cycles back to idx 1
+        mov r0, KEY_PREV
+        bl ply_key
+        ld r0, st_target
+        st r0, drv_tgt_prev
+
+        ; ply_fire when cbt_player_fire returns 0 -> PR_NONE, stays in MODE_TARGET, no TU, "Nothing can fire."
+        mov r0, 0
+        st r0, drv_fire_ret_val
+        mov r0, 0
+        st r0, st_ply_next
+        bl ply_fire
+        st r0, drv_fr0_ret
+        ld r0, st_mode
+        st r0, drv_fr0_mode
+        ld r0, st_ply_next
+        st r0, drv_fr0_tu
+        lea r0, drv_fr0_msg
+        bl drv_copy_head_msg
+
+        ; ply_fire when cbt_player_fire returns -1 -> PR_NONE, stays in MODE_TARGET, no TU, "Not enough energy."
+        mov r0, -1
+        st r0, drv_fire_ret_val
+        mov r0, 0
+        st r0, st_ply_next
+        bl ply_fire
+        st r0, drv_fre_ret
+        ld r0, st_mode
+        st r0, drv_fre_mode
+        ld r0, st_ply_next
+        st r0, drv_fre_tu
+        lea r0, drv_fre_msg
+        bl drv_copy_head_msg
+
+        ; ply_fire when cbt_player_fire returns 1 -> PR_ACTED, MODE_MAP, TIME_FIRE
+        mov r0, 1
+        st r0, drv_fire_ret_val
+        mov r0, 0
+        st r0, st_ply_next
+        bl ply_fire
+        st r0, drv_fr1_ret
+        ld r0, st_mode
+        st r0, drv_fr1_mode
+        ld r0, st_ply_next
+        st r0, drv_fr1_tu
+
+        ; 10. ply_stairs: off stairs -> PR_NONE; on stairs -> st_climb=1, TIME_STAIRS
+        mov r0, 0
+        st r0, st_climb
+        mov r0, 0
+        st r0, st_ply_next
+        bl ply_stairs
+        st r0, drv_st_off_ret
+        ld r0, st_climb
+        st r0, drv_st_off_cl
+        mov r0, 6
+        st r0, st_px
+        mov r0, 6
+        st r0, st_py
+        bl ply_stairs
+        st r0, drv_st_on_ret
+        ld r0, st_climb
+        st r0, drv_st_on_cl
+        ld r0, st_ply_next
+        st r0, drv_st_on_tu
+
+        ; 11. ply_key modes: ?, e, r, x, Q, lowercase q, Esc cancel
+        mov r0, MODE_MAP
+        st r0, st_mode
+        mov r0, 'q'
+        bl ply_key
+        st r0, drv_lq_ret
+        ld r0, st_mode
+        st r0, drv_lq_mode
+
+        mov r0, KEY_HELP
+        bl ply_key
+        ld r0, st_mode
+        st r0, drv_hlp_mode
+        mov r0, 'z'
+        bl ply_key
+        ld r0, st_mode
+        st r0, drv_hlp_after
+
+        mov r0, KEY_QUIT
+        bl ply_key
+        mov r0, KEY_YES
+        bl ply_key
+        st r0, drv_quit_ret
+
+        ; 12. Register preservation check across ply_init, ply_spend, ply_move,
+        ;     ply_pickup, ply_equip, ply_remove, ply_drop, ply_target, ply_fire, ply_stairs, ply_key
+        mov r1, 111
+        mov r2, 122
+        mov r3, 133
+        mov r4, 144
+        mov r0, 7
+        bl ply_init
+        cmp r0, 7
+        brnz drv_reg_bad
+        bl drv_chk_r14
+        cmp r0, 0
+        brz drv_reg_bad
+
+        mov r0, 10
+        bl ply_spend
+        cmp r0, 10
+        brnz drv_reg_bad
+        bl drv_chk_r14
+        cmp r0, 0
+        brz drv_reg_bad
+
+        mov r0, 0
+        mov r1, 111
+        bl ply_move
+        bl drv_chk_r14
+        cmp r0, 0
+        brz drv_reg_bad
+
+        bl ply_pickup
+        bl drv_chk_r14
+        cmp r0, 0
+        brz drv_reg_bad
+
+        mov r0, 0
+        bl ply_equip
+        bl drv_chk_r14
+        cmp r0, 0
+        brz drv_reg_bad
+
+        mov r0, 7
+        bl ply_remove
+        bl drv_chk_r14
+        cmp r0, 0
+        brz drv_reg_bad
+
+        mov r0, 0
+        bl ply_drop
+        bl drv_chk_r14
+        cmp r0, 0
+        brz drv_reg_bad
+
+        mov r0, 1
+        bl ply_target
+        cmp r0, 1
+        brnz drv_reg_bad
+        bl drv_chk_r14
+        cmp r0, 0
+        brz drv_reg_bad
+
+        bl ply_fire
+        bl drv_chk_r14
+        cmp r0, 0
+        brz drv_reg_bad
+
+        bl ply_stairs
+        bl drv_chk_r14
+        cmp r0, 0
+        brz drv_reg_bad
+
+        mov r0, 'q'
+        bl ply_key
+        bl drv_chk_r14
+        cmp r0, 0
+        brz drv_reg_bad
+
+        mov r0, 1
+        st r0, drv_regs_ok
+        halt
+
+drv_reg_bad:
+        mov r0, 0
+        st r0, drv_regs_ok
+        halt
+
+; Verify r1=111, r2=122, r3=133, r4=144; returns r0=1 ok, 0 fail (preserves r1..r4)
+drv_chk_r14:
+        mov r0, 111
+        cmp r1, r0
+        brnz drv_cr_no
+        mov r0, 122
+        cmp r2, r0
+        brnz drv_cr_no
+        mov r0, 133
+        cmp r3, r0
+        brnz drv_cr_no
+        mov r0, 144
+        cmp r4, r0
+        brnz drv_cr_no
+        mov r0, 1
+        ret
+drv_cr_no:
+        mov r0, 0
+        ret
+
+drv_copy_head_msg:
+        push r0
+        push r1
+        push r2
+        push r3
+        ld r1, st_msg_head
+        and r1, r1, MSG_COUNT-1
+        sll r1, MSG_SHIFT
+        lea r2, st_msg_text
+        add r2, r2, r1
+drv_chm_lp:
+        ldr r3, r2, 0
+        str r3, r0, 0
+        cmp r3, 0
+        brz drv_chm_done
+        add r2, r2, 1
+        add r0, r0, 1
+        br drv_chm_lp
+drv_chm_done:
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; ---- Deterministic combat stubs ---------------------------------------------
+cbt_hit_chance:
+        mov r0, 70
+        ret
+
+cbt_player_fire:
+        ld r0, drv_fire_ret_val
+        ret
+
+cbt_player_melee:
+        push r1
+        st r0, drv_melee_arg
+        ld r1, drv_melee_calls
+        add r1, r1, 1
+        st r1, drv_melee_calls
+        pop r1
+        ret
+
+cbt_enemy_attack:
+        ret
+
+cbt_damage_enemy:
+        mov r0, 0
+        ret
+
+; ---- Result cells -----------------------------------------------------------
+drv_init_mode:     .word -1
+drv_init_tgt:      .word 0
+drv_mv_door_ret:   .word -1
+drv_mv_door_tile:  .word -1
+drv_mv_door_tu:    .word -1
+drv_mv_wall_ret:   .word -1
+drv_mv_wall_x:     .word -1
+drv_mv_wall_tu:    .word -1
+drv_en0:           .word -1
+drv_melee_calls:   .word 0
+drv_melee_arg:     .word -1
+drv_mv_bump_ret:   .word -1
+drv_mv_bump_x:     .word -1
+drv_mv_bump_tu:    .word -1
+drv_pk_none_ret:   .word -1
+drv_pk_ok_ret:     .word -1
+drv_pk_ok_tu:      .word -1
+drv_pk_after_at:   .word 0
+drv_eq_ok_ret:     .word -1
+drv_eq_sight:      .word 0
+drv_eq_ok_tu:      .word -1
+drv_eq_emp_ret:    .word -1
+drv_rm_emp_ret:    .word -1
+drv_rm_ok_ret:     .word -1
+drv_rm_sight:      .word 0
+drv_rm_ok_tu:      .word -1
+drv_pk_full_ret:   .word -1
+drv_pk_full_tu:    .word -1
+drv_rm_full_ret:   .word -1
+drv_rm_full_tu:    .word -1
+drv_dr_ok_ret:     .word -1
+drv_dr_ok_tu:      .word -1
+drv_dr_inv0:       .word -1
+drv_dr_emp_ret:    .word -1
+drv_tgt_none_mode: .word -1
+drv_tgt_none_idx:  .word 0
+drv_tgt_enter_mode:.word -1
+drv_tgt_near:      .word -1
+drv_tgt_tab:       .word -1
+drv_tgt_prev:      .word -1
+drv_fire_ret_val:  .word 0
+drv_fr0_ret:       .word -1
+drv_fr0_mode:      .word -1
+drv_fr0_tu:        .word -1
+drv_fr0_msg:       .zero MSG_LEN
+drv_fre_ret:       .word -1
+drv_fre_mode:      .word -1
+drv_fre_tu:        .word -1
+drv_fre_msg:       .zero MSG_LEN
+drv_fr1_ret:       .word -1
+drv_fr1_mode:      .word -1
+drv_fr1_tu:        .word -1
+drv_st_off_ret:    .word -1
+drv_st_off_cl:     .word -1
+drv_st_on_ret:     .word -1
+drv_st_on_cl:      .word -1
+drv_st_on_tu:      .word -1
+drv_lq_ret:        .word -1
+drv_lq_mode:       .word -1
+drv_hlp_mode:      .word -1
+drv_hlp_after:     .word -1
+drv_quit_ret:      .word -1
+drv_regs_ok:       .word 0
+
+; ---- Modules under test & dependencies --------------------------------------
+        .include "../../src/state.ap"
+        .include "../../src/rng.ap"
+        .include "../../src/dungeon.ap"
+        .include "../../src/fov.ap"
+        .include "../../src/parts.ap"
+        .include "../../src/items.ap"
+        .include "../../src/actors.ap"
+        .include "../../src/player.ap"
+        .include "../../src/ui.ap"
+        .include "video.ap"
+        .include "util.ap"

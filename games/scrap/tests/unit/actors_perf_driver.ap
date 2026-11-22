@@ -1,0 +1,149 @@
+; Performance unit driver for src/actors.ap (WP7).
+; Measures instruction count of a full enemy turn (act_run) with:
+;   Frame 1: 12 robots on a real generated dungeon (budget <= 250K)
+;   Frame 3: 24 robots (full pool, mixed incl. fast Flits/Stalkers) on a real dungeon (budget <= 300K)
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        mov r0, 42
+        srand r0
+        mov r0, GAME_PLAY
+        st r0, st_game_state
+
+        ; Frame 0: generate depth 4 floor, spawn 12 robots
+        mov r0, 4
+        bl dun_generate
+        bl act_clear
+        mov r0, 0
+        st r0, st_time
+        st r0, st_ply_next
+        mov r0, 8
+        st r0, st_sight
+        bl fov_reset
+        bl fov_update
+        mov r0, 12
+        bl drv_spawn_n
+        mov r0, 1
+        sleep r0
+
+        ; Frame 1: full 100-TU enemy turn with 12 robots
+        mov r0, 100
+        st r0, st_ply_next
+        bl act_run
+        mov r0, 1
+        sleep r0
+
+        ; Frame 2: top up to full 24 robots (all with E_NEXT = st_time so every robot acts!)
+        mov r0, 12
+        bl drv_spawn_n
+        ; Reset all 24 robots' E_NEXT = st_time and ES_HUNT so all 24 actively pathfind/act
+        lea r2, st_enemies
+        ld r1, st_time
+        mov r3, 0
+drv_prep24:
+        str r1, r2, E_NEXT
+        mov r0, ES_HUNT
+        str r0, r2, E_STATE
+        ld r0, st_px
+        str r0, r2, E_TX
+        ld r0, st_py
+        str r0, r2, E_TY
+        mov r0, ALERT_TURNS
+        str r0, r2, E_ALERT
+        add r2, r2, 8
+        add r2, r2, 8
+        add r3, r3, 1
+        mov r0, MAX_ENEMIES
+        cmp r3, r0
+        brlt drv_prep24
+        mov r0, 1
+        sleep r0
+
+        ; Frame 3: full 100-TU enemy turn with ALL 24 active hunting robots!
+        ld r0, st_ply_next
+        mov r1, 100
+        add r0, r0, r1
+        st r0, st_ply_next
+        bl act_run
+        mov r0, 1
+        sleep r0
+        halt
+
+; Spawn r0 robots of mixed types (1..7) on free room floor tiles
+drv_spawn_n:
+        push lr
+        st r0, drv_cnt
+        mov r0, 1
+        st r0, drv_t
+drv_sn_lp:
+        ld r0, drv_cnt
+        cmp r0, 0
+        brp drv_sn_try
+        pop lr
+        ret
+drv_sn_try:
+        bl dun_random_floor
+        mov r1, r0
+        mov r2, MAP_XMASK
+        and r0, r0, r2          ; x
+        srl r1, MAP_SHIFT       ; y
+        ld r2, st_px
+        cmp r0, r2
+        brne drv_sn_notp
+        ld r2, st_py
+        cmp r1, r2
+        bre drv_sn_try
+drv_sn_notp:
+        push r0
+        push r1
+        bl act_at
+        cmp r0, 0
+        pop r1
+        pop r0
+        brn drv_sn_place
+        br drv_sn_try
+drv_sn_place:
+        mov r2, r1              ; y
+        mov r1, r0              ; x
+        ld r0, drv_t
+        bl act_spawn
+        ; Force E_NEXT = st_time so it acts immediately in Frame 1
+        cmp r0, 0
+        brn drv_sn_dec
+        sll r0, ENEMY_SHIFT
+        lea r3, st_enemies
+        add r3, r3, r0
+        ld r1, st_time
+        str r1, r3, E_NEXT
+drv_sn_dec:
+        ld r0, drv_t
+        add r0, r0, 1
+        cmp r0, ETYPE_COUNT
+        brlt drv_sn_tok
+        bre drv_sn_tok
+        mov r0, 1
+drv_sn_tok:
+        st r0, drv_t
+        ld r0, drv_cnt
+        sub r0, r0, 1
+        st r0, drv_cnt
+        br drv_sn_lp
+
+cbt_enemy_attack:
+        ret
+ui_msg:
+        ret
+ui_msg_add:
+        ret
+
+drv_cnt:        .word 0
+drv_t:          .word 1
+
+        .include "../../src/state.ap"
+        .include "../../src/rng.ap"
+        .include "../../src/dungeon.ap"
+        .include "../../src/fov.ap"
+        .include "../../src/actors.ap"

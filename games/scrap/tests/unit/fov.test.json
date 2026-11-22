@@ -1,0 +1,53 @@
+{
+  "game": "fov_driver.ap",
+  "scenarios": [
+    {
+      "name": "fov_update, fov_reset, fov_visible, fov_known, fov_los full suite",
+      "frames": 10,
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_open_in_cnt": 289,
+          "drv_open_in_bad": 0,
+          "drv_open_out_bad": 0,
+          "drv_wall_front": 1,
+          "drv_wall_self": 1,
+          "drv_wall_self2": 1,
+          "drv_wall_behind": 0,
+          "drv_wall_behind_k": 0,
+          "drv_wall_behind2": 0,
+          "drv_pil_self": 1,
+          "drv_pil_behind": 0,
+          "drv_pil_side": 1,
+          "drv_cdoor_self": 1,
+          "drv_cdoor_behind": 0,
+          "drv_cdoor_behind2": 0,
+          "drv_odoor_self": 1,
+          "drv_odoor_behind": 1,
+          "drv_odoor_behind2": 1,
+          "drv_odoor_side_blk": 0,
+          "drv_room_corners": 4,
+          "drv_thru_stairs": 1,
+          "drv_thru_rubble": 1,
+          "drv_rock_behind": 0,
+          "drv_old_vis": 0,
+          "drv_old_known": 1,
+          "drv_new_vis": 1,
+          "drv_new_known": 1,
+          "drv_rst_old_k": 0,
+          "drv_rst_new_v": 0,
+          "drv_los_clear": 1,
+          "drv_los_wall": 0,
+          "drv_los_cdoor": 0,
+          "drv_los_odoor": 1,
+          "drv_los_endpt": 1,
+          "drv_los_same": 1,
+          "drv_los_asym": 0,
+          "drv_corner_00": 1,
+          "drv_outside_sum": 0,
+          "drv_regs_ok": 1
+        }
+      }
+    }
+  ]
+}

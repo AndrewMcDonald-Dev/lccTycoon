@@ -1,0 +1,144 @@
+; Visual inspection driver for src/dungeon.ap (WP1).
+; Generates 4 floors across depths 10, 7, 4, 1 and draws st_map to st_screen
+; so they can be inspected with:
+;   node tools/lccgame.js run games/scrap/tests/unit/dungeon_view_driver.ap --show changed --colors --profile
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        lea r0, st_screen
+        bl video_bind
+        mov r0, 0
+        st r0, drv_idx
+drv_loop:
+        ld r0, drv_idx
+        cmp r0, 4
+        brlt drv_gen
+        halt
+drv_gen:
+        lea r1, drv_seeds
+        add r1, r1, r0
+        ldr r2, r1, 0
+        srand r2
+        lea r1, drv_depths
+        add r1, r1, r0
+        ldr r0, r1, 0
+        st r0, drv_cur_depth
+        bl dun_generate
+        bl drv_draw_map
+        bl video_present
+        mov r0, 50
+        sleep r0
+        ld r0, drv_idx
+        add r0, r0, 1
+        st r0, drv_idx
+        br drv_loop
+
+drv_draw_map:
+        push lr
+        mov r0, ' '
+        bl video_clear
+        mov r1, 0               ; y = 0..MAP_H-1
+drv_dm_y:
+        mov r2, MAP_H
+        cmp r1, r2
+        brlt drv_dm_x_init
+        br drv_dm_info
+drv_dm_x_init:
+        mov r0, 0               ; x = 0..MAP_W-1
+drv_dm_x:
+        mov r2, MAP_W
+        cmp r0, r2
+        brlt drv_dm_cell
+        add r1, r1, 1
+        br drv_dm_y
+drv_dm_cell:
+        push r0
+        push r1
+        bl dun_get              ; r0 = kind
+        lea r2, drv_cells
+        add r2, r2, r0
+        ldr r2, r2, 0           ; r2 = display cell
+        pop r1
+        pop r0
+        ; video_put(row=y, col=x, cell=r2)
+        push r0
+        push r1
+        mov r3, r0
+        mov r0, r1              ; row = y
+        mov r1, r3              ; col = x
+        bl video_put
+        pop r1
+        pop r0
+        add r0, r0, 1
+        br drv_dm_x
+drv_dm_info:
+        ; Draw player '@' on top
+        ld r0, st_py
+        ld r1, st_px
+        ld r2, drv_ply_cell
+        bl video_put
+        ; Status line at row 25
+        mov r0, 25
+        mov r1, 0
+        lea r2, drv_s_depth
+        ld r3, drv_attr_lbl
+        bl video_text
+        mov r0, 25
+        mov r1, 7
+        ld r2, drv_cur_depth
+        ld r3, drv_attr_val
+        bl video_num
+        mov r0, 25
+        mov r1, 12
+        lea r2, drv_s_rooms
+        ld r3, drv_attr_lbl
+        bl video_text
+        mov r0, 25
+        mov r1, 19
+        ld r2, st_room_count
+        ld r3, drv_attr_val
+        bl video_num
+        mov r0, 25
+        mov r1, 24
+        lea r2, drv_s_start
+        ld r3, drv_attr_lbl
+        bl video_text
+        mov r0, 25
+        mov r1, 31
+        ld r2, st_start_room
+        ld r3, drv_attr_val
+        bl video_num
+        pop lr
+        ret
+
+drv_idx:        .word 0
+drv_cur_depth:  .word 10
+drv_seeds:      .word 101
+                .word 202
+                .word 303
+                .word 404
+drv_depths:     .word 10
+                .word 7
+                .word 4
+                .word 1
+drv_cells:      .word ' '
+                .word GL_FLOOR|A_FLOOR
+                .word GL_WALL|A_WALL
+                .word GL_DOOR|A_DOOR
+                .word GL_DOOR_OPEN|A_DOOR
+                .word GL_STAIRS|A_STAIRS
+                .word GL_RUBBLE|A_RUBBLE
+drv_ply_cell:   .word GL_PLAYER|A_PLAYER
+drv_attr_lbl:   .word A_LABEL
+drv_attr_val:   .word A_TEXT
+drv_s_depth:    .string "Depth:"
+drv_s_rooms:    .string "Rooms:"
+drv_s_start:    .string "Start:"
+
+        .include "../../src/state.ap"
+        .include "../../src/rng.ap"
+        .include "../../src/dungeon.ap"
+        .include "video.ap"

@@ -1,0 +1,46 @@
+{
+  "game": "items_driver.ap",
+  "scenarios": [
+    {
+      "name": "items: clear, place/at/remove, nearest-free-tile (dist 1/2, stairs, blocked), pool full -> -1, regs",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_cleared_at": -1,
+          "drv_p0_idx": 0,
+          "drv_p0_at": 0,
+          "drv_p0_part": 13,
+          "drv_p0_x": 10,
+          "drv_p0_y": 6,
+          "drv_p0_hp": 9,
+          "drv_empty_at": -1,
+          "drv_oob_at": -1,
+          "drv_bad_part": -1,
+          "drv_bad_oob": -1,
+          "drv_p1_idx": 1,
+          "drv_p1_x": 10,
+          "drv_p1_y": 5,
+          "drv_p1_at": 1,
+          "drv_p0_still": 0,
+          "drv_rem_oob_ok": 0,
+          "drv_rem_at": -1,
+          "drv_reuse_idx": 0,
+          "drv_reuse_at": 0,
+          "drv_st_idx": 0,
+          "drv_st_x": 11,
+          "drv_st_y": 9,
+          "drv_d2_idx": 1,
+          "drv_d2_x": 12,
+          "drv_d2_y": 10,
+          "drv_nofree_ret": -1,
+          "drv_d3_unused": -1,
+          "drv_rubble_idx": 0,
+          "drv_fill_ok": 1,
+          "drv_full_ret": -1,
+          "drv_after_rem": 17,
+          "drv_regs_ok": 1
+        }
+      }
+    }
+  ]
+}

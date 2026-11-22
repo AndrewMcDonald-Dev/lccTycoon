@@ -1,0 +1,183 @@
+{
+  "scenarios": [
+    {
+      "name": "regression: an enemy's hit message comes before the '<part> destroyed!' it caused",
+      "clock": 123,
+      "keys": "a*2 u*2 l*3 n l ff l ff l*3 g u l*3 u k*3 u*4 l n*3 j g e2 u*2 l n l u l n*4 j*4 n u l*3 u k*15 u*2 k g e2 n*2 b g u ff u l*3 j <lt> k*4 y h*4 y*2 h*5 y k*3 y*3 h ff h ff b ff y ff y ff b ff h k ff u ff n b y ff u ff b y*2 g l*2 n*4 j*2 ff j*3 b g k u k*4 y h*5 y h*5 b j*11 b*2 h*2 y k*3 ff k ff k ff k ff k ff k*4 ff k ff k ff j <lt> b y*2 k*3 u*3 l n l*13 ff j*3 l*3 n j*5 n l*2 ff l*2",
+      "tail": 0,
+      "expect": {
+        "status": "frames-complete",
+        "memory": {
+          "st_depth": 8
+        },
+        "screen": {
+          "matches": [
+            "Scuttler hits Scrap Plate for 4\\.\\s*\\n\\s*Scrap Plate destroyed!"
+          ]
+        }
+      }
+    },
+    {
+      "name": "regression: a key typed in the same frame as the fatal hit does not skip the death screen",
+      "clock": 1000,
+      "keys": "<enter> l*2 u k*4 y h*8 b j .*3 j*2 .*65 .. _3",
+      "expect": {
+        "status": "frames-complete",
+        "memory": {
+          "st_game_state": 2,
+          "st_core_hp": 0,
+          "st_turn": 89
+        },
+        "screen": {
+          "contains": [
+            "CORE DESTROYED",
+            "Destroyed by: Flit at Depth 10"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scripted run (clock 123): climbs 10 -> 6 salvaging parts, dies to a Watcher; death screen shows cause and score",
+      "clock": 123,
+      "keys": "a*2 u*2 l*3 n l ff l ff l*3 g u l*3 u k*3 u*4 l n*3 j g e2 u*2 l n l u l n*4 j*4 n u l*3 u k*15 u*2 k g e2 n*2 b g u ff u l*3 j <lt> k*4 y h*4 y*2 h*5 y k*3 y*3 h ff h ff b ff y ff y ff b ff h k ff u ff n b y ff u ff b y*2 g l*2 n*4 j*2 ff j*3 b g k u k*4 y h*5 y h*5 b j*11 b*2 h*2 y k*3 ff k ff k ff k ff k ff k*4 ff k ff k ff j <lt> b y*2 k*3 u*3 l n l*13 ff j*3 l*3 n j*5 n l*2 ff l*4 ff l ff l ff l ff u ff u ff l ff n <lt> u*3 k*12 ff u ff b ff u b y*2 u*15 n*2 j*6 n l*4 u l*8 e2 u*3 n*3 j*2 b*2 h*2 y k*2 b k*2 u*4 l*5 u l n*2 <lt> h b j*7 n l u*2 l n l*5 u n j b h y h*5 e1 y*8 l g h y g e2 l*10 g e2 u k ff e1 ff k ff k ff y ff g ff k _2",
+      "expect": {
+        "status": "frames-complete",
+        "maxStepsPerFrame": 500000,
+        "memory": {
+          "st_game_state": 2,
+          "st_core_hp": 0,
+          "st_depth": 6,
+          "st_depth_best": 6,
+          "st_kills": 14,
+          "st_death_cause": 4,
+          "st_turn": 434
+        },
+        "screen": {
+          "contains": [
+            "CORE DESTROYED",
+            "Destroyed by: Watcher at Depth 6",
+            "FINAL SCORE:            540"
+          ]
+        }
+      }
+    },
+    {
+      "name": "play again after death (clock 1000): typed-ahead key is ignored, then end screen -> title -> clean new game",
+      "clock": 1000,
+      "keys": "<enter> l*2 u k*4 y h*8 b j .*3 j*2 .*65 .. _12 a _ a _2",
+      "expect": {
+        "status": "frames-complete",
+        "memory": {
+          "st_game_state": 1,
+          "st_depth": 10,
+          "st_depth_best": 10,
+          "st_turn": 0,
+          "st_kills": 0,
+          "st_death_cause": 0,
+          "st_core_hp": 40,
+          "st_energy": 40,
+          "st_energy_max": 40,
+          "st_move_cost": 100,
+          "st_sight": 8,
+          "st_regen_acc": 0,
+          "st_repair_acc": 0,
+          "st_target": -1,
+          "st_mode": 0,
+          "st_slots": [
+            1,
+            20,
+            1,
+            20,
+            9,
+            15,
+            13,
+            12,
+            12,
+            15,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "st_inv": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "st_msg_head": 1
+        },
+        "screen": {
+          "contains": [
+            "Depth 10  Turn 0",
+            "Core online. Depth 10."
+          ],
+          "notContains": [
+            "Flit",
+            "destroyed"
+          ]
+        }
+      }
+    },
+    {
+      "name": "scripted run (clock 123): a Watcher kill drops a part on the floor",
+      "clock": 123,
+      "keys": "a*2 u*2 l*3 n l ff l ff l*3 g u l*3 u k*3 u*4 l n*3 j g e2 u*2 l n l u l n*4 j*4 n u l*3 u k*15 u*2 k g e2 n*2 b g u ff u l*3 j <lt> k*4 y h*4 y*2 h*5 y k*3 y*3 h ff h ff b ff y ff y ff b ff h k ff u ff n b y ff u ff b y*2 g l*2 n*4 j*2 ff j*3 b g k u k*4 y h*5 y h*5 b j*11 b*2 h*2 y k*3 ff k ff k ff k ff k ff k*4 ff k ff k ff j <lt> b y*2 k*3 u*3 l n l*13 ff j*3 l*3 n j*5 n l*2 ff l*4 ff l ff l ff l ff u ff u ff l ff",
+      "tail": 0,
+      "expect": {
+        "status": "frames-complete",
+        "memory": {
+          "st_depth": 8,
+          "st_kills": 10
+        },
+        "screen": {
+          "contains": [
+            "Watcher destroyed. Drops Optic Mast."
+          ]
+        }
+      }
+    },
+    {
+      "name": "scripted run (clock 123): after losing both legs, attaching salvaged Grip Treads restores propulsion",
+      "clock": 123,
+      "keys": "a*2 u*2 l*3 n l ff l ff l*3 g u l*3 u k*3 u*4 l n*3 j g e2 u*2 l n l u l n*4 j*4 n u l*3 u k*15 u*2 k g e2 n*2 b g u ff u l*3 j <lt> k*4 y h*4 y*2 h*5 y k*3 y*3 h ff h ff b ff y ff y ff b ff h k ff u ff n b y ff u ff b y*2 g l*2 n*4 j*2 ff j*3 b g k u k*4 y h*5 y h*5 b j*11 b*2 h*2 y k*3 ff k ff k ff k ff k ff k*4 ff k ff k ff j <lt> b y*2 k*3 u*3 l n l*13 ff j*3 l*3 n j*5 n l*2 ff l*4 ff l ff l ff l ff u ff u ff l ff n <lt> u*3 k*12 ff u ff b ff u b y*2 u*15 n*2 j*6 n l*4 u l*8 e2",
+      "tail": 0,
+      "expect": {
+        "status": "frames-complete",
+        "maxStepsPerFrame": 500000,
+        "memory": {
+          "st_depth": 7,
+          "st_slots": [
+            5,
+            31,
+            1,
+            1,
+            9,
+            4,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        "screen": {
+          "contains": [
+            "Attached Grip Treads."
+          ]
+        }
+      }
+    }
+  ]
+}

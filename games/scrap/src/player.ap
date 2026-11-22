@@ -1,0 +1,766 @@
+; ---------------------------------------------------------------------
+; Module: player (prefix ply_) — owner WP9. Input → actions. Drains the
+; keys queued this frame and dispatches them by st_mode (MODE_*):
+;   MODE_MAP    hjkl yubn / arrows move or bump-attack, '.' or space wait,
+;               g pick up, e equip menu, r remove menu, x drop menu,
+;               f targeting, '<' stairs, ? help, Q quit prompt
+;   MODE_TARGET Tab or ] next target, [ previous, f or Enter fire, Esc cancel
+;   MODE_EQUIP  1-4 attach that inventory part, Esc cancel
+;   MODE_REMOVE 1-8 detach that loadout slot, Esc cancel
+;   MODE_DROP   1-4 drop that inventory part, Esc cancel
+;   MODE_HELP   any key closes
+;   MODE_QUIT   y / Y quits, any other key cancels
+; Every action adds its TU cost to st_ply_next (ply_spend); main_turn then
+; lets the world catch up. At most one action per frame: ply_handle stops
+; draining after an action, so later keys wait for the next frame.
+; Menus return to MODE_MAP after a choice or Esc.
+; All routines: args r0..r4, result r0, all other registers preserved.
+;
+;; ply_init          ()            -> -        new game: st_mode = MODE_MAP, st_target = -1, clear pushback
+;; ply_handle        ()            -> r0=PR_*  consume pushback then nbain keys one by one into ply_key until one returns PR_ACTED / PR_QUIT, or no key is left (PR_NONE)
+;; ply_key           r0=key        -> r0=PR_*  dispatch one key by st_mode. KEY_ESC reads the next byte with nbain: KEY_CSI → arrow code (65..68) 4-way move (MODE_MAP only);
+;;                   any other byte → cancel mode and push back non-zero byte for ply_handle
+;; ply_move          r0=dx r1=dy   -> r0=PR_*  enemy on the target tile → cbt_player_melee, cost TIME_MELEE; walkable and free → move (T_DOOR becomes T_DOOR_OPEN), cost
+;;                   st_move_cost, message naming an item on the new tile; blocked → PR_NONE, no time
+;; ply_spend         r0=TU         -> -        st_ply_next += TU (the action's cost)
+;; ply_pickup        ()            -> r0=PR_*  item on the player's tile → prt_inv_add, itm_remove, message, TIME_PICKUP; nothing / inventory full → message, PR_NONE
+;; ply_equip         r0=inv index  -> r0=PR_*  prt_attach; attached → message, TIME_SWAP; empty entry → PR_NONE
+;; ply_remove        r0=slot       -> r0=PR_*  prt_detach; detached → message, TIME_SWAP; empty slot / inventory full → message, PR_NONE
+;; ply_drop          r0=inv index  -> r0=PR_*  itm_place on the player's tile (or nearby), prt_inv_clear, message, TIME_DROP; empty entry / no room → PR_NONE
+;; ply_target        r0=dir        -> -        st_target = act_next_visible(st_target, dir); entering MODE_TARGET starts from -1 (nearest); no visible enemy → message, back to MODE_MAP
+;; ply_fire          ()            -> r0=PR_*  cbt_player_fire(st_target); >0 fired → MODE_MAP, TIME_FIRE; -1 → "Not enough energy.", 0 → "Nothing can fire.", stay in MODE_TARGET, PR_NONE
+;; ply_stairs        ()            -> r0=PR_*  on T_STAIRS → st_climb = 1, TIME_STAIRS; else message, PR_NONE
+; ---------------------------------------------------------------------
+
+; ---- init & frame input loop ------------------------------------------------
+ply_init:
+        push r0
+        mov r0, MODE_MAP
+        st r0, st_mode
+        mov r0, -1
+        st r0, st_target
+        mov r0, 0
+        st r0, ply_pushback
+        pop r0
+        ret
+
+ply_handle:
+        push r1
+        push lr
+ply_handle_lp:
+        ld r0, ply_pushback
+        cmp r0, 0
+        brz ply_handle_read
+        mov r1, 0
+        st r1, ply_pushback
+        br ply_handle_got
+ply_handle_read:
+        nbain r0
+        cmp r0, 0
+        brz ply_handle_ret
+ply_handle_got:
+        bl ply_key
+        cmp r0, PR_NONE
+        brz ply_handle_lp
+        br ply_handle_out       ; PR_ACTED or PR_QUIT: stop draining this frame
+ply_handle_ret:
+        mov r0, PR_NONE
+ply_handle_out:
+        pop lr
+        pop r1
+        ret
+
+; ---- key dispatch by st_mode ------------------------------------------------
+ply_key:
+        push r1
+        push r2
+        push r3
+        push lr
+
+        ; Handle ESC / CSI arrow sequences first in any mode so multi-byte
+        ; sequences are always consumed cleanly.
+        mov r1, KEY_ESC
+        cmp r0, r1
+        brnz ply_k_modes
+        nbain r1
+        mov r2, KEY_CSI
+        cmp r1, r2
+        brnz ply_k_esc
+        ; Arrow sequence: ESC '[' <code>
+        nbain r2
+        ld r3, st_mode
+        cmp r3, MODE_HELP
+        brz ply_k_cancel
+        cmp r3, MODE_QUIT
+        brz ply_k_cancel
+        cmp r3, MODE_MAP
+        brnz ply_k_none         ; arrows ignored in equip/remove/drop/target
+        mov r1, KEY_ARR_UP
+        cmp r2, r1
+        brnz ply_k_arr_dn
+        mov r0, 0
+        mov r1, -1
+        bl ply_move
+        br ply_k_ret
+ply_k_arr_dn:
+        mov r1, KEY_ARR_DOWN
+        cmp r2, r1
+        brnz ply_k_arr_rt
+        mov r0, 0
+        mov r1, 1
+        bl ply_move
+        br ply_k_ret
+ply_k_arr_rt:
+        mov r1, KEY_ARR_RIGHT
+        cmp r2, r1
+        brnz ply_k_arr_lt
+        mov r0, 1
+        mov r1, 0
+        bl ply_move
+        br ply_k_ret
+ply_k_arr_lt:
+        mov r1, KEY_ARR_LEFT
+        cmp r2, r1
+        brnz ply_k_none
+        mov r0, -1
+        mov r1, 0
+        bl ply_move
+        br ply_k_ret
+
+ply_k_esc:
+        st r1, ply_pushback     ; keep non-CSI byte (0 if none) for next ply_handle iteration
+        ld r3, st_mode
+        cmp r3, MODE_TARGET
+        brnz ply_k_cancel
+        mov r1, -1
+        st r1, st_target
+ply_k_cancel:
+        mov r1, MODE_MAP
+        st r1, st_mode
+        br ply_k_none
+
+; ---- non-ESC mode dispatch --------------------------------------------------
+ply_k_modes:
+        ld r1, st_mode
+        cmp r1, MODE_MAP
+        brz ply_k_map
+        cmp r1, MODE_TARGET
+        brz ply_k_target
+        cmp r1, MODE_EQUIP
+        brz ply_k_equip
+        cmp r1, MODE_REMOVE
+        brz ply_k_remove
+        cmp r1, MODE_DROP
+        brz ply_k_drop
+        cmp r1, MODE_HELP
+        brz ply_k_cancel        ; any key closes help
+        cmp r1, MODE_QUIT
+        brz ply_k_quit
+        ; unknown mode: reset safely to map
+        br ply_k_cancel
+
+; ---- MODE_QUIT: y/Y quits, any other key cancels ----------------------------
+ply_k_quit:
+        mov r1, MODE_MAP
+        st r1, st_mode
+        mov r1, KEY_YES
+        cmp r0, r1
+        brz ply_k_do_quit
+        mov r1, KEY_YES2
+        cmp r0, r1
+        brz ply_k_do_quit
+        br ply_k_none
+ply_k_do_quit:
+        mov r0, PR_QUIT
+        br ply_k_ret
+
+; ---- MODE_EQUIP: 1-4 attach inventory entry ---------------------------------
+ply_k_equip:
+        mov r1, '1'
+        cmp r0, r1
+        brlt ply_k_none
+        mov r1, '0'+NUM_INV
+        cmp r0, r1
+        brgt ply_k_none
+        mov r1, '1'
+        sub r0, r0, r1
+        mov r1, MODE_MAP
+        st r1, st_mode
+        bl ply_equip
+        br ply_k_ret
+
+; ---- MODE_REMOVE: 1-8 detach loadout slot -----------------------------------
+ply_k_remove:
+        mov r1, '1'
+        cmp r0, r1
+        brlt ply_k_none
+        mov r1, '0'+NUM_SLOTS
+        cmp r0, r1
+        brgt ply_k_none
+        mov r1, '1'
+        sub r0, r0, r1
+        mov r1, MODE_MAP
+        st r1, st_mode
+        bl ply_remove
+        br ply_k_ret
+
+; ---- MODE_DROP: 1-4 drop inventory entry ------------------------------------
+ply_k_drop:
+        mov r1, '1'
+        cmp r0, r1
+        brlt ply_k_none
+        mov r1, '0'+NUM_INV
+        cmp r0, r1
+        brgt ply_k_none
+        mov r1, '1'
+        sub r0, r0, r1
+        mov r1, MODE_MAP
+        st r1, st_mode
+        bl ply_drop
+        br ply_k_ret
+
+; ---- MODE_TARGET: Tab / ] next, [ prev, f / Enter fire ----------------------
+ply_k_target:
+        mov r1, KEY_TAB
+        cmp r0, r1
+        brz ply_kt_next
+        mov r1, KEY_NEXT
+        cmp r0, r1
+        brz ply_kt_next
+        mov r1, KEY_PREV
+        cmp r0, r1
+        brz ply_kt_prev
+        mov r1, KEY_FIRE
+        cmp r0, r1
+        brz ply_kt_fire
+        mov r1, KEY_ENTER
+        cmp r0, r1
+        brz ply_kt_fire
+        mov r1, 13              ; CR on raw TTY
+        cmp r0, r1
+        brz ply_kt_fire
+        br ply_k_none
+ply_kt_next:
+        mov r0, 1
+        bl ply_target
+        br ply_k_none
+ply_kt_prev:
+        mov r0, -1
+        bl ply_target
+        br ply_k_none
+ply_kt_fire:
+        bl ply_fire
+        br ply_k_ret
+
+; ---- MODE_MAP ---------------------------------------------------------------
+ply_k_map:
+        ; Check 8-way vi-key movement table: (key, dx, dy), terminated by 0
+        lea r3, ply_vi_tbl
+ply_km_vilp:
+        ldr r1, r3, 0
+        cmp r1, 0
+        brz ply_km_cmds
+        cmp r0, r1
+        brz ply_km_vimv
+        add r3, r3, 3
+        br ply_km_vilp
+ply_km_vimv:
+        ldr r0, r3, 1
+        ldr r1, r3, 2
+        bl ply_move
+        br ply_k_ret
+
+ply_km_cmds:
+        ; '.' or space: wait
+        mov r1, KEY_WAIT
+        cmp r0, r1
+        brz ply_km_wait
+        mov r1, KEY_WAIT2
+        cmp r0, r1
+        brnz ply_km_get
+ply_km_wait:
+        mov r0, TIME_WAIT
+        bl ply_spend
+        mov r0, PR_ACTED
+        br ply_k_ret
+
+ply_km_get:
+        mov r1, KEY_PICKUP
+        cmp r0, r1
+        brnz ply_km_eq
+        bl ply_pickup
+        br ply_k_ret
+
+ply_km_eq:
+        mov r1, KEY_EQUIP
+        cmp r0, r1
+        brnz ply_km_rm
+        mov r1, MODE_EQUIP
+        st r1, st_mode
+        br ply_k_none
+
+ply_km_rm:
+        mov r1, KEY_REMOVE
+        cmp r0, r1
+        brnz ply_km_dr
+        mov r1, MODE_REMOVE
+        st r1, st_mode
+        br ply_k_none
+
+ply_km_dr:
+        mov r1, KEY_DROP
+        cmp r0, r1
+        brnz ply_km_fi
+        mov r1, MODE_DROP
+        st r1, st_mode
+        br ply_k_none
+
+ply_km_fi:
+        mov r1, KEY_FIRE
+        cmp r0, r1
+        brnz ply_km_st
+        mov r1, MODE_TARGET
+        st r1, st_mode
+        mov r1, -1
+        st r1, st_target
+        mov r0, 1
+        bl ply_target           ; picks nearest visible; reverts to MODE_MAP if none
+        br ply_k_none
+
+ply_km_st:
+        mov r1, KEY_STAIRS
+        cmp r0, r1
+        brnz ply_km_hp
+        bl ply_stairs
+        br ply_k_ret
+
+ply_km_hp:
+        mov r1, KEY_HELP
+        cmp r0, r1
+        brnz ply_km_qt
+        mov r1, MODE_HELP
+        st r1, st_mode
+        br ply_k_none
+
+ply_km_qt:
+        mov r1, KEY_QUIT
+        cmp r0, r1
+        brnz ply_k_none
+        mov r1, MODE_QUIT
+        st r1, st_mode
+
+ply_k_none:
+        mov r0, PR_NONE
+ply_k_ret:
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; ---- movement & bump-to-attack ----------------------------------------------
+ply_move:
+        push r1
+        push r2
+        push r3
+        push lr
+        ld r2, st_px
+        add r2, r2, r0          ; r2 = nx
+        ld r3, st_py
+        add r3, r3, r1          ; r3 = ny
+
+        ; Enemy on target tile -> bump melee attack
+        mov r0, r2
+        mov r1, r3
+        bl act_at
+        cmp r0, 0
+        brn ply_mv_walk
+        bl cbt_player_melee
+        mov r0, TIME_MELEE
+        bl ply_spend
+        mov r0, PR_ACTED
+        br ply_mv_ret
+
+ply_mv_walk:
+        mov r0, r2
+        mov r1, r3
+        bl dun_walkable
+        cmp r0, 0
+        brz ply_mv_blocked
+
+        ; Step onto (nx, ny)
+        st r2, st_px
+        st r3, st_py
+
+        ; Closed door opens when entered
+        mov r0, r2
+        mov r1, r3
+        bl dun_get
+        cmp r0, T_DOOR
+        brnz ply_mv_item
+        mov r0, r2
+        mov r1, r3
+        mov r2, T_DOOR_OPEN
+        bl dun_set
+
+ply_mv_item:
+        ; If there is an item on the new tile, post a message naming it
+        ld r0, st_px
+        ld r1, st_py
+        bl itm_at
+        cmp r0, 0
+        brn ply_mv_spend
+        sll r0, ITEM_SHIFT
+        lea r1, st_items
+        add r1, r1, r0
+        ldr r0, r1, I_PART
+        cmp r0, PART_NONE
+        brz ply_mv_spend
+        bl prt_name
+        mov r2, r0
+        lea r0, ply_s_see
+        bl ui_msg
+        mov r0, r2
+        bl ui_msg_add
+        lea r0, ply_s_dot
+        bl ui_msg_add
+
+ply_mv_spend:
+        ld r0, st_move_cost
+        bl ply_spend
+        mov r0, PR_ACTED
+        br ply_mv_ret
+
+ply_mv_blocked:
+        mov r0, PR_NONE
+ply_mv_ret:
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; ---- action time cost -------------------------------------------------------
+ply_spend:
+        push r1
+        ld r1, st_ply_next
+        add r1, r1, r0
+        st r1, st_ply_next
+        pop r1
+        ret
+
+; ---- pick up item on player's tile ------------------------------------------
+ply_pickup:
+        push r1
+        push r2
+        push r3
+        push lr
+        ld r0, st_px
+        ld r1, st_py
+        bl itm_at
+        cmp r0, 0
+        brn ply_pk_none
+        mov r2, r0              ; r2 = item index
+        sll r0, ITEM_SHIFT
+        lea r1, st_items
+        add r1, r1, r0
+        ldr r0, r1, I_PART      ; r0 = part id
+        ldr r1, r1, I_HP        ; r1 = hp
+        mov r3, r0              ; r3 = part id
+        bl prt_inv_add
+        cmp r0, 0
+        brn ply_pk_full
+        mov r0, r2
+        bl itm_remove
+        mov r0, r3
+        bl prt_name
+        mov r2, r0
+        lea r0, ply_s_picked
+        bl ui_msg
+        mov r0, r2
+        bl ui_msg_add
+        lea r0, ply_s_dot
+        bl ui_msg_add
+        mov r0, TIME_PICKUP
+        bl ply_spend
+        mov r0, PR_ACTED
+        br ply_pk_ret
+ply_pk_none:
+        lea r0, ply_s_noitem
+        bl ui_msg
+        mov r0, PR_NONE
+        br ply_pk_ret
+ply_pk_full:
+        lea r0, ply_s_invfull
+        bl ui_msg
+        mov r0, PR_NONE
+ply_pk_ret:
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; ---- equip (attach) carried part at inv index -------------------------------
+ply_equip:
+        push r1
+        push r2
+        push lr
+        bl prt_attach           ; r0 = slot 0..NUM_SLOTS-1, or -1 if empty/invalid
+        cmp r0, 0
+        brn ply_eq_empty
+        sll r0, SLOT_SHIFT
+        lea r1, st_slots
+        add r1, r1, r0
+        ldr r0, r1, S_PART
+        bl prt_name
+        mov r2, r0
+        lea r0, ply_s_attached
+        bl ui_msg
+        mov r0, r2
+        bl ui_msg_add
+        lea r0, ply_s_dot
+        bl ui_msg_add
+        mov r0, TIME_SWAP
+        bl ply_spend
+        mov r0, PR_ACTED
+        br ply_eq_ret
+ply_eq_empty:
+        lea r0, ply_s_noinv
+        bl ui_msg
+        mov r0, PR_NONE
+ply_eq_ret:
+        pop lr
+        pop r2
+        pop r1
+        ret
+
+; ---- remove (detach) loadout slot into inventory ----------------------------
+ply_remove:
+        push r1
+        push r2
+        push lr
+        bl prt_detach           ; r0 = inv idx (>=0), -1 empty, -2 inv full
+        cmp r0, 0
+        brn ply_rm_fail
+        sll r0, SLOT_SHIFT
+        lea r1, st_inv
+        add r1, r1, r0
+        ldr r0, r1, S_PART
+        bl prt_name
+        mov r2, r0
+        lea r0, ply_s_removed
+        bl ui_msg
+        mov r0, r2
+        bl ui_msg_add
+        lea r0, ply_s_dot
+        bl ui_msg_add
+        mov r0, TIME_SWAP
+        bl ply_spend
+        mov r0, PR_ACTED
+        br ply_rm_ret
+ply_rm_fail:
+        cmp r0, -2
+        brz ply_rm_full
+        lea r0, ply_s_slotemp
+        bl ui_msg
+        mov r0, PR_NONE
+        br ply_rm_ret
+ply_rm_full:
+        lea r0, ply_s_invfull
+        bl ui_msg
+        mov r0, PR_NONE
+ply_rm_ret:
+        pop lr
+        pop r2
+        pop r1
+        ret
+
+; ---- drop carried part at inv index onto floor ------------------------------
+ply_drop:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        cmp r0, 0
+        brn ply_dr_empty
+        cmp r0, NUM_INV
+        brlt ply_dr_in
+        br ply_dr_empty
+ply_dr_in:
+        mov r4, r0              ; r4 = inv index
+        sll r0, SLOT_SHIFT
+        lea r1, st_inv
+        add r1, r1, r0
+        ldr r2, r1, S_PART      ; r2 = part id
+        cmp r2, PART_NONE
+        brz ply_dr_empty
+        ldr r3, r1, S_HP        ; r3 = hp
+        ld r0, st_px
+        ld r1, st_py
+        bl itm_place
+        cmp r0, 0
+        brn ply_dr_noroom
+        mov r0, r4
+        bl prt_inv_clear
+        mov r0, r2
+        bl prt_name
+        mov r2, r0
+        lea r0, ply_s_dropped
+        bl ui_msg
+        mov r0, r2
+        bl ui_msg_add
+        lea r0, ply_s_dot
+        bl ui_msg_add
+        mov r0, TIME_DROP
+        bl ply_spend
+        mov r0, PR_ACTED
+        br ply_dr_ret
+ply_dr_empty:
+        lea r0, ply_s_noinv
+        bl ui_msg
+        mov r0, PR_NONE
+        br ply_dr_ret
+ply_dr_noroom:
+        lea r0, ply_s_noroom
+        bl ui_msg
+        mov r0, PR_NONE
+ply_dr_ret:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; ---- target selection / cycling ---------------------------------------------
+ply_target:
+        push r0
+        push r1
+        push lr
+        mov r1, r0              ; r1 = dir (+1 / -1)
+        ld r0, st_target        ; r0 = current target (-1 on entry -> nearest)
+        bl act_next_visible
+        st r0, st_target
+        cmp r0, 0
+        brn ply_tgt_none
+        br ply_tgt_ret
+ply_tgt_none:
+        mov r0, MODE_MAP
+        st r0, st_mode
+        lea r0, ply_s_notgt
+        bl ui_msg
+ply_tgt_ret:
+        pop lr
+        pop r1
+        pop r0
+        ret
+
+; ---- fire ranged weapons at st_target ---------------------------------------
+ply_fire:
+        push r1
+        push lr
+        ld r0, st_target
+        cmp r0, 0
+        brn ply_fr_notgt
+        bl cbt_player_fire      ; r0 = >0 fired, -1 low energy, 0 nothing
+        cmp r0, 0
+        brp ply_fr_ok
+        brn ply_fr_noenergy
+        lea r0, ply_s_nofire
+        bl ui_msg
+        mov r0, PR_NONE         ; stay in MODE_TARGET
+        br ply_fr_ret
+ply_fr_noenergy:
+        lea r0, ply_s_noenergy
+        bl ui_msg
+        mov r0, PR_NONE         ; stay in MODE_TARGET
+        br ply_fr_ret
+ply_fr_ok:
+        mov r1, MODE_MAP
+        st r1, st_mode
+        mov r0, TIME_FIRE
+        bl ply_spend
+        mov r0, PR_ACTED
+        br ply_fr_ret
+ply_fr_notgt:
+        mov r1, MODE_MAP
+        st r1, st_mode
+        lea r0, ply_s_notgt
+        bl ui_msg
+        mov r0, PR_NONE
+ply_fr_ret:
+        pop lr
+        pop r1
+        ret
+
+; ---- climb stairs '<' -------------------------------------------------------
+ply_stairs:
+        push r1
+        push lr
+        ld r0, st_px
+        ld r1, st_py
+        bl dun_get
+        cmp r0, T_STAIRS
+        brnz ply_st_no
+        mov r0, 1
+        st r0, st_climb
+        mov r0, TIME_STAIRS
+        bl ply_spend
+        mov r0, PR_ACTED
+        br ply_st_ret
+ply_st_no:
+        lea r0, ply_s_nostairs
+        bl ui_msg
+        mov r0, PR_NONE
+ply_st_ret:
+        pop lr
+        pop r1
+        ret
+
+; ---- private tables & strings -----------------------------------------------
+ply_vi_tbl:
+        .word KEY_W
+        .word -1
+        .word 0
+        .word KEY_S
+        .word 0
+        .word 1
+        .word KEY_N
+        .word 0
+        .word -1
+        .word KEY_E
+        .word 1
+        .word 0
+        .word KEY_NW
+        .word -1
+        .word -1
+        .word KEY_NE
+        .word 1
+        .word -1
+        .word KEY_SW
+        .word -1
+        .word 1
+        .word KEY_SE
+        .word 1
+        .word 1
+        .word 0
+
+ply_s_see:      .string "You see "
+ply_s_picked:   .string "Picked up "
+ply_s_attached: .string "Attached "
+ply_s_removed:  .string "Removed "
+ply_s_dropped:  .string "Dropped "
+ply_s_dot:      .string "."
+ply_s_noitem:   .string "Nothing here to pick up."
+ply_s_invfull:  .string "Inventory full."
+ply_s_noinv:    .string "No carried part there."
+ply_s_slotemp:  .string "Slot is empty."
+ply_s_noroom:   .string "No room to drop that here."
+ply_pushback:   .word 0
+
+ply_s_notgt:    .string "No targets in sight."
+ply_s_nofire:   .string "Nothing can fire."
+ply_s_noenergy: .string "Not enough energy."
+ply_s_nostairs: .string "No stairs here."

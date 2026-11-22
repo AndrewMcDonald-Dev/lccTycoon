@@ -1,0 +1,1354 @@
+; Unit driver for src/combat.ap (WP8).
+; Tests:
+;   1. cbt_hit_chance: distance 0/1/2/6/9, upper clamp HIT_MAX, lower clamp HIT_MIN
+;   2. cbt_player_fire: ranged-only, range gating, energy gating, LOS gating,
+;      multi-weapon volley, stops when target dies, returns 0 when nothing fires,
+;      per-weapon messages <= 63 chars
+;   3. cbt_player_melee: melee weapons only, energy-skipped melee weapon, multi-melee,
+;      fallback core ram (no melee weapon & zero-energy melee weapon)
+;   4. cbt_enemy_attack: damages parts/core via prt_damage, hover evade lowers hit rate
+;      (floored at HIT_MIN), part destruction message still names destroyed part,
+;      core kill sets st_death_cause = attacker type & GAME_DEAD
+;   5. cbt_damage_enemy: non-lethal leaves alive; lethal increments st_kills, frees record,
+;      clears st_target (only if matching), ET_DROP_PCT=0 drops nothing,
+;      ET_DROP_PCT=100 (patched in driver) places valid drop at 50..100% integrity
+;   6. Register preservation across all 5 public cbt_* routines
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        ; Fixed seed for deterministic combat rolls
+        mov r0, 123
+        srand r0
+
+        ; Bind display & init modules
+        lea r0, st_screen
+        bl video_bind
+        bl ui_init
+        bl prt_init
+        bl act_init
+        bl itm_clear
+
+        ; Build a clean open floor map (x=1..62, y=1..22 = T_FLOOR, border T_WALL)
+        bl drv_make_open_map
+
+        ; =====================================================================
+        ; 1. cbt_hit_chance: distance penalty & clamps
+        ; =====================================================================
+        mov r0, 70
+        mov r1, 1
+        bl cbt_hit_chance
+        st r0, drv_hc_d1        ; expect 70
+
+        mov r0, 70
+        mov r1, 0
+        bl cbt_hit_chance
+        st r0, drv_hc_d0        ; expect 70 (no bonus for dist < 1)
+
+        mov r0, 70
+        mov r1, 2
+        bl cbt_hit_chance
+        st r0, drv_hc_d2        ; expect 67
+
+        mov r0, 70
+        mov r1, 6
+        bl cbt_hit_chance
+        st r0, drv_hc_d6        ; expect 55
+
+        mov r0, 65
+        mov r1, 9
+        bl cbt_hit_chance
+        st r0, drv_hc_d9        ; expect 41
+
+        mov r0, 100
+        mov r1, 1
+        bl cbt_hit_chance
+        st r0, drv_hc_hi1       ; expect 95 (HIT_MAX)
+
+        mov r0, 120
+        mov r1, 3
+        bl cbt_hit_chance
+        st r0, drv_hc_hi2       ; expect 95 (120 - 6 = 114 -> 95)
+
+        mov r0, 20
+        mov r1, 10
+        bl cbt_hit_chance
+        st r0, drv_hc_lo1       ; expect 10 (20 - 27 = -7 -> 10)
+
+        mov r0, 5
+        mov r1, 1
+        bl cbt_hit_chance
+        st r0, drv_hc_lo2       ; expect 10 (HIT_MIN)
+
+        ; =====================================================================
+        ; 2. cbt_player_fire: ranged-only, range, energy, FOV visibility, stop-on-kill
+        ; =====================================================================
+        bl prt_init             ; slot 3 = Rivet Gun (rng 7, e 2), slot 4 = Spark Prod (melee)
+        bl act_clear
+        bl itm_clear
+        mov r0, 10
+        st r0, st_px
+        mov r0, 10
+        st r0, st_py
+        mov r0, 40
+        st r0, st_energy
+        bl fov_reset
+        bl fov_update
+
+        ; 2a. Starting loadout vs Bulwark at dist 5 (x=15, y=10):
+        ; Only Rivet Gun fires (Spark Prod is melee -> skipped), costs 2 energy -> 38
+        mov r0, EN_BULWARK
+        mov r1, 15
+        mov r2, 10
+        bl act_spawn            ; idx 0
+        st r0, drv_e0
+        bl cbt_player_fire
+        st r0, drv_pf_start_n   ; expect 1
+        ld r0, st_energy
+        st r0, drv_pf_start_e   ; expect 38
+        ; Copy newest message (should start with "Rivet Gun ")
+        lea r0, drv_pf_msg1
+        bl drv_copy_head_msg
+
+        ; 2a2. Fire again until Rivet Gun hits Bulwark -> pin hit message format
+        mov r3, 20
+drv_pf_hit_lp:
+        ld r0, drv_e0
+        mov r1, 40
+        bl drv_set_enemy_hp
+        ld r0, drv_e0
+        bl cbt_player_fire
+        ld r0, drv_e0
+        bl drv_get_enemy_hp
+        mov r1, 40
+        cmp r0, r1
+        brlt drv_pf_hit_got
+        sub r3, r3, 1
+        brp drv_pf_hit_lp
+drv_pf_hit_got:
+        lea r0, drv_pf_hit_msg
+        bl drv_copy_head_msg
+        mov r0, 38
+        st r0, st_energy        ; restore energy for 2b expectation
+
+        ; 2a3. No ranged weapons (only Spark Prod) -> returns 0, energy untouched
+        mov r0, SLOT_WEAP0
+        mov r1, PART_NONE
+        bl drv_set_slot
+        ld r0, drv_e0
+        bl cbt_player_fire
+        st r0, drv_pf_norng_n   ; expect 0
+        ld r0, st_energy
+        st r0, drv_pf_norng_e   ; expect 38
+        ; Restore Rivet Gun in slot 3
+        mov r0, SLOT_WEAP0
+        mov r1, PT_RIVET_GUN
+        bl drv_set_slot
+
+        ; 2b. Range 7 check: Rivet Gun (range 7) fires at dist 7 (x=17, y=10) and refuses dist 8 (x=18, y=10, still visible)
+        mov r0, EN_BULWARK
+        mov r1, 17
+        mov r2, 10
+        bl act_spawn            ; idx 1 at dist 7
+        st r0, drv_e1
+        bl cbt_player_fire
+        st r0, drv_pf_r7_n      ; expect 1 (Rivet Gun range 7)
+        mov r0, 38
+        st r0, st_energy        ; restore energy for 2b2 expectation
+
+        ; Out of range on a visible target: dist 8 (x=18, y=10, st_sight=8), Rivet Gun range 7 -> returns 0, energy unchanged
+        mov r0, EN_BULWARK
+        mov r1, 18
+        mov r2, 10
+        bl act_spawn            ; idx 2
+        bl cbt_player_fire
+        st r0, drv_pf_oor_n     ; expect 0
+        ld r0, st_energy
+        st r0, drv_pf_oor_e     ; expect 38
+
+        ; 2c. Multi-weapon volley: slot 3=Rivet Gun (r6,e2), slot 4=Scatter Tube (r4,e3), slot 5=Pulse Rifle (r8,e4)
+        mov r0, SLOT_WEAP0+1
+        mov r1, PT_SCATTER
+        bl drv_set_slot
+        mov r0, SLOT_WEAP0+2
+        mov r1, PT_PULSE_RIFLE
+        bl drv_set_slot
+        mov r0, 40
+        st r0, st_energy
+        ; Reset Bulwark 0 HP to 40 at dist 5 -> Rivet Gun (r6) & Pulse Rifle (r8) fire, Scatter (r4) skipped!
+        ld r0, drv_e0
+        mov r1, 40
+        bl drv_set_enemy_hp
+        ld r0, drv_e0
+        bl cbt_player_fire
+        st r0, drv_pf_d5_n      ; expect 2
+        ld r0, st_energy
+        st r0, drv_pf_d5_e      ; expect 34 (40 - 2 - 4)
+
+        ; Enemy at dist 3 (x=13, y=10) -> all 3 fire, energy -= 2+3+4 = 9 -> 25
+        mov r0, EN_BULWARK
+        mov r1, 13
+        mov r2, 10
+        bl act_spawn            ; idx 2
+        st r0, drv_e2
+        bl cbt_player_fire
+        st r0, drv_pf_d3_n      ; expect 3
+        ld r0, st_energy
+        st r0, drv_pf_d3_e      ; expect 25
+
+        ; 2d. Energy gating: energy=3 -> Rivet Gun (2) fires (leaves 1), Scatter (3) skipped, Pulse (4) skipped
+        mov r0, 3
+        st r0, st_energy
+        ld r0, drv_e2
+        mov r1, 40
+        bl drv_set_enemy_hp
+        ld r0, drv_e2
+        bl cbt_player_fire
+        st r0, drv_pf_e3_n      ; expect 1
+        ld r0, st_energy
+        st r0, drv_pf_e3_e      ; expect 1
+
+        ; Energy=1 -> none of (2,3,4) can fire -> returns 0, energy stays 1
+        ld r0, drv_e2
+        bl cbt_player_fire
+        st r0, drv_pf_e1_n      ; expect 0
+        ld r0, st_energy
+        st r0, drv_pf_e1_e      ; expect 1
+
+        ; 2e. Blocked visibility + doorway FOV-vs-LOS fix:
+        ; Put T_WALL at (11,10) between player (10,10) and enemy 2 (13,10) and recompute FOV
+        mov r0, 40
+        st r0, st_energy
+        mov r0, 11
+        mov r1, 10
+        mov r2, T_WALL
+        bl dun_set
+        bl fov_update
+        ld r0, drv_e2
+        bl cbt_player_fire
+        st r0, drv_pf_los_n     ; expect 0 (not visible behind wall)
+        ld r0, st_energy
+        st r0, drv_pf_los_e     ; expect 40
+        ; 2e2. Doorway target at (12,9) with wall at (11,10): fov_los==0 but fov_visible==1 -> MUST fire!
+        mov r0, 10
+        mov r1, 10
+        mov r2, 12
+        mov r3, 9
+        bl fov_los
+        st r0, drv_pf_door_los  ; expect 0 (Bresenham hits wall at 11,10)
+        mov r0, 12
+        mov r1, 9
+        bl fov_visible
+        st r0, drv_pf_door_vis  ; expect 1 (shadowcasting sees around doorway)
+        mov r0, EN_BULWARK
+        mov r1, 12
+        mov r2, 9
+        bl act_spawn
+        bl cbt_player_fire
+        st r0, drv_pf_door_n    ; expect 3 (all 3 ranged weapons fire!)
+        ; Restore floor tile & FOV
+        mov r0, 11
+        mov r1, 10
+        mov r2, T_FLOOR
+        bl dun_set
+        bl fov_update
+
+        ; 2f. Stops firing once target is destroyed (second weapon must NOT spend energy)
+        ; Put 2 Rivet Guns (e2 each), Aim Gyro (+15% acc -> 85% at dist 1), enemy with 1 HP at (11,10).
+        ; Loop with fresh 1-HP enemies until one dies on shot 1 -> verify fired == 1 and energy -= 2!
+        bl prt_init
+        mov r0, SLOT_WEAP0
+        mov r1, PT_RIVET_GUN
+        bl drv_set_slot
+        mov r0, SLOT_WEAP0+1
+        mov r1, PT_RIVET_GUN
+        bl drv_set_slot
+        mov r0, SLOT_WEAP0+2
+        mov r1, PART_NONE
+        bl drv_set_slot
+        mov r0, SLOT_UTIL0
+        mov r1, PT_AIM_GYRO
+        bl drv_set_slot
+        bl prt_recalc
+        mov r3, 20              ; max attempts
+        mov r4, 0               ; found flag
+drv_pf_stop_lp:
+        bl act_clear
+        mov r0, 40
+        st r0, st_energy
+        mov r0, EN_FLIT
+        mov r1, 11
+        mov r2, 10
+        bl act_spawn
+        mov r1, 1
+        bl drv_set_enemy_hp
+        bl cbt_player_fire      ; r0 = fired
+        cmp r0, 1
+        brne drv_pf_stop_nx
+        ; Fired 1 -> check enemy is dead and energy == 38
+        ld r1, st_energy
+        mov r2, 38
+        cmp r1, r2
+        brne drv_pf_stop_nx
+        mov r4, 1
+        br drv_pf_stop_done
+drv_pf_stop_nx:
+        sub r3, r3, 1
+        brp drv_pf_stop_lp
+drv_pf_stop_done:
+        st r4, drv_pf_stop_ok   ; expect 1
+
+        ; =====================================================================
+        ; 3. cbt_player_melee: melee weapons & core ram fallback
+        ; =====================================================================
+        ; 3a. With Spark Prod (melee, e0) + Cutter Arm (melee, e1) + Rivet Gun (ranged, e2)
+        ; Energy = 10 -> Rivet Gun skipped, Spark Prod (0) & Cutter Arm (1) swing -> energy == 9
+        bl prt_init
+        bl act_clear
+        mov r0, SLOT_WEAP0
+        mov r1, PT_RIVET_GUN
+        bl drv_set_slot
+        mov r0, SLOT_WEAP0+1
+        mov r1, PT_SPARK_PROD
+        bl drv_set_slot
+        mov r0, SLOT_WEAP0+2
+        mov r1, PT_CUTTER_ARM
+        bl drv_set_slot
+        mov r0, 10
+        st r0, st_energy
+        mov r0, EN_BULWARK
+        mov r1, 11
+        mov r2, 10
+        bl act_spawn            ; idx 0, 40 HP
+        bl cbt_player_melee
+        ld r0, st_energy
+        st r0, drv_pm_e_after   ; expect 9 (only Cutter Arm spent 1)
+
+        ; 3b. With Cutter Arm ONLY (e1) and energy = 0 -> Cutter Arm skipped -> Core Ram!
+        mov r0, SLOT_WEAP0
+        mov r1, PART_NONE
+        bl drv_set_slot
+        mov r0, SLOT_WEAP0+1
+        mov r1, PART_NONE
+        bl drv_set_slot
+        mov r0, SLOT_WEAP0+2
+        mov r1, PT_CUTTER_ARM
+        bl drv_set_slot
+        mov r0, 0
+        st r0, st_energy
+        ; Swing repeatedly until we get a core ram hit, verify damage in [RAM_DMIN, RAM_DMAX]
+        ; and message starts with "Core rams "
+        mov r3, 30
+        mov r4, 0               ; ok flag
+drv_pm_ram_lp:
+        mov r0, 0
+        mov r1, 40
+        bl drv_set_enemy_hp
+        mov r0, 0
+        bl cbt_player_melee
+        mov r0, 0
+        bl drv_get_enemy_hp     ; r0 = hp after
+        mov r1, 40
+        sub r1, r1, r0          ; r1 = dmg dealt
+        cmp r1, 0
+        brz drv_pm_ram_nx       ; missed, try again
+        ; Verify 1 <= dmg <= 3
+        cmp r1, RAM_DMIN
+        brlt drv_pm_ram_done    ; fail (r4 stays 0)
+        cmp r1, RAM_DMAX
+        brgt drv_pm_ram_done    ; fail
+        ; Check message starts with "Core rams "
+        lea r0, drv_ram_msg
+        bl drv_copy_head_msg
+        mov r4, 1
+        br drv_pm_ram_done
+drv_pm_ram_nx:
+        sub r3, r3, 1
+        brp drv_pm_ram_lp
+drv_pm_ram_done:
+        st r4, drv_pm_ram_ok    ; expect 1
+        ld r0, st_energy
+        st r0, drv_pm_ram_e     ; expect 0 (ram costs no energy)
+
+        ; 3c. Empty weapon slots with full energy -> Core Ram (not melee weapon)
+        mov r0, SLOT_WEAP0+2
+        mov r1, PART_NONE
+        bl drv_set_slot
+        mov r0, 40
+        st r0, st_energy
+        mov r3, 30
+        mov r4, 0
+drv_pm_bare_lp:
+        mov r0, 0
+        mov r1, 40
+        bl drv_set_enemy_hp
+        mov r0, 0
+        bl cbt_player_melee
+        mov r0, 0
+        bl drv_get_enemy_hp
+        mov r1, 40
+        sub r1, r1, r0
+        cmp r1, 0
+        brz drv_pm_bare_nx
+        cmp r1, RAM_DMIN
+        brlt drv_pm_bare_done
+        cmp r1, RAM_DMAX
+        brgt drv_pm_bare_done
+        mov r4, 1
+        br drv_pm_bare_done
+drv_pm_bare_nx:
+        sub r3, r3, 1
+        brp drv_pm_bare_lp
+drv_pm_bare_done:
+        st r4, drv_pm_bare_ok   ; expect 1
+        ld r0, st_energy
+        st r0, drv_pm_bare_e    ; expect 40
+
+        ; 3d. With Spark Prod ONLY (melee, e0): verify hit dmg in [2, 5] & message != Core ram
+        mov r0, SLOT_WEAP0+1
+        mov r1, PT_SPARK_PROD
+        bl drv_set_slot
+        mov r0, SLOT_WEAP0+2
+        mov r1, PART_NONE
+        bl drv_set_slot
+        mov r3, 30
+        mov r4, 0
+drv_pm_sp_lp:
+        mov r0, 0
+        mov r1, 40
+        bl drv_set_enemy_hp
+        mov r0, 0
+        bl cbt_player_melee
+        mov r0, 0
+        bl drv_get_enemy_hp
+        mov r1, 40
+        sub r1, r1, r0          ; dmg
+        cmp r1, 0
+        brz drv_pm_sp_nx
+        cmp r1, 2
+        brlt drv_pm_sp_done
+        cmp r1, 5
+        brgt drv_pm_sp_done
+        lea r0, drv_sp_msg
+        bl drv_copy_head_msg
+        mov r4, 1
+        br drv_pm_sp_done
+drv_pm_sp_nx:
+        sub r3, r3, 1
+        brp drv_pm_sp_lp
+drv_pm_sp_done:
+        st r4, drv_pm_sp_ok     ; expect 1
+
+        ; =====================================================================
+        ; 4. cbt_enemy_attack: prt_damage, evade, destroyed part name, core death
+        ; =====================================================================
+        ; 4a. Hover evade check: compare hits over 100 attacks with evade=0 vs evade=20
+        ; Use Flit (ET_ACC=60) at dist 1 -> 60% vs 40%
+        bl prt_init
+        bl act_clear
+        mov r0, GAME_PLAY
+        st r0, st_game_state
+        mov r0, EN_FLIT
+        mov r1, 11
+        mov r2, 10
+        bl act_spawn            ; idx 0
+        ; Clear all slots so every hit goes to core -> easy to count hits!
+        bl drv_clear_all_slots
+        mov r0, 0
+        st r0, st_evade
+        mov r0, 100
+        mov r1, 0               ; hit count
+drv_ev0_lp:
+        mov r2, CORE_MAX
+        st r2, st_core_hp
+        mov r2, GAME_PLAY
+        st r2, st_game_state
+        push r0
+        mov r0, 0
+        bl cbt_enemy_attack
+        pop r0
+        ld r2, st_core_hp
+        mov r3, CORE_MAX
+        cmp r2, r3
+        bre drv_ev0_nx
+        add r1, r1, 1
+drv_ev0_nx:
+        sub r0, r0, 1
+        brp drv_ev0_lp
+        st r1, drv_ev0_hits     ; expect ~60 (in 40..80)
+
+        ; Same with Grav Skimmer evade = 20 (60% - 20% = 40%)
+        mov r0, 20
+        st r0, st_evade
+        mov r0, 100
+        mov r1, 0
+drv_ev20_lp:
+        mov r2, CORE_MAX
+        st r2, st_core_hp
+        mov r2, GAME_PLAY
+        st r2, st_game_state
+        push r0
+        mov r0, 0
+        bl cbt_enemy_attack
+        pop r0
+        ld r2, st_core_hp
+        mov r3, CORE_MAX
+        cmp r2, r3
+        bre drv_ev20_nx
+        add r1, r1, 1
+drv_ev20_nx:
+        sub r0, r0, 1
+        brp drv_ev20_lp
+        st r1, drv_ev20_hits    ; expect < drv_ev0_hits
+
+        ; Check evade reduced hits (drv_ev20_hits < drv_ev0_hits) and > 0
+        ld r0, drv_ev0_hits
+        ld r1, drv_ev20_hits
+        mov r2, 0
+        cmp r1, r0
+        brlt drv_ev_cmp1
+        br drv_ev_cmp_st
+drv_ev_cmp1:
+        cmp r1, 0
+        brp drv_ev_cmp2
+        br drv_ev_cmp_st
+drv_ev_cmp2:
+        mov r2, 1
+drv_ev_cmp_st:
+        st r2, drv_evade_ok     ; expect 1
+
+        ; 4b. Hit floor at HIT_MIN even with huge evade + long range (evade=90 -> still >= 10%)
+        mov r0, 90
+        st r0, st_evade
+        mov r0, 100
+        mov r1, 0
+drv_evmin_lp:
+        mov r2, CORE_MAX
+        st r2, st_core_hp
+        mov r2, GAME_PLAY
+        st r2, st_game_state
+        push r0
+        mov r0, 0
+        bl cbt_enemy_attack
+        pop r0
+        ld r2, st_core_hp
+        mov r3, CORE_MAX
+        cmp r2, r3
+        bre drv_evmin_nx
+        add r1, r1, 1
+drv_evmin_nx:
+        sub r0, r0, 1
+        brp drv_evmin_lp
+        mov r2, 0
+        cmp r1, 0
+        brp drv_evmin_ok
+        br drv_evmin_st
+drv_evmin_ok:
+        mov r2, 1
+drv_evmin_st:
+        st r2, drv_evmin_ok_f   ; expect 1 (still hits at HIT_MIN 10%)
+
+        ; 4c. Enemy attack damages a part through prt_damage & even when part is destroyed,
+        ; message still names the part (not "-")!
+        bl prt_init
+        bl act_clear
+        mov r0, GAME_PLAY
+        st r0, st_game_state
+        mov r0, 0
+        st r0, st_evade
+        ; Fill all 8 slots with Optic Mast at 1 HP so any part hit destroys Optic Mast
+        mov r1, 0
+drv_fill_om:
+        mov r0, r1
+        mov r2, PT_OPTIC_MAST
+        push r1
+        mov r1, r2
+        bl drv_set_slot_hp1
+        pop r1
+        add r1, r1, 1
+        cmp r1, NUM_SLOTS
+        brlt drv_fill_om
+        mov r0, EN_SCUTTLER
+        mov r1, 11
+        mov r2, 10
+        bl act_spawn            ; idx 0
+        ; Loop attacks until a slot becomes PART_NONE (part destroyed)
+        mov r3, 30
+        mov r4, 0
+drv_pdest_lp:
+        mov r0, CORE_MAX
+        st r0, st_core_hp
+        mov r0, 0
+        bl cbt_enemy_attack
+        bl prt_free_slots
+        cmp r0, 0
+        brp drv_pdest_hit
+        sub r3, r3, 1
+        brp drv_pdest_lp
+        br drv_pdest_done
+drv_pdest_hit:
+        ; Hit message comes BEFORE destroyed message:
+        ;   prev msg: "Scuttler hits Optic Mast for N." (A_BAD)
+        ;   head msg: "Optic Mast destroyed!" (A_BAD)
+        lea r0, drv_pdest_msg
+        bl drv_copy_prev_msg
+        bl drv_get_prev_attr
+        st r0, drv_pdest_attr   ; expect A_BAD (2304)
+        lea r0, drv_pdest_msg2
+        bl drv_copy_head_msg
+        bl drv_get_head_attr
+        st r0, drv_pdest_attr2  ; expect A_BAD (2304)
+        mov r4, 1
+drv_pdest_done:
+        st r4, drv_pdest_ok     ; expect 1
+
+        ; 4d. Enemy attack killing the core sets st_game_state = GAME_DEAD and st_death_cause = EN_BULWARK
+        bl drv_clear_all_slots
+        bl act_clear
+        mov r0, 0
+        st r0, st_evade
+        mov r0, 1
+        st r0, st_core_hp
+        mov r0, GAME_PLAY
+        st r0, st_game_state
+        mov r0, CAUSE_NONE
+        st r0, st_death_cause
+        mov r0, EN_BULWARK
+        mov r1, 11
+        mov r2, 10
+        bl act_spawn            ; idx 0
+        mov r3, 30
+drv_killp_lp:
+        mov r0, 0
+        bl cbt_enemy_attack
+        ld r0, st_game_state
+        cmp r0, GAME_DEAD
+        bre drv_killp_done
+        sub r3, r3, 1
+        brp drv_killp_lp
+drv_killp_done:
+        ld r0, st_core_hp
+        st r0, drv_killp_hp     ; expect 0
+        ld r0, st_game_state
+        st r0, drv_killp_state  ; expect GAME_DEAD (2)
+        ld r0, st_death_cause
+        st r0, drv_killp_cause  ; expect EN_BULWARK (5)
+        lea r0, drv_killp_msg
+        bl drv_copy_head_msg
+
+        ; =====================================================================
+        ; 5. cbt_damage_enemy: non-lethal, lethal (0% & 100% drop hook), kills, target
+        ; =====================================================================
+        bl act_clear
+        bl itm_clear
+        mov r0, GAME_PLAY
+        st r0, st_game_state
+        mov r0, 0
+        st r0, st_kills
+
+        ; Spawn two Scuttlers: idx 0 at (15,10), idx 1 at (20,10)
+        mov r0, EN_SCUTTLER
+        mov r1, 15
+        mov r2, 10
+        bl act_spawn            ; idx 0 (12 HP)
+        mov r0, EN_SCUTTLER
+        mov r1, 20
+        mov r2, 10
+        bl act_spawn            ; idx 1 (12 HP)
+
+        ; 5a. Non-lethal damage on idx 0: 5 dmg -> returns 0, HP=7, kills=0, st_target untouched
+        mov r0, 1
+        st r0, st_target        ; target idx 1
+        mov r0, 0
+        mov r1, 5
+        bl cbt_damage_enemy
+        st r0, drv_de_nl_ret    ; expect 0
+        mov r0, 0
+        bl drv_get_enemy_hp
+        st r0, drv_de_nl_hp     ; expect 7
+        ld r0, st_kills
+        st r0, drv_de_nl_kills  ; expect 0
+
+        ; 5b. Lethal damage on idx 0 with ET_DROP_PCT patched to 0:
+        ; returns 1, kills=1, record freed, st_target STILL 1 (different enemy!), no item placed
+        mov r0, EN_SCUTTLER
+        bl act_type_info
+        mov r4, r0
+        ldr r3, r4, ET_DROP_PCT ; save original drop pct (50)
+        st r3, drv_orig_dpct
+        mov r2, 0
+        str r2, r4, ET_DROP_PCT ; patch drop pct -> 0
+
+        mov r0, 0
+        mov r1, 10
+        bl cbt_damage_enemy
+        st r0, drv_de_k0_ret    ; expect 1
+        ld r0, st_kills
+        st r0, drv_de_k0_kills  ; expect 1
+        ld r0, st_target
+        st r0, drv_de_k0_tgt    ; expect 1 (unchanged!)
+        mov r0, 15
+        mov r1, 10
+        bl act_at
+        st r0, drv_de_k0_actat  ; expect -1 (freed)
+        mov r0, 15
+        mov r1, 10
+        bl itm_at
+        st r0, drv_de_k0_itmat  ; expect -1 (no drop)
+        lea r0, drv_de_k0_msg
+        bl drv_copy_head_msg    ; expect "Scuttler destroyed."
+        bl drv_get_head_attr
+        st r0, drv_de_k0_attr   ; expect A_GOOD (2560)
+
+        ; 5c. Lethal damage on idx 1 (which IS st_target) with ET_DROP_PCT patched to 100:
+        ; returns 1, kills=2, record freed, st_target cleared (-1), drop placed at (20,10)
+        ; with valid part from Scuttler's drop list and 50..100% integrity!
+        mov r0, EN_SCUTTLER
+        bl act_type_info
+        mov r2, 100
+        str r2, r0, ET_DROP_PCT ; test hook: force 100% drop
+
+        mov r0, 1
+        mov r1, 20
+        bl cbt_damage_enemy
+        st r0, drv_de_k1_ret    ; expect 1
+        ld r0, st_kills
+        st r0, drv_de_k1_kills  ; expect 2
+        ld r0, st_target
+        st r0, drv_de_k1_tgt    ; expect -1 (cleared!)
+        mov r0, 20
+        mov r1, 10
+        bl act_at
+        st r0, drv_de_k1_actat  ; expect -1 (freed)
+        mov r0, 20
+        mov r1, 10
+        bl itm_at
+        st r0, drv_de_k1_itmat  ; expect >= 0 (0)
+
+        ; Restore ET_DROP_PCT
+        mov r0, EN_SCUTTLER
+        bl act_type_info
+        ld r2, drv_orig_dpct
+        str r2, r0, ET_DROP_PCT
+
+        ; Verify dropped item is in Scuttler drop list {1,12,19,9} and hp in [50%..100%] of P_MAXHP
+        ld r0, drv_de_k1_itmat
+        mov r4, 0               ; ok flag
+        cmp r0, 0
+        brn drv_drop_chk_done
+        sll r0, ITEM_SHIFT
+        lea r1, st_items
+        add r1, r1, r0
+        ldr r2, r1, I_PART      ; part id
+        ldr r3, r1, I_HP        ; hp
+        st r2, drv_drop_part
+        st r3, drv_drop_hp
+        ; Check part id in {PT_STUB_LEGS(1), PT_SPARK_PROD(12), PT_SCRAP_PLATE(19), PT_CELL_PACK(9)}
+        cmp r2, PT_STUB_LEGS
+        bre drv_drop_pid_ok
+        cmp r2, PT_SPARK_PROD
+        bre drv_drop_pid_ok
+        cmp r2, PT_CELL_PACK
+        bre drv_drop_pid_ok
+        mov r0, PT_SCRAP_PLATE
+        cmp r2, r0
+        bre drv_drop_pid_ok
+        br drv_drop_chk_done
+drv_drop_pid_ok:
+        mov r0, r2
+        bl prt_info
+        ldr r1, r0, P_MAXHP     ; maxhp
+        ; Check hp <= maxhp and hp * 2 >= maxhp (i.e. >= 50%)
+        cmp r3, r1
+        brgt drv_drop_chk_done
+        mov r0, r3
+        add r0, r0, r3          ; 2 * hp
+        cmp r0, r1
+        brlt drv_drop_chk_done
+        mov r4, 1
+drv_drop_chk_done:
+        st r4, drv_drop_ok      ; expect 1
+        lea r0, drv_de_k1_msg
+        bl drv_copy_head_msg
+
+        ; =====================================================================
+        ; 5d. Invalid indices & non-attacking Tinker guard
+        ; =====================================================================
+        mov r0, -1
+        bl cbt_player_fire
+        st r0, drv_inv_pf_neg   ; expect 0
+        mov r0, MAX_ENEMIES
+        bl cbt_player_fire
+        st r0, drv_inv_pf_oob   ; expect 0
+        mov r0, -1
+        mov r1, 5
+        bl cbt_damage_enemy
+        st r0, drv_inv_de_neg   ; expect 0
+        mov r0, 0               ; freed slot
+        mov r1, 5
+        bl cbt_damage_enemy
+        st r0, drv_inv_de_dead  ; expect 0
+        ; Non-attacking Tinker: cbt_enemy_attack does nothing
+        bl act_clear
+        bl prt_init
+        mov r0, EN_TINKER
+        mov r1, 11
+        mov r2, 10
+        bl act_spawn            ; idx 0
+        mov r1, CORE_MAX
+        st r1, st_core_hp
+        bl cbt_enemy_attack     ; should not damage or post msg
+        ld r0, st_core_hp
+        st r0, drv_tnk_hp       ; expect 40
+
+        ; 5e. Surviving part hit posts ONLY hit message (no "destroyed!")
+        bl act_clear
+        bl drv_clear_all_slots
+        mov r0, 0
+        st r0, st_evade
+        mov r0, SLOT_UTIL0
+        mov r1, PT_HEX_ARMOR
+        bl drv_set_slot         ; Hex Armor at 50 HP
+        mov r0, EN_FLIT
+        mov r1, 11
+        mov r2, 10
+        bl act_spawn            ; idx 0
+        mov r3, 40
+        mov r4, 0
+drv_psurv_lp:
+        mov r0, CORE_MAX
+        st r0, st_core_hp
+        mov r0, 0
+        bl cbt_enemy_attack
+        lea r1, st_slots
+        ldr r0, r1, SLOT_UTIL0*SLOT_SIZE+S_HP
+        mov r2, 50
+        cmp r0, r2
+        brlt drv_psurv_hit
+        sub r3, r3, 1
+        brp drv_psurv_lp
+        br drv_psurv_done
+drv_psurv_hit:
+        lea r0, drv_psurv_msg
+        bl drv_copy_head_msg
+        ; Verify head msg ends with '.' (46), NOT '!' (33)
+        lea r1, drv_psurv_msg
+drv_psurv_end:
+        ldr r0, r1, 0
+        cmp r0, 0
+        brz drv_psurv_chk
+        add r1, r1, 1
+        br drv_psurv_end
+drv_psurv_chk:
+        ldr r0, r1, -1
+        mov r2, '.'
+        cmp r0, r2
+        brne drv_psurv_done
+        mov r4, 1
+drv_psurv_done:
+        st r4, drv_psurv_ok     ; expect 1
+
+        ; =====================================================================
+        ; 6. Register preservation across all 5 cbt_* routines
+        ; =====================================================================
+        bl prt_init
+        bl act_clear
+        mov r0, EN_BULWARK
+        mov r1, 11
+        mov r2, 10
+        bl act_spawn            ; idx 0
+        mov r0, GAME_PLAY
+        st r0, st_game_state
+        mov r0, 40
+        st r0, st_core_hp
+        bl fov_update
+
+        ; Check cbt_hit_chance preserves r1..r4
+        mov r0, 70
+        mov r1, 3
+        mov r2, 222
+        ld r3, drv_k333
+        ld r4, drv_k444
+        bl cbt_hit_chance
+        cmp r1, 3
+        brne drv_reg_fail
+        mov r0, 222
+        cmp r2, r0
+        brne drv_reg_fail
+        ld r0, drv_k333
+        cmp r3, r0
+        brne drv_reg_fail
+        ld r0, drv_k444
+        cmp r4, r0
+        brne drv_reg_fail
+
+        ; Check cbt_player_fire preserves r1..r4
+        mov r0, 0
+        mov r1, 111
+        mov r2, 222
+        ld r3, drv_k333
+        ld r4, drv_k444
+        bl cbt_player_fire
+        mov r0, 111
+        cmp r1, r0
+        brne drv_reg_fail
+        mov r0, 222
+        cmp r2, r0
+        brne drv_reg_fail
+        ld r0, drv_k333
+        cmp r3, r0
+        brne drv_reg_fail
+        ld r0, drv_k444
+        cmp r4, r0
+        brne drv_reg_fail
+
+        ; Check cbt_player_melee preserves r0..r4
+        mov r0, 0
+        mov r1, 111
+        mov r2, 222
+        ld r3, drv_k333
+        ld r4, drv_k444
+        bl cbt_player_melee
+        cmp r0, 0
+        brne drv_reg_fail
+        mov r0, 111
+        cmp r1, r0
+        brne drv_reg_fail
+        mov r0, 222
+        cmp r2, r0
+        brne drv_reg_fail
+        ld r0, drv_k333
+        cmp r3, r0
+        brne drv_reg_fail
+        ld r0, drv_k444
+        cmp r4, r0
+        brne drv_reg_fail
+
+        ; Check cbt_enemy_attack preserves r0..r4
+        mov r0, 0
+        mov r1, 111
+        mov r2, 222
+        ld r3, drv_k333
+        ld r4, drv_k444
+        bl cbt_enemy_attack
+        cmp r0, 0
+        brne drv_reg_fail
+        mov r0, 111
+        cmp r1, r0
+        brne drv_reg_fail
+        mov r0, 222
+        cmp r2, r0
+        brne drv_reg_fail
+        ld r0, drv_k333
+        cmp r3, r0
+        brne drv_reg_fail
+        ld r0, drv_k444
+        cmp r4, r0
+        brne drv_reg_fail
+
+        ; Check cbt_damage_enemy preserves r1..r4
+        mov r0, 0
+        mov r1, 1
+        mov r2, 222
+        ld r3, drv_k333
+        ld r4, drv_k444
+        bl cbt_damage_enemy
+        cmp r1, 1
+        brne drv_reg_fail
+        mov r0, 222
+        cmp r2, r0
+        brne drv_reg_fail
+        ld r0, drv_k333
+        cmp r3, r0
+        brne drv_reg_fail
+        ld r0, drv_k444
+        cmp r4, r0
+        brne drv_reg_fail
+
+        mov r0, 1
+        st r0, drv_regs_ok
+
+        ; =====================================================================
+        ; 7. Sniping an idle robot beyond its ET_SIGHT wakes it (act_alert)
+        ; =====================================================================
+        bl act_clear
+        mov r0, 0
+        st r0, st_time
+        st r0, st_ply_next
+        mov r0, 10
+        st r0, st_px
+        mov r0, 10
+        st r0, st_py
+        ; Idle Scuttler (ET_SIGHT=6) at (17,10), dist 7 > ET_SIGHT
+        mov r0, EN_SCUTTLER
+        mov r1, 17
+        mov r2, 10
+        bl act_spawn            ; idx 0
+        mov r1, 2
+        bl cbt_damage_enemy     ; survives (12-2=10) -> must alert!
+        lea r2, st_enemies
+        ldr r0, r2, E_STATE
+        st r0, drv_snp_h_st     ; expect ES_HUNT (1)
+        ldr r0, r2, E_TX
+        st r0, drv_snp_h_tx     ; expect 10
+        ldr r0, r2, E_TY
+        st r0, drv_snp_h_ty     ; expect 10
+        ldr r0, r2, E_ALERT
+        st r0, drv_snp_h_al     ; expect ALERT_TURNS (12)
+        ; Step act_run: woken Scuttler moves closer toward player (x: 17 -> 16)
+        mov r0, 0
+        str r0, r2, E_NEXT
+        mov r0, 100
+        st r0, st_ply_next
+        bl act_run
+        lea r2, st_enemies
+        ldr r0, r2, E_X
+        st r0, drv_snp_h_x1     ; expect 16
+        ; Idle Tinker (ET_SIGHT=6) at (17,10), dist 7 > ET_SIGHT
+        bl act_clear
+        mov r0, EN_TINKER
+        mov r1, 17
+        mov r2, 10
+        bl act_spawn            ; idx 0
+        mov r1, 2
+        bl cbt_damage_enemy     ; survives (8-2=6) -> must flee!
+        lea r2, st_enemies
+        ldr r0, r2, E_STATE
+        st r0, drv_snp_w_st     ; expect ES_FLEE (2)
+        ldr r0, r2, E_ALERT
+        st r0, drv_snp_w_al     ; expect ALERT_TURNS (12)
+
+        ; Render one UI frame so we can visually inspect combat messages & colors
+        bl ui_draw
+        bl video_present
+        mov r0, FRAME_MS
+        sleep r0
+        halt
+
+drv_reg_fail:
+        mov r0, 0
+        st r0, drv_regs_ok
+        halt
+
+; ---- driver helpers ---------------------------------------------------------
+
+; Fill interior 1..62 x 1..22 with T_FLOOR, border with T_WALL
+drv_make_open_map:
+        push r0
+        push r1
+        push r2
+        push lr
+        mov r1, 0
+drv_mom_y:
+        mov r0, 0
+drv_mom_x:
+        cmp r0, 0
+        brz drv_mom_w
+        cmp r1, 0
+        brz drv_mom_w
+        mov r2, MAP_W-1
+        cmp r0, r2
+        bre drv_mom_w
+        mov r2, MAP_H-1
+        cmp r1, r2
+        bre drv_mom_w
+        mov r2, T_FLOOR
+        br drv_mom_set
+drv_mom_w:
+        mov r2, T_WALL
+drv_mom_set:
+        bl dun_set
+        add r0, r0, 1
+        mov r2, MAP_W
+        cmp r0, r2
+        brlt drv_mom_x
+        add r1, r1, 1
+        mov r2, MAP_H
+        cmp r1, r2
+        brlt drv_mom_y
+        pop lr
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; r0 = slot, r1 = part id (full HP or 0 if PART_NONE)
+drv_set_slot:
+        push r0
+        push r1
+        push r2
+        push lr
+        sll r0, SLOT_SHIFT
+        lea r2, st_slots
+        add r2, r2, r0
+        str r1, r2, S_PART
+        cmp r1, PART_NONE
+        brz drv_ss_z
+        mov r0, r1
+        bl prt_info
+        ldr r0, r0, P_MAXHP
+        str r0, r2, S_HP
+        br drv_ss_out
+drv_ss_z:
+        mov r0, 0
+        str r0, r2, S_HP
+drv_ss_out:
+        pop lr
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; r0 = slot, r1 = part id (1 HP)
+drv_set_slot_hp1:
+        push r0
+        push r2
+        sll r0, SLOT_SHIFT
+        lea r2, st_slots
+        add r2, r2, r0
+        str r1, r2, S_PART
+        mov r0, 1
+        str r0, r2, S_HP
+        pop r2
+        pop r0
+        ret
+
+drv_clear_all_slots:
+        push r0
+        push r1
+        push lr
+        mov r0, 0
+        mov r1, PART_NONE
+drv_cas_lp:
+        bl drv_set_slot
+        add r0, r0, 1
+        cmp r0, NUM_SLOTS
+        brlt drv_cas_lp
+        bl prt_recalc
+        pop lr
+        pop r1
+        pop r0
+        ret
+
+; r0 = enemy idx, r1 = hp
+drv_set_enemy_hp:
+        push r0
+        push r2
+        sll r0, ENEMY_SHIFT
+        lea r2, st_enemies
+        add r2, r2, r0
+        str r1, r2, E_HP
+        pop r2
+        pop r0
+        ret
+
+; r0 = enemy idx -> r0 = E_HP
+drv_get_enemy_hp:
+        push r1
+        sll r0, ENEMY_SHIFT
+        lea r1, st_enemies
+        add r1, r1, r0
+        ldr r0, r1, E_HP
+        pop r1
+        ret
+
+; Copy newest message from st_msg_text[st_msg_head] into buffer at r0
+drv_copy_head_msg:
+        push r0
+        push r1
+        push r2
+        push r3
+        ld r1, st_msg_head
+        and r1, r1, MSG_COUNT-1
+        sll r1, MSG_SHIFT
+        lea r2, st_msg_text
+        add r2, r2, r1
+drv_chm_lp:
+        ldr r3, r2, 0
+        str r3, r0, 0
+        cmp r3, 0
+        brz drv_chm_done
+        add r2, r2, 1
+        add r0, r0, 1
+        br drv_chm_lp
+drv_chm_done:
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; -> r0 = st_msg_attr[st_msg_head]
+drv_get_head_attr:
+        push r1
+        ld r0, st_msg_head
+        and r0, r0, MSG_COUNT-1
+        lea r1, st_msg_attr
+        add r1, r1, r0
+        ldr r0, r1, 0
+        pop r1
+        ret
+
+; Copy previous message from st_msg_text[(st_msg_head - 1) & (MSG_COUNT-1)] into buffer at r0
+drv_copy_prev_msg:
+        push r0
+        push r1
+        push r2
+        push r3
+        ld r1, st_msg_head
+        sub r1, r1, 1
+        and r1, r1, MSG_COUNT-1
+        sll r1, MSG_SHIFT
+        lea r2, st_msg_text
+        add r2, r2, r1
+drv_cpm_lp:
+        ldr r3, r2, 0
+        str r3, r0, 0
+        cmp r3, 0
+        brz drv_cpm_done
+        add r2, r2, 1
+        add r0, r0, 1
+        br drv_cpm_lp
+drv_cpm_done:
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; -> r0 = st_msg_attr[(st_msg_head - 1) & (MSG_COUNT-1)]
+drv_get_prev_attr:
+        push r1
+        ld r0, st_msg_head
+        sub r0, r0, 1
+        and r0, r0, MSG_COUNT-1
+        lea r1, st_msg_attr
+        add r1, r1, r0
+        ldr r0, r1, 0
+        pop r1
+        ret
+
+; ---- driver data & outputs --------------------------------------------------
+drv_k333:         .word 333
+drv_k444:         .word 444
+drv_e0:           .word 0
+drv_e1:           .word 0
+drv_e2:           .word 0
+drv_orig_dpct:    .word 0
+
+; 1. hit chance
+drv_hc_d1:        .word 0
+drv_hc_d0:        .word 0
+drv_hc_d2:        .word 0
+drv_hc_d6:        .word 0
+drv_hc_d9:        .word 0
+drv_hc_hi1:       .word 0
+drv_hc_hi2:       .word 0
+drv_hc_lo1:       .word 0
+drv_hc_lo2:       .word 0
+
+; 2. player fire
+drv_pf_start_n:   .word 0
+drv_pf_start_e:   .word 0
+drv_pf_r7_n:      .word 0
+drv_pf_oor_n:     .word 0
+drv_pf_oor_e:     .word 0
+drv_pf_d5_n:      .word 0
+drv_pf_d5_e:      .word 0
+drv_pf_d3_n:      .word 0
+drv_pf_d3_e:      .word 0
+drv_pf_e3_n:      .word 0
+drv_pf_e3_e:      .word 0
+drv_pf_e1_n:      .word 0
+drv_pf_e1_e:      .word 0
+drv_pf_los_n:     .word 0
+drv_pf_los_e:     .word 0
+drv_pf_door_los:  .word -1
+drv_pf_door_vis:  .word -1
+drv_pf_door_n:    .word 0
+drv_pf_stop_ok:   .word 0
+drv_pf_norng_n:   .word 0
+drv_pf_norng_e:   .word 0
+drv_pf_msg1:      .zero MSG_LEN
+drv_pf_hit_msg:   .zero MSG_LEN
+
+; 3. player melee
+drv_pm_e_after:   .word 0
+drv_pm_ram_ok:    .word 0
+drv_pm_ram_e:     .word 0
+drv_pm_bare_ok:   .word 0
+drv_pm_bare_e:    .word 0
+drv_pm_sp_ok:     .word 0
+drv_ram_msg:      .zero MSG_LEN
+drv_sp_msg:       .zero MSG_LEN
+
+; 4. enemy attack
+drv_ev0_hits:     .word 0
+drv_ev20_hits:    .word 0
+drv_evade_ok:     .word 0
+drv_evmin_ok_f:   .word 0
+drv_pdest_ok:     .word 0
+drv_pdest_attr:   .word 0
+drv_pdest_msg:    .zero MSG_LEN
+drv_pdest_attr2:  .word 0
+drv_pdest_msg2:   .zero MSG_LEN
+drv_killp_hp:     .word 0
+drv_killp_state:  .word 0
+drv_killp_cause:  .word 0
+drv_killp_msg:    .zero MSG_LEN
+
+; 5. damage enemy & drops
+drv_de_nl_ret:    .word 0
+drv_de_nl_hp:     .word 0
+drv_de_nl_kills:  .word 0
+drv_de_k0_ret:    .word 0
+drv_de_k0_kills:  .word 0
+drv_de_k0_tgt:    .word 0
+drv_de_k0_actat:  .word 0
+drv_de_k0_itmat:  .word 0
+drv_de_k0_attr:   .word 0
+drv_de_k0_msg:    .zero MSG_LEN
+drv_de_k1_ret:    .word 0
+drv_de_k1_kills:  .word 0
+drv_de_k1_tgt:    .word 0
+drv_de_k1_actat:  .word 0
+drv_de_k1_itmat:  .word 0
+drv_drop_part:    .word 0
+drv_drop_hp:      .word 0
+drv_drop_ok:      .word 0
+drv_de_k1_msg:    .zero MSG_LEN
+
+; 5d. invalid / tinker guards
+drv_inv_pf_neg:   .word -1
+drv_inv_pf_oob:   .word -1
+drv_inv_de_neg:   .word -1
+drv_inv_de_dead:  .word -1
+drv_tnk_hp:       .word 0
+drv_psurv_ok:     .word 0
+drv_psurv_msg:    .zero MSG_LEN
+
+; 6. register preservation
+drv_regs_ok:      .word 0
+; 7. snipe wake-up
+drv_snp_h_st:     .word 99
+drv_snp_h_tx:     .word 99
+drv_snp_h_ty:     .word 99
+drv_snp_h_al:     .word 99
+drv_snp_h_x1:     .word 99
+drv_snp_w_st:     .word 99
+drv_snp_w_al:     .word 99
+
+; ---- modules under test + real dependencies ---------------------------------
+        .include "../../src/state.ap"
+        .include "../../src/rng.ap"
+        .include "../../src/dungeon.ap"
+        .include "../../src/fov.ap"
+        .include "../../src/parts.ap"
+        .include "../../src/items.ap"
+        .include "../../src/actors.ap"
+        .include "../../src/combat.ap"
+        .include "../../src/ui.ap"
+        .include "video.ap"
+        .include "util.ap"

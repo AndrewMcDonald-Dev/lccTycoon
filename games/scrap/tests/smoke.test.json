@@ -1,0 +1,29 @@
+{
+  "scenarios": [
+    { "name": "title screen first", "frames": 1,
+      "expect": { "status": "frames-complete", "memory": { "st_game_state": 0 },
+        "screen": { "contains": ["SCRAPCORE"] } } },
+    { "name": "Q on the title quits", "keys": "Q", "expect": { "status": "halted" } },
+    { "name": "any key starts a game at depth 10 with the core intact", "keys": "<enter>", "frames": 2,
+      "expect": { "status": "frames-complete",
+        "memory": { "st_game_state": 1, "st_depth": 10, "st_mode": 0, "st_core_hp": 40, "st_turn": 0 },
+        "screen": { "contains": ["SCRAPCORE", "@"] },
+        "bg": { "lines": { "29": "wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww" } } } },
+    { "name": "Q asks to confirm", "keys": "<enter> Q",
+      "expect": { "status": "frames-complete", "memory": { "st_mode": 6 },
+        "screen": { "contains": ["Quit? y = yes, any other key = no"] } } },
+    { "name": "Q then y quits", "keys": "<enter> Q y", "expect": { "status": "halted" } },
+    { "name": "Q then Y quits", "keys": "<enter> Q Y", "expect": { "status": "halted" } },
+    { "name": "Q y in the same frame quits", "keys": "<enter> Qy", "expect": { "status": "halted" } },
+    { "name": "Q then another key cancels", "keys": "<enter> Q n _2",
+      "expect": { "status": "frames-complete", "memory": { "st_mode": 0, "st_game_state": 1 },
+        "screen": { "notContains": ["Quit? y"] } } },
+    { "name": "cancelled quit can be asked again", "keys": "<enter> Q n Q y", "expect": { "status": "halted" } },
+    { "name": "waiting takes a turn: clock and turn counter advance", "keys": "<enter> . . _",
+      "expect": { "status": "frames-complete", "memory": { "st_turn": 2, "st_time": 200, "st_ply_next": 200, "st_game_state": 1 } } },
+    { "name": "several waits in one frame are one action per frame", "keys": "<enter> ... _",
+      "expect": { "status": "frames-complete", "memory": { "st_turn": 3, "st_time": 300 } } },
+    { "name": "idle frames stay cheap", "keys": "<enter> _10",
+      "expect": { "status": "frames-complete", "maxStepsPerFrame": 1000000, "memory": { "st_frame": 11 } } }
+  ]
+}

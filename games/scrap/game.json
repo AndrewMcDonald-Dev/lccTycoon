@@ -1,0 +1,21 @@
+{
+  "title": "SCRAPCORE",
+  "entry": "main.ap",
+  "size": "30x100",
+  "budget": { "words": 40000 },
+  "modules": {
+    "main.ap":         { "prefix": "main_", "owner": "architect", "description": "entry, title→game→end flow, frame loop (ply_handle → main_turn → ren_draw → ui_draw → present → sleep), new game/floor, climbing", "skills": ["lcc-architect"] },
+    "src/defs.ap":     { "prefix": [],      "owner": "architect", "description": "shared .define constants only: sizes, record layouts, regions, palette, keys, tuning", "skills": ["lcc-architect"] },
+    "src/state.ap":    { "prefix": "st_",   "owner": "architect", "description": "all shared game state (data only) incl. the 100x30 display block", "skills": ["lcc-architect"] },
+    "src/rng.ap":      { "prefix": "rng_",  "owner": "architect", "description": "uniform random range helper over the 16-bit LCC+ RNG (high-bit extraction)", "skills": ["lcc-simulation"] },
+    "src/dungeon.ap":  { "prefix": "dun_",  "owner": "WP1", "description": "floor generation (rooms, corridors, doors, stairs), tile get/set, walkable/opaque, random floor tiles, distance", "skills": ["lcc-simulation"] },
+    "src/fov.ap":      { "prefix": "fov_",  "owner": "WP2", "description": "field of view (visible + remembered maps), line of sight between two points", "skills": ["lcc-simulation"] },
+    "src/parts.ap":    { "prefix": "prt_",  "owner": "WP3", "description": "part catalog, loadout slots, inventory, attach/detach, derived stats, energy, self-repair, damage spread over parts and core", "skills": ["lcc-simulation"] },
+    "src/ui.ap":       { "prefix": "ui_",   "owner": "WP4", "description": "panel, bars, loadout/inventory/target lists, message ring (ui_msg*), help row, menus, help overlay, title/death/win screens", "skills": ["lcc-text-graphics"] },
+    "src/render.ap":   { "prefix": "ren_",  "owner": "WP5", "description": "map viewport: tiles by visibility, items, enemies, player, target highlight", "skills": ["lcc-text-graphics"] },
+    "src/items.ap":    { "prefix": "itm_",  "owner": "WP6", "description": "floor item pool: place, find at, remove, per-floor loot", "skills": ["lcc-simulation"] },
+    "src/actors.ap":   { "prefix": "act_",  "owner": "WP7", "description": "enemy types, enemy pool, spawning per depth, action-time scheduler, AI (distance field), target cycling", "skills": ["lcc-simulation"] },
+    "src/combat.ap":   { "prefix": "cbt_",  "owner": "WP8", "description": "hit chance, player fire/melee, enemy attacks, robot destruction and drops", "skills": ["lcc-simulation"] },
+    "src/player.ap":   { "prefix": "ply_",  "owner": "WP9", "description": "input modes and player actions: move/bump, wait, pickup, equip/remove/drop menus, targeting + fire, stairs, help, quit prompt", "skills": ["lcc-game-dev"] }
+  }
+}
