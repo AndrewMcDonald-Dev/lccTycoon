@@ -247,6 +247,7 @@ main_a_good:    .word A_GOOD
 
 ; ---- modules (state first: it is used by everything) ---------------------------
         .include "src/state.ap"
+        .include "src/rng.ap"
         .include "src/dungeon.ap"
         .include "src/fov.ap"
         .include "src/parts.ap"

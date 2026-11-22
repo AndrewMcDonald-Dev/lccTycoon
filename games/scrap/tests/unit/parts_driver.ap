@@ -888,4 +888,5 @@ drv_msg_end:        .word drv_msg_buf
 drv_msg_buf:        .zero 64
 
         .include "../../src/state.ap"
+        .include "../../src/rng.ap"
         .include "../../src/parts.ap"

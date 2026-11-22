@@ -123,6 +123,7 @@ drv_s_rifler:   .string "Rifler"
 drv_c_en_words: .word MAX_ENEMIES*ENEMY_SIZE
 
         .include "../../src/state.ap"
+        .include "../../src/rng.ap"
         .include "../../src/dungeon.ap"
         .include "../../src/fov.ap"
         .include "../../src/parts.ap"

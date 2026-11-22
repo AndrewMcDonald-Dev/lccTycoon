@@ -22,7 +22,7 @@
             "W -",
             "U -",
             "-- Carried --",
-            "1 W Pulse Rifle  4-7 r8   14/18",
+            "1 W Pulse Rifle  4-7 r8 e4   14/18",
             "2 -",
             "3 -",
             "4 -",
@@ -116,7 +116,7 @@
         "screen": { "contains": ["EQUIP: 1-4 attach carried part"] },
         "bg": {
           "lines": {
-            "14": "                                                                kC k kkkkkkkkkkk  kkkkkk   kkkkk",
+            "14": "                                                                kC k kkkkkkkkkkk  kkkkkkkkk   kkkkk",
             "15": "                                                                kC k"
           }
         }
@@ -152,7 +152,7 @@
         "screen": { "contains": ["DROP: 1-4 drop carried part on floor"] },
         "bg": {
           "lines": {
-            "14": "                                                                kC k kkkkkkkkkkk  kkkkkk   kkkkk"
+            "14": "                                                                kC k kkkkkkkkkkk  kkkkkkkkk   kkkkk"
           }
         }
       }
@@ -294,11 +294,11 @@
         "screen": {
           "contains": [
             "SCRAPCORE  Surface   Turn 123",
-            "1 P Stub Legs    m100     20/20",
-            "2 E Cell Pack    +2       15/15",
-            "3 W Spark Prod   2-5 mel  11/15",
-            "4 U Hex Armor    a2       50/50",
-            "Here: Rivet Gun [W 2-4 r6]"
+            "1 P Stub Legs    m100        20/20",
+            "2 E Cell Pack    +2          15/15",
+            "3 W Spark Prod   2-5 mel e0  11/15",
+            "4 U Hex Armor    a2          50/50",
+            "Here: Rivet Gun [W 2-4 r6 e2]"
           ],
           "notContains": [
             "Depth 0"
@@ -314,12 +314,35 @@
         "maxStepsPerFrame": 120000,
         "screen": {
           "contains": [
-            "1 U Optic Mast   s+3      8/8",
-            "2 U Patch Drone  rep3     10/10",
-            "3 U Aim Gyro     +15%     10/10",
+            "1 U Optic Mast   s+3         8/8",
+            "2 U Patch Drone  rep3        10/10",
+            "3 U Aim Gyro     +15%        10/10",
             "4 -",
             "Here: Stub Legs [P m100]"
           ]
+        }
+      }
+    },
+    {
+      "name": "target preview shows Low energy Dist N in A_WARN when in-range ranged weapon is unaffordable, and longest weapon stat fits panel",
+      "keys": "l",
+      "expect": {
+        "status": "halted",
+        "maxStepsPerFrame": 120000,
+        "screen": {
+          "contains": [
+            "1 W Ram Hammer   8-14 mel e2 35/35",
+            "Low energy  Dist 5",
+            "Here: Ram Hammer [W 8-14 mel e2]"
+          ],
+          "notContains": [
+            "Hit 58%"
+          ]
+        },
+        "colors": {
+          "lines": {
+            "21": "                                                                KYYYYYYYYYYYYYYYYYY"
+          }
         }
       }
     }

@@ -1,0 +1,190 @@
+; Unit driver for src/rng.ap.
+; Tests:
+;   1. Empirical full-state check: rand(0, -1) produces values with bit 15 set
+;      and varying high bytes (proving full 16-bit state comes back).
+;   2. rng_range(2, 5) produces all 4 values {2,3,4,5} within 32 calls.
+;   3. rng_range(0, 7) produces all 8 values {0..7} within 64 calls.
+;   4. Over 1000 calls (range 1..100 and range 0..255), outputs always in [lo, hi].
+;   5. rng_range(lo, lo) returns lo (for 0, 7, -3).
+;   6. Register preservation (r1..r4 preserved across rng_range).
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        mov r0, 123
+        srand r0
+
+        ; 1. Empirical check: rand(0, -1) produces values >= 0x8000 (signed < 0)
+        ;    and values < 0x8000 (signed >= 0), and non-zero high bytes.
+        mov r3, 32
+        mov r4, 0               ; bit 0 = saw neg (>=0x8000), bit 1 = saw pos (<0x8000)
+drv_raw_lp:
+        mov r0, 0
+        mov r1, -1
+        rand r0, r1
+        cmp r0, 0
+        brn drv_raw_neg
+        mov r1, 2
+        or r4, r1
+        br drv_raw_nx
+drv_raw_neg:
+        mov r1, 1
+        or r4, r1
+drv_raw_nx:
+        sub r3, r3, 1
+        brp drv_raw_lp
+        st r4, drv_raw_mask     ; expect 3 (both halves of 16-bit state seen)
+
+        ; 2. rng_range(2, 5) produces all 4 values within 32 calls
+        mov r3, 32
+        mov r4, 0               ; bitmask of seen (val - 2), expect 0x0F (15)
+drv_r4_lp:
+        mov r0, 2
+        mov r1, 5
+        bl rng_range
+        cmp r0, 2
+        brlt drv_r4_oob
+        cmp r0, 5
+        brgt drv_r4_oob
+        sub r0, r0, 2
+        mov r2, 1
+drv_r4_sh:
+        cmp r0, 0
+        brz drv_r4_or
+        sll r2, 1
+        sub r0, r0, 1
+        br drv_r4_sh
+drv_r4_or:
+        or r4, r2
+        br drv_r4_nx
+drv_r4_oob:
+        mov r0, 1
+        st r0, drv_oob
+drv_r4_nx:
+        sub r3, r3, 1
+        brp drv_r4_lp
+        st r4, drv_seen4        ; expect 15
+
+        ; 3. rng_range(0, 7) produces all 8 values within 64 calls
+        mov r3, 64
+        mov r4, 0               ; bitmask of seen val, expect 0xFF (255)
+drv_r8_lp:
+        mov r0, 0
+        mov r1, 7
+        bl rng_range
+        cmp r0, 0
+        brlt drv_r8_oob
+        cmp r0, 7
+        brgt drv_r8_oob
+        mov r2, 1
+drv_r8_sh:
+        cmp r0, 0
+        brz drv_r8_or
+        sll r2, 1
+        sub r0, r0, 1
+        br drv_r8_sh
+drv_r8_or:
+        or r4, r2
+        br drv_r8_nx
+drv_r8_oob:
+        mov r0, 1
+        st r0, drv_oob
+drv_r8_nx:
+        sub r3, r3, 1
+        brp drv_r8_lp
+        st r4, drv_seen8        ; expect 255
+
+        ; 4. Over 1000 calls: 500 calls of rng_range(1, 100) + 500 calls of rng_range(0, 255)
+        ld r3, drv_k_500
+drv_b1_lp:
+        mov r0, 1
+        mov r1, 100
+        bl rng_range
+        cmp r0, 1
+        brlt drv_b1_bad
+        mov r2, 100
+        cmp r0, r2
+        brgt drv_b1_bad
+        br drv_b1_nx
+drv_b1_bad:
+        mov r0, 1
+        st r0, drv_oob
+drv_b1_nx:
+        sub r3, r3, 1
+        brp drv_b1_lp
+
+        ld r3, drv_k_500
+drv_b2_lp:
+        mov r0, 0
+        mov r1, 255
+        bl rng_range
+        cmp r0, 0
+        brlt drv_b2_bad
+        mov r2, 255
+        cmp r0, r2
+        brgt drv_b2_bad
+        br drv_b2_nx
+drv_b2_bad:
+        mov r0, 1
+        st r0, drv_oob
+drv_b2_nx:
+        sub r3, r3, 1
+        brp drv_b2_lp
+
+        ; 5. rng_range(lo, lo) returns lo
+        mov r0, 0
+        mov r1, 0
+        bl rng_range
+        st r0, drv_eq_0         ; expect 0
+
+        mov r0, 7
+        mov r1, 7
+        bl rng_range
+        st r0, drv_eq_7         ; expect 7
+
+        mov r0, -3
+        mov r1, -3
+        bl rng_range
+        st r0, drv_eq_neg       ; expect -3
+
+        ; 6. Register preservation (r1..r4)
+        mov r0, 10
+        mov r1, 20
+        mov r2, 111
+        mov r3, 222
+        ld r4, drv_k_333
+        bl rng_range
+        mov r0, 20
+        cmp r1, r0
+        brne drv_reg_bad
+        mov r0, 111
+        cmp r2, r0
+        brne drv_reg_bad
+        mov r0, 222
+        cmp r3, r0
+        brne drv_reg_bad
+        ld r0, drv_k_333
+        cmp r4, r0
+        brne drv_reg_bad
+        mov r0, 1
+        st r0, drv_regs_ok
+        halt
+drv_reg_bad:
+        mov r0, 0
+        st r0, drv_regs_ok
+        halt
+
+drv_k_500:      .word 500
+drv_k_333:      .word 333
+drv_raw_mask:   .word 0
+drv_seen4:      .word 0
+drv_seen8:      .word 0
+drv_oob:        .word 0
+drv_eq_0:       .word 99
+drv_eq_7:       .word 99
+drv_eq_neg:     .word 99
+drv_regs_ok:    .word 0
+
+        .include "../../src/rng.ap"

@@ -405,4 +405,5 @@ drv_vis:            .zero MAP_SIZE
 drv_q:              .zero MAP_SIZE
 
         .include "../../src/state.ap"
+        .include "../../src/rng.ap"
         .include "../../src/dungeon.ap"

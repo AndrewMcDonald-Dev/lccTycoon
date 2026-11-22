@@ -62,7 +62,7 @@ cols 0-63                                                         cols 64-99
 |                                                                | 11 U -                             |
 |                                                                | 12 U -                             |
 |                                                                | 13 -- Carried --                   |
-|                                                                | 14 1 W Pulse Rifle  4-7 r8   14/18 |
+|                                                                | 14 1 W Pulse Rifle  4-7 r8 e4   14/18 |
 |                                                                | 15 2 -   (16: 3 -, 17: 4 -)        |
 |                                                                | 18 -- Target --                    |
 |                                                                | 19 Rifler                          |
@@ -79,10 +79,13 @@ Region rectangles are defines: `VIEW_*`, `PANEL_*`, `MSG_ROW/MSG_ROWS`, `HELP_RO
 panel rows `PR_*`. Loadout rows: kind letter at panel col 1 (`P` propulsion, `E` power, `W`
 weapon, `U` utility), name at col 3 (≤ 12 chars), integrity bar (width 8) at col 16,
 number at col 25. Carried rows show digit `1`-`4`, kind letter, name, compact key stat
-(weapon damage/range, propulsion move cost, power regen, utility effect), and `hp/max`;
+(weapon damage/range/energy per shot, e.g. `4-7 r8 e4` or `2-5 mel e0`, propulsion move
+cost, power regen, utility effect), and `hp/max` at panel col 30;
 `Here:` shows the floor part name with `[<kind> <stat>]`. In MODE_EQUIP/DROP the inventory
 rows show their digit highlighted `A_SELECT`; in MODE_REMOVE the loadout rows show digits
-1-8. MODE_HELP draws a key list box over the viewport. On reaching the surface, the panel
+1-8. Target row 21 shows `Hit NN%  Dist N` for the best in-range weapon the player can
+afford; `Low energy  Dist N` (A_WARN) when in-range ranged weapons exist but none has
+enough energy; else `Out of range` / `No ranged`. MODE_HELP draws a key list box over the viewport. On reaching the surface, the panel
 and win screen display `Surface` instead of `Depth 0`.
 
 ## Controls
@@ -111,7 +114,9 @@ Every key can be written in the harness key script (`tools/lib/keys.js`): letter
 | any key / `Q` | end screen | play again / quit |
 
 Esc vs arrows: on 27 the player module reads the next byte with `nbain`. 0 means Esc,
-91 means an arrow (one more byte). Lowercase `q` does nothing, so you can't quit by
+91 means an arrow (one more byte). Any other byte means Esc followed by that key: it is
+kept in a one-word pushback cell (`ply_pushback`) that `ply_handle` consumes before the
+next `nbain`, so Esc + a key in the same frame loses nothing. Lowercase `q` does nothing, so you can't quit by
 accident.
 
 ## Data model
@@ -183,7 +188,7 @@ Color by tier: white, bright cyan, bright magenta. Names are ≤ 12 chars.
 | 16 | Cutter Arm | weapon melee | 2 | 25 | 4 | 5-9, range 1, energy 1, acc 80 |
 | 17 | Coil Lance | weapon | 3 | 22 | 3 | 7-12, range 9, energy 7, acc 65 |
 | 18 | Ram Hammer | weapon melee | 3 | 35 | 4 | 8-14, range 1, energy 2, acc 75 |
-| 19 | Scrap Plating | utility armor | 1 | 30 | 6 | -1 damage to itself |
+| 19 | Scrap Plate | utility armor | 1 | 30 | 6 | -1 damage to itself |
 | 20 | Hex Armor | utility armor | 2 | 50 | 8 | -2 damage to itself |
 | 21 | Optic Mast | utility sensor | 1 | 8 | 1 | +3 sight |
 | 22 | Patch Drone | utility repair | 2 | 10 | 1 | 1 integrity every 3 turns |
@@ -241,8 +246,14 @@ player action (private to actors, 1536 words + queue).
   is clear. It enters ES_HUNT, sets E_TX/E_TY to the player, and sets E_ALERT to
   ALERT_TURNS. The first sighting while the enemy is on a visible tile posts
   "<Name> spotted.".
-- **Losing the player:** a hunting enemy that can't see the player walks toward
-  E_TX/E_TY. E_ALERT counts down, and at 0 it goes back to ES_IDLE.
+- **Losing the player:** a hunting enemy that can't see the player walks greedily toward
+  E_TX/E_TY; if that step is blocked it waits. It uses the player-seeded distance field
+  (BFS) only while it sees the player or when E_TX/E_TY equals the player's position,
+  so it never tracks the player through walls. E_ALERT counts down, and at 0 it goes
+  back to ES_IDLE.
+- **Hit by the player:** a robot that survives player damage is alerted (`act_alert`):
+  E_TX/E_TY = player, E_ALERT = ALERT_TURNS, ES_IDLE → ES_HUNT (AI_WORKER → ES_FLEE),
+  so sniping from beyond ET_SIGHT wakes it.
 - **Idle:** random step (50%) or wait.
 - **AI_MELEE:** attacks when adjacent; otherwise steps to the neighbor with the lowest
   distance value.
@@ -264,8 +275,9 @@ player action (private to actors, 1536 words + queue).
   - Enemies: ET_ACC, then − st_evade, floored at HIT_MIN.
 - **Fire** (`f` … `f`): every weapon slot with P_W_MELEE 0, P_W_RANGE ≥ distance, target
   visible (`fov_visible`), and P_W_ENERGY available fires in slot order. Each shot spends
-  energy, rolls to hit and does rand(DMIN..DMAX). If nothing can fire, no time passes
-  ("Nothing can fire.").
+  energy, rolls to hit and does rng_range(DMIN..DMAX). If nothing fires, no time passes:
+  "Not enough energy." when an in-range ranged weapon lacked only energy, else
+  "Nothing can fire.".
 - **Melee** (bump into a robot): every melee weapon slot swings (each spends its energy
   if available, else is skipped). With none, the core rams for 1-3 at 70%.
 - **Damage to the player** (`prt_damage`): the core is hit with chance CORE_HIT_PCT 6
@@ -307,13 +319,14 @@ preserved.
 | main.ap | main_ | architect | flow, frame loop, new game/floor, climbing, turn sequencing | main_start main_new_game main_new_floor main_turn | lcc-architect |
 | src/defs.ap | — | architect | constants, record layouts, regions, palette, keys, tuning | — | lcc-architect |
 | src/state.ap | st_ | architect | all shared state | data | lcc-architect |
+| src/rng.ap | rng_ | architect | uniform random ranges from the RNG's high bits | rng_range | lcc-simulation |
 | src/dungeon.ap | dun_ | WP1 | generator, tiles, walkable/opaque, random floor, distance | dun_generate dun_get dun_set dun_walkable dun_opaque dun_random_floor dun_room_of dun_dist | lcc-simulation |
 | src/fov.ap | fov_ | WP2 | visibility + memory, line of sight | fov_reset fov_update fov_visible fov_known fov_los | lcc-simulation |
 | src/parts.ap | prt_ | WP3 | catalog, slots, inventory, derived stats, energy, repair, damage spread | prt_init prt_recalc prt_info prt_name prt_kind prt_slot_kind prt_attach prt_detach prt_inv_add prt_inv_clear prt_damage prt_tick prt_spend_energy prt_random_part prt_free_slots | lcc-simulation |
 | src/ui.ap | ui_ | WP4 | panel, bars, messages, help row, menus, help overlay, title/end screens | ui_init ui_title ui_draw ui_end_screen ui_msg ui_msg_add ui_msg_addn ui_msg_attr ui_bar ui_score | lcc-text-graphics |
 | src/render.ap | ren_ | WP5 | map viewport layers | ren_draw ren_tile_cell | lcc-text-graphics |
 | src/items.ap | itm_ | WP6 | floor item pool, per-floor loot | itm_clear itm_place itm_at itm_remove itm_spawn_floor | lcc-simulation |
-| src/actors.ap | act_ | WP7 | robot types, pool, spawning, scheduler, AI, target cycling | act_init act_clear act_spawn_floor act_spawn act_at act_run act_think act_type_info act_name act_kill act_next_visible | lcc-simulation |
+| src/actors.ap | act_ | WP7 | robot types, pool, spawning, scheduler, AI, target cycling | act_init act_clear act_spawn_floor act_spawn act_at act_run act_think act_type_info act_name act_kill act_alert act_next_visible | lcc-simulation |
 | src/combat.ap | cbt_ | WP8 | hit chance, fire, melee, enemy attacks, destruction, drops | cbt_hit_chance cbt_player_fire cbt_player_melee cbt_enemy_attack cbt_damage_enemy | lcc-simulation |
 | src/player.ap | ply_ | WP9 | input modes, player actions | ply_init ply_handle ply_key ply_move ply_spend ply_pickup ply_equip ply_remove ply_drop ply_target ply_fire ply_stairs | lcc-game-dev |
 
@@ -336,8 +349,12 @@ and ≤ 500K on an action frame. Smoke test caps every frame at 1M.
 
 ## Randomness
 
-`millis` → `st_seed` → `srand` once at start. Every generator uses `rand`, so a run is
-reproducible in the headless harness for a given `--clock`.
+`millis` → `st_seed` → `srand` once at start. Every random roll goes through
+`rng_range lo hi` (src/rng.ap), never `rand` directly: the LCC+ `rand` returns
+`state % range` from a 16-bit LCG whose low bits have period 2, so small power-of-two
+ranges gave only two values per game. `rng_range` takes the full 16-bit state
+(`rand` with min 0, max 0xFFFF) and scales its high byte: lo + (state>>8)×range>>8
+(ranges up to 256). A run is reproducible in the headless harness for a given `--clock`.
 
 ## Open questions
 

@@ -442,6 +442,7 @@ ui_msg_attr:
         ret
 
         .include "../../src/state.ap"
+        .include "../../src/rng.ap"
         .include "../../src/dungeon.ap"
         .include "../../src/parts.ap"
         .include "../../src/items.ap"

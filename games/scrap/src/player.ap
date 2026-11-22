@@ -16,10 +16,10 @@
 ; Menus return to MODE_MAP after a choice or Esc.
 ; All routines: args r0..r4, result r0, all other registers preserved.
 ;
-;; ply_init          ()            -> -        new game: st_mode = MODE_MAP, st_target = -1
-;; ply_handle        ()            -> r0=PR_*  nbain keys one by one into ply_key until one returns PR_ACTED / PR_QUIT, or no key is left (PR_NONE)
-;; ply_key           r0=key        -> r0=PR_*  dispatch one key by st_mode. KEY_ESC reads the next byte with nbain: 0 → Esc; KEY_CSI → reads the arrow code (65..68) and
-;;                   treats it as a 4-way move (MODE_MAP only)
+;; ply_init          ()            -> -        new game: st_mode = MODE_MAP, st_target = -1, clear pushback
+;; ply_handle        ()            -> r0=PR_*  consume pushback then nbain keys one by one into ply_key until one returns PR_ACTED / PR_QUIT, or no key is left (PR_NONE)
+;; ply_key           r0=key        -> r0=PR_*  dispatch one key by st_mode. KEY_ESC reads the next byte with nbain: KEY_CSI → arrow code (65..68) 4-way move (MODE_MAP only);
+;;                   any other byte → cancel mode and push back non-zero byte for ply_handle
 ;; ply_move          r0=dx r1=dy   -> r0=PR_*  enemy on the target tile → cbt_player_melee, cost TIME_MELEE; walkable and free → move (T_DOOR becomes T_DOOR_OPEN), cost
 ;;                   st_move_cost, message naming an item on the new tile; blocked → PR_NONE, no time
 ;; ply_spend         r0=TU         -> -        st_ply_next += TU (the action's cost)
@@ -28,7 +28,7 @@
 ;; ply_remove        r0=slot       -> r0=PR_*  prt_detach; detached → message, TIME_SWAP; empty slot / inventory full → message, PR_NONE
 ;; ply_drop          r0=inv index  -> r0=PR_*  itm_place on the player's tile (or nearby), prt_inv_clear, message, TIME_DROP; empty entry / no room → PR_NONE
 ;; ply_target        r0=dir        -> -        st_target = act_next_visible(st_target, dir); entering MODE_TARGET starts from -1 (nearest); no visible enemy → message, back to MODE_MAP
-;; ply_fire          ()            -> r0=PR_*  cbt_player_fire(st_target); fired → MODE_MAP, TIME_FIRE; nothing could fire → message, stay in MODE_TARGET, PR_NONE
+;; ply_fire          ()            -> r0=PR_*  cbt_player_fire(st_target); >0 fired → MODE_MAP, TIME_FIRE; -1 → "Not enough energy.", 0 → "Nothing can fire.", stay in MODE_TARGET, PR_NONE
 ;; ply_stairs        ()            -> r0=PR_*  on T_STAIRS → st_climb = 1, TIME_STAIRS; else message, PR_NONE
 ; ---------------------------------------------------------------------
 
@@ -39,15 +39,26 @@ ply_init:
         st r0, st_mode
         mov r0, -1
         st r0, st_target
+        mov r0, 0
+        st r0, ply_pushback
         pop r0
         ret
 
 ply_handle:
+        push r1
         push lr
 ply_handle_lp:
+        ld r0, ply_pushback
+        cmp r0, 0
+        brz ply_handle_read
+        mov r1, 0
+        st r1, ply_pushback
+        br ply_handle_got
+ply_handle_read:
         nbain r0
         cmp r0, 0
         brz ply_handle_ret
+ply_handle_got:
         bl ply_key
         cmp r0, PR_NONE
         brz ply_handle_lp
@@ -56,6 +67,7 @@ ply_handle_ret:
         mov r0, PR_NONE
 ply_handle_out:
         pop lr
+        pop r1
         ret
 
 ; ---- key dispatch by st_mode ------------------------------------------------
@@ -116,6 +128,7 @@ ply_k_arr_lt:
         br ply_k_ret
 
 ply_k_esc:
+        st r1, ply_pushback     ; keep non-CSI byte (0 if none) for next ply_handle iteration
         ld r3, st_mode
         cmp r3, MODE_TARGET
         brnz ply_k_cancel
@@ -651,10 +664,16 @@ ply_fire:
         ld r0, st_target
         cmp r0, 0
         brn ply_fr_notgt
-        bl cbt_player_fire      ; r0 = number of weapons fired
+        bl cbt_player_fire      ; r0 = >0 fired, -1 low energy, 0 nothing
         cmp r0, 0
         brp ply_fr_ok
+        brn ply_fr_noenergy
         lea r0, ply_s_nofire
+        bl ui_msg
+        mov r0, PR_NONE         ; stay in MODE_TARGET
+        br ply_fr_ret
+ply_fr_noenergy:
+        lea r0, ply_s_noenergy
         bl ui_msg
         mov r0, PR_NONE         ; stay in MODE_TARGET
         br ply_fr_ret
@@ -739,6 +758,9 @@ ply_s_invfull:  .string "Inventory full."
 ply_s_noinv:    .string "No carried part there."
 ply_s_slotemp:  .string "Slot is empty."
 ply_s_noroom:   .string "No room to drop that here."
+ply_pushback:   .word 0
+
 ply_s_notgt:    .string "No targets in sight."
 ply_s_nofire:   .string "Nothing can fire."
+ply_s_noenergy: .string "Not enough energy."
 ply_s_nostairs: .string "No stairs here."

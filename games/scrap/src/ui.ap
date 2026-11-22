@@ -644,7 +644,7 @@ ui_kc_unk:
         ret
 
 ; ---- helper: ui_draw_part_stat (r0=row, r1=col, r2=rec, r3=attr) -> r0=next_col
-; Compact key stat per kind: weapon "<dmin>-<dmax> r<range>" / "mel",
+; Compact key stat per kind: weapon "<dmin>-<dmax> r<range> e<en>" / "mel e<en>",
 ; propulsion "m<cost>", power "+<regen>", util "a<v>"/"s+<v>"/"rep<v>"/"+<v>%"
 ui_draw_part_stat:
         push r1
@@ -692,11 +692,20 @@ ui_dps_weap:
         ld r0, ui_tmp_psrow
         ldr r2, r4, P_W_RANGE
         bl ui_fast_num
-        br ui_dps_done
+        br ui_dps_weng
 ui_dps_wmel:
         ld r0, ui_tmp_psrow
         lea r2, ui_s_sp_mel
         bl ui_fast_text
+ui_dps_weng:
+        mov r1, r0
+        ld r0, ui_tmp_psrow
+        lea r2, ui_s_sp_e
+        bl ui_fast_text
+        mov r1, r0
+        ld r0, ui_tmp_psrow
+        ldr r2, r4, P_W_ENERGY
+        bl ui_fast_num
         br ui_dps_done
 ui_dps_prop:
         ld r0, ui_tmp_psrow
@@ -788,7 +797,7 @@ ui_dps_done:
         ret
 
 ; ---- helper: ui_draw_inv_body (r0=row, r1=part_id, r2=hp) -----------
-; Format: "<K> <Name(<=12)> <stat(<=8)> <hp>/<max>" (fits inside 35-col panel)
+; Format: "<K> <Name(<=12)> <stat(<=11)> <hp>/<max>" (fits inside 35-col panel)
 ui_draw_inv_body:
         push r0
         push r1
@@ -830,9 +839,9 @@ ui_draw_inv_body:
         ld r2, ui_tmp_ptr
         ld r3, ui_a_dim
         bl ui_draw_part_stat
-        ; integrity hp/max at PANEL_COL+27
+        ; integrity hp/max at PANEL_COL+30 (leaves room for "<d>-<d> mel e<n>" in +18..+28)
         ld r0, ui_tmp_srow
-        mov r1, PANEL_COL+27
+        mov r1, PANEL_COL+30
         ld r2, ui_tmp_shp
         ld r3, ui_a_text
         bl ui_fast_num
@@ -1008,11 +1017,12 @@ ui_dt_idxok:
         mov r1, r3
         bl util_max             ; r0 = dist
         st r0, ui_tmp_dist
-        ; Scan weapon slots (SLOT_WEAP0..SLOT_WEAP0+NUM_WEAP-1) for best in-range ranged weapon
+        ; Scan weapon slots (SLOT_WEAP0..SLOT_WEAP0+NUM_WEAP-1) for best affordable in-range ranged weapon
         mov r0, -1
-        st r0, ui_tmp_acc       ; best in-range P_W_ACC (-1 = none)
+        st r0, ui_tmp_acc       ; best affordable in-range P_W_ACC (-1 = none)
         mov r0, 0
         st r0, ui_tmp_hasrng    ; 1 if any ranged weapon equipped
+        st r0, ui_tmp_inrng     ; 1 if any ranged weapon in range
         mov r0, SLOT_WEAP0
 ui_dt_wlp:
         st r0, ui_tmp_i
@@ -1035,6 +1045,12 @@ ui_dt_wlp:
         ld r2, ui_tmp_dist
         cmp r1, r2
         brlt ui_dt_wnext        ; out of range
+        mov r1, 1
+        st r1, ui_tmp_inrng
+        ld r1, st_energy
+        ldr r2, r0, P_W_ENERGY
+        cmp r1, r2
+        brlt ui_dt_wnext        ; cannot afford energy cost
         ldr r1, r0, P_W_ACC
         ld r2, ui_tmp_acc
         cmp r1, r2
@@ -1045,7 +1061,7 @@ ui_dt_wnext:
         add r0, r0, 1
         cmp r0, SLOT_WEAP0+NUM_WEAP
         brlt ui_dt_wlp
-        ; Row PR_TGT+2 (21): Hit XX%  Dist Y  (or Out of range / No ranged)
+        ; Row PR_TGT+2 (21): Hit XX%  Dist Y  (or Low energy / Out of range / No ranged)
         ld r0, ui_tmp_acc
         cmp r0, 0
         brn ui_dt_norng
@@ -1073,6 +1089,20 @@ ui_dt_wnext:
         bl ui_fast_num
         br ui_dt_done
 ui_dt_norng:
+        ld r0, ui_tmp_inrng
+        cmp r0, 0
+        brz ui_dt_chk_hasrng
+        mov r0, PR_TGT+2
+        mov r1, PANEL_COL+1
+        lea r2, ui_s_lowe
+        ld r3, ui_a_warn
+        bl ui_fast_text
+        mov r1, r0
+        mov r0, PR_TGT+2
+        ld r2, ui_tmp_dist
+        bl ui_fast_num
+        br ui_dt_done
+ui_dt_chk_hasrng:
         ld r0, ui_tmp_hasrng
         cmp r0, 0
         brz ui_dt_noweap
@@ -2165,6 +2195,7 @@ ui_tmp_trec:    .word 0
 ui_tmp_dist:    .word 0
 ui_tmp_acc:     .word 0
 ui_tmp_hasrng:  .word 0
+ui_tmp_inrng:   .word 0
 ui_tmp_stride:  .word 0
 ui_tmp_fw:      .word 0
 ui_tmp_col:     .word 0
@@ -2267,6 +2298,7 @@ ui_s_slash:     .string "/"
 ui_s_dash:      .string "-"
 ui_s_hit:       .string "Hit "
 ui_s_pct_dist:  .string "%  Dist "
+ui_s_lowe:      .string "Low energy  Dist "
 ui_s_oor:       .string "Out of range  Dist "
 ui_s_norng:     .string "No ranged  Dist "
 ui_s_here:      .string "Here: "
@@ -2275,6 +2307,7 @@ ui_s_rbr:       .string "]"
 ui_s_sp:        .string " "
 ui_s_sp_r:      .string " r"
 ui_s_sp_mel:    .string " mel"
+ui_s_sp_e:      .string " e"
 ui_s_m:         .string "m"
 ui_s_plus:      .string "+"
 ui_s_a:         .string "a"

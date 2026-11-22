@@ -1,0 +1,30 @@
+; ---------------------------------------------------------------------
+; Module: rng (prefix rng_) — owner architect. Uniform random range
+; helper over the LCC+ 16-bit RNG. Extracts high bits from the full
+; 16-bit RNG state via rand(0, -1) so small power-of-two ranges avoid
+; the low-bit parity lock of the upstream LCG.
+; All routines: args r0..r4, result r0, all other registers preserved.
+;
+;; rng_range        r0=lo r1=hi                -> r0=uniform in lo..hi (inclusive, hi>=lo, range<=256 ok)
+; ---------------------------------------------------------------------
+
+rng_range:
+        push r1
+        push r2
+        push r3
+        sub r1, r1, r0          ; r1 = hi - lo
+        brlt rng_r_done         ; hi < lo: return lo
+        brz rng_r_done          ; hi == lo: return lo
+        add r1, r1, 1           ; r1 = range (2..256)
+        mov r2, 0
+        mov r3, -1              ; 0xFFFF (unsigned 65535 in Uint16Array)
+        rand r2, r3             ; r2 = full 16-bit RNG state (0..65535)
+        srl r2, 8               ; r2 = high byte (0..255)
+        mul r2, r1              ; unsigned 16-bit product (0..65280 <= 65535)
+        srl r2, 8               ; r2 = (high_byte * range) >>> 8 in 0..range-1
+        add r0, r0, r2          ; r0 = lo + offset
+rng_r_done:
+        pop r3
+        pop r2
+        pop r1
+        ret

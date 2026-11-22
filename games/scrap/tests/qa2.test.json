@@ -1,0 +1,81 @@
+{
+  "scenarios": [
+    {
+      "name": "win path (clock 32, recorded autoplayer, no pokes): climbs 10 -> surface in 989 turns; win screen shows Surface and score",
+      "clock": 32,
+      "keys": "a*2 n j b j*3 b h b*2 h b j*4 n g e1 l*2 g b*2 h*4 y g e2 b h*2 y h*6 y k y h*5 b*2 y*4 g k u k*3 y h*4 y*2 h*7 ff b ff b y*4 ff b*5 j*3 ff j*8 b*4 g e3 u*3 l g n*2 b <lt> h*7 g u*2 l*2 u k*4 u l*12 u l n*3 ff j ff j*3 n l*5 ff l ff l*2 ff u l*7 n l*7 u k*2 ff k ff k ff k ff y h y*2 <lt> h y k*5 y h*3 b*3 h*3 y h*4 ff y ff k ff k ff y ff k ff n*2 j b n b j*5 b h*7 ff h ff h ff b ff h ff h ff h*2 ff e4 k u*2 g b*3 h*3 y ff h ff h ff b ff b ff y ff k <lt> k*5 y h*5 b ff h ff h ff h b j*4 ff j ff j ff j ff e1 ff j ff b ff n b g e1 k*3 u k*7 u g e1 k y g n j b j*7 b*5 h y*2 h*7 ff h ff h ff h ff k*3 y*3 k*2 y ff h*7 b*2 ff h y*2 <lt> k u l*3 n j*12 n ff l*6 n*2 l u k*13 u l*5 ff u ff u l*3 e1 l*5 n g j b*2 j*7 n l*4 n*3 l*2 u n l*3 u ff e2 ff u*2 ff u l n*2 g j <lt> b*3 h b j*3 b*3 h ff h*3 b h*3 y h ff h ff h ff b ff h ff h ff h ff h ff h*2 y h*2 ff b y*5 ff y ff k ff k ff k ff y*2 k u k y h*2 ff h ff b ff b ff h ff h ff h ff k*2 y*2 <lt> k y h*3 y*3 k*10 y h*5 ff b h*2 b h y*2 <lt> k*2 y*2 k ff k*4 e1 ff e3 ff u ff u ff b ff b ff e2 ff h ff h*5 g e1 h y g e1 h*7 b j*14 ff j ff e4 n*4 ff n ff n ff l n*3 u g e1 j*2 g h y*3 k y h*4 ff h ff h ff h ff h ff b ff b h y*2 g b*2 <lt> n b*3 ff j ff j ff j ff n b*2 h ff h y*2 j b ff j*4 ff n*2 l*2 n*2 b h*4 y*3 k*11 g e3 n b j*9 n l*2 u k*7 g e3 n j b j*4 b*2 y*2 k*9 y h y*2 h*3 b j*5 ff n j*5 ff b ff b ff k b ff k ff k ff j ff k j ff k y k y ff h*4 ff l n j n*3 b g k*3 u k*2 y g e4 b*2 y h*3 y h*5 ff y ff y*3 n*2 b j*3 b*2 g j b*2 h ff h b h*3 y <lt> n b*3 ff j ff j ff b*5 y h*6 y*2 ff u ff k ff j b h*10 ff h ff e1 ff h ff h ff y g j <lt> _3",
+      "maxSteps": 400000000,
+      "expect": {
+        "status": "frames-complete",
+        "maxStepsPerFrame": 500000,
+        "memory": {
+          "st_game_state": 3,
+          "st_depth_best": 0,
+          "st_kills": 43,
+          "st_turn": 989,
+          "st_core_hp": 33
+        },
+        "screen": {
+          "contains": [
+            "SURFACE REACHED!",
+            "Shallowest Depth:       Surface",
+            "FINAL SCORE:            2430"
+          ],
+          "notContains": [
+            "Depth 0"
+          ]
+        }
+      }
+    },
+    {
+      "name": "after a win, play again starts a clean game at depth 10",
+      "clock": 32,
+      "keys": "a*2 n j b j*3 b h b*2 h b j*4 n g e1 l*2 g b*2 h*4 y g e2 b h*2 y h*6 y k y h*5 b*2 y*4 g k u k*3 y h*4 y*2 h*7 ff b ff b y*4 ff b*5 j*3 ff j*8 b*4 g e3 u*3 l g n*2 b <lt> h*7 g u*2 l*2 u k*4 u l*12 u l n*3 ff j ff j*3 n l*5 ff l ff l*2 ff u l*7 n l*7 u k*2 ff k ff k ff k ff y h y*2 <lt> h y k*5 y h*3 b*3 h*3 y h*4 ff y ff k ff k ff y ff k ff n*2 j b n b j*5 b h*7 ff h ff h ff b ff h ff h ff h*2 ff e4 k u*2 g b*3 h*3 y ff h ff h ff b ff b ff y ff k <lt> k*5 y h*5 b ff h ff h ff h b j*4 ff j ff j ff j ff e1 ff j ff b ff n b g e1 k*3 u k*7 u g e1 k y g n j b j*7 b*5 h y*2 h*7 ff h ff h ff h ff k*3 y*3 k*2 y ff h*7 b*2 ff h y*2 <lt> k u l*3 n j*12 n ff l*6 n*2 l u k*13 u l*5 ff u ff u l*3 e1 l*5 n g j b*2 j*7 n l*4 n*3 l*2 u n l*3 u ff e2 ff u*2 ff u l n*2 g j <lt> b*3 h b j*3 b*3 h ff h*3 b h*3 y h ff h ff h ff b ff h ff h ff h ff h ff h*2 y h*2 ff b y*5 ff y ff k ff k ff k ff y*2 k u k y h*2 ff h ff b ff b ff h ff h ff h ff k*2 y*2 <lt> k y h*3 y*3 k*10 y h*5 ff b h*2 b h y*2 <lt> k*2 y*2 k ff k*4 e1 ff e3 ff u ff u ff b ff b ff e2 ff h ff h*5 g e1 h y g e1 h*7 b j*14 ff j ff e4 n*4 ff n ff n ff l n*3 u g e1 j*2 g h y*3 k y h*4 ff h ff h ff h ff h ff b ff b h y*2 g b*2 <lt> n b*3 ff j ff j ff j ff n b*2 h ff h y*2 j b ff j*4 ff n*2 l*2 n*2 b h*4 y*3 k*11 g e3 n b j*9 n l*2 u k*7 g e3 n j b j*4 b*2 y*2 k*9 y h y*2 h*3 b j*5 ff n j*5 ff b ff b ff k b ff k ff k ff j ff k j ff k y k y ff h*4 ff l n j n*3 b g k*3 u k*2 y g e4 b*2 y h*3 y h*5 ff y ff y*3 n*2 b j*3 b*2 g j b*2 h ff h b h*3 y <lt> n b*3 ff j ff j ff b*5 y h*6 y*2 ff u ff k ff j b h*10 ff h ff e1 ff h ff h ff y g j <lt> _12 a _ a _2",
+      "maxSteps": 400000000,
+      "expect": {
+        "status": "frames-complete",
+        "memory": {
+          "st_game_state": 1,
+          "st_depth": 10,
+          "st_depth_best": 10,
+          "st_turn": 0,
+          "st_kills": 0,
+          "st_core_hp": 40,
+          "st_slots": [
+            1,
+            20,
+            1,
+            20,
+            9,
+            15,
+            13,
+            12,
+            12,
+            15,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "st_inv": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        "screen": {
+          "contains": [
+            "Depth 10  Turn 0"
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -236,7 +236,7 @@ itm_spawn_floor:
 
         mov r0, LOOT_MIN
         mov r1, LOOT_MAX
-        rand r0, r1
+        bl rng_range
         str r0, fp, -2          ; count in [LOOT_MIN, LOOT_MAX]
 
 itm_sf_lp:
@@ -264,10 +264,10 @@ itm_sf_one:
         brz itm_sf_next
         ldr r3, r0, P_MAXHP     ; r3 = max integrity
 
-        ; integrity = rand(DROP_HP_MIN..100)% of P_MAXHP (rounded half-up, >= 1)
+        ; integrity = rng_range(DROP_HP_MIN..100)% of P_MAXHP (rounded half-up, >= 1)
         mov r0, DROP_HP_MIN
         mov r1, 100
-        rand r0, r1
+        bl rng_range
         mul r3, r0
         mov r0, 50
         add r3, r3, r0

@@ -162,6 +162,7 @@ scripted playthroughs over several seeds: survive/die, climb at least two floors
 loss and re-equip. Findings as replayable BUG scenarios in tests/qa1.test.json.
 
 ## WP10 — Balance + polish
+**Log:** 2026-11-22 council R1 fixes (Gemini partial, finished by Opus): rng_range high-bit RNG helper (src/rng.ap) replaces every `rand`; hunting robots no longer BFS-track an unseen player; player damage alerts robots (act_alert); target panel "Low energy" + "Not enough energy." + weapon energy in part stats; Esc+key pushback. play.test.json replays re-derived; qa1 replays need re-recording.
 **Goal:** fix QA-1 findings and tune the game so a careful player can usually reach depth
 5–7 and sometimes win. Tunables: spawn counts, drop rates, energy costs, core-hit chance,
 part stats. Changes to defs.ap values go through the orchestrator (ARCH).
@@ -170,3 +171,5 @@ part stats. Changes to defs.ap values go through the orchestrator (ARCH).
 **Goal:** a scripted win (patched depth 1 start in a driver or a long scenario), a
 death screen with the right cause and score, performance under the frame budget with 24
 enemies, `check` green.
+
+- 2026-11-22 QA-2: qa1 replays re-recorded after the RNG fix; tests/qa2.test.json = recorded autoplayer win on clock 32 (989 turns, score 2430, no memory pokes) + play-again after win. 60-seed bot sweep after the fixes: deaths spread over depths 8..1, 1 win. check 295/295.

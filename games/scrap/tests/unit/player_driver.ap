@@ -250,7 +250,7 @@ drv_m_set:
         ld r0, st_target
         st r0, drv_tgt_prev
 
-        ; ply_fire when cbt_player_fire returns 0 -> PR_NONE, stays in MODE_TARGET, no TU
+        ; ply_fire when cbt_player_fire returns 0 -> PR_NONE, stays in MODE_TARGET, no TU, "Nothing can fire."
         mov r0, 0
         st r0, drv_fire_ret_val
         mov r0, 0
@@ -261,6 +261,22 @@ drv_m_set:
         st r0, drv_fr0_mode
         ld r0, st_ply_next
         st r0, drv_fr0_tu
+        lea r0, drv_fr0_msg
+        bl drv_copy_head_msg
+
+        ; ply_fire when cbt_player_fire returns -1 -> PR_NONE, stays in MODE_TARGET, no TU, "Not enough energy."
+        mov r0, -1
+        st r0, drv_fire_ret_val
+        mov r0, 0
+        st r0, st_ply_next
+        bl ply_fire
+        st r0, drv_fre_ret
+        ld r0, st_mode
+        st r0, drv_fre_mode
+        ld r0, st_ply_next
+        st r0, drv_fre_tu
+        lea r0, drv_fre_msg
+        bl drv_copy_head_msg
 
         ; ply_fire when cbt_player_fire returns 1 -> PR_ACTED, MODE_MAP, TIME_FIRE
         mov r0, 1
@@ -423,6 +439,31 @@ drv_cr_no:
         mov r0, 0
         ret
 
+drv_copy_head_msg:
+        push r0
+        push r1
+        push r2
+        push r3
+        ld r1, st_msg_head
+        and r1, r1, MSG_COUNT-1
+        sll r1, MSG_SHIFT
+        lea r2, st_msg_text
+        add r2, r2, r1
+drv_chm_lp:
+        ldr r3, r2, 0
+        str r3, r0, 0
+        cmp r3, 0
+        brz drv_chm_done
+        add r2, r2, 1
+        add r0, r0, 1
+        br drv_chm_lp
+drv_chm_done:
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
 ; ---- Deterministic combat stubs ---------------------------------------------
 cbt_hit_chance:
         mov r0, 70
@@ -493,6 +534,11 @@ drv_fire_ret_val:  .word 0
 drv_fr0_ret:       .word -1
 drv_fr0_mode:      .word -1
 drv_fr0_tu:        .word -1
+drv_fr0_msg:       .zero MSG_LEN
+drv_fre_ret:       .word -1
+drv_fre_mode:      .word -1
+drv_fre_tu:        .word -1
+drv_fre_msg:       .zero MSG_LEN
 drv_fr1_ret:       .word -1
 drv_fr1_mode:      .word -1
 drv_fr1_tu:        .word -1
@@ -510,6 +556,7 @@ drv_regs_ok:       .word 0
 
 ; ---- Modules under test & dependencies --------------------------------------
         .include "../../src/state.ap"
+        .include "../../src/rng.ap"
         .include "../../src/dungeon.ap"
         .include "../../src/fov.ap"
         .include "../../src/parts.ap"

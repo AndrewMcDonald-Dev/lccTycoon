@@ -143,6 +143,7 @@ drv_cnt:        .word 0
 drv_t:          .word 1
 
         .include "../../src/state.ap"
+        .include "../../src/rng.ap"
         .include "../../src/dungeon.ap"
         .include "../../src/fov.ap"
         .include "../../src/actors.ap"

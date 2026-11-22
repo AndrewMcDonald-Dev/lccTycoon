@@ -7,6 +7,7 @@
     "main.ap":         { "prefix": "main_", "owner": "architect", "description": "entry, title→game→end flow, frame loop (ply_handle → main_turn → ren_draw → ui_draw → present → sleep), new game/floor, climbing", "skills": ["lcc-architect"] },
     "src/defs.ap":     { "prefix": [],      "owner": "architect", "description": "shared .define constants only: sizes, record layouts, regions, palette, keys, tuning", "skills": ["lcc-architect"] },
     "src/state.ap":    { "prefix": "st_",   "owner": "architect", "description": "all shared game state (data only) incl. the 100x30 display block", "skills": ["lcc-architect"] },
+    "src/rng.ap":      { "prefix": "rng_",  "owner": "architect", "description": "uniform random range helper over the 16-bit LCC+ RNG (high-bit extraction)", "skills": ["lcc-simulation"] },
     "src/dungeon.ap":  { "prefix": "dun_",  "owner": "WP1", "description": "floor generation (rooms, corridors, doors, stairs), tile get/set, walkable/opaque, random floor tiles, distance", "skills": ["lcc-simulation"] },
     "src/fov.ap":      { "prefix": "fov_",  "owner": "WP2", "description": "field of view (visible + remembered maps), line of sight between two points", "skills": ["lcc-simulation"] },
     "src/parts.ap":    { "prefix": "prt_",  "owner": "WP3", "description": "part catalog, loadout slots, inventory, attach/detach, derived stats, energy, self-repair, damage spread over parts and core", "skills": ["lcc-simulation"] },

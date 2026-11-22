@@ -24,6 +24,7 @@
 ;; act_type_info    r0=type             -> r0=address of the type record, 0 if invalid
 ;; act_name         r0=index            -> r0=name string of that enemy's type
 ;; act_kill         r0=index            -> -        free the record (combat calls it after drops)
+;; act_alert        r0=index            -> -        alert a living enemy to (st_px,st_py): E_TX=st_px, E_TY=st_py, E_ALERT=ALERT_TURNS; if ES_IDLE switch to ES_HUNT (AI_WORKER → ES_FLEE)
 ;; act_next_visible r0=from r1=dir      -> r0=index of the next enemy (any type) on a fov_visible tile after index `from` in pool order (r1 = +1 / -1, wrapping); from = -1 →
 ;;                   the nearest visible enemy (preferring hostile over AI_WORKER); -1 if none visible
 ; ---------------------------------------------------------------------
@@ -123,6 +124,56 @@ act_kl_ok:
         mov r0, EN_NONE
         str r0, r1, E_TYPE
 act_kl_done:
+        pop r1
+        pop r0
+        ret
+
+; act_alert r0=index -> -
+; Alert a living enemy to (st_px, st_py): E_TX=st_px, E_TY=st_py, E_ALERT=ALERT_TURNS;
+; if ES_IDLE, switch to ES_HUNT (or ES_FLEE for AI_WORKER).
+act_alert:
+        push r0
+        push r1
+        push r2
+        push lr
+        cmp r0, 0
+        brn act_al_done
+        mov r1, MAX_ENEMIES
+        cmp r0, r1
+        brlt act_al_ok
+        br act_al_done
+act_al_ok:
+        sll r0, ENEMY_SHIFT
+        lea r2, st_enemies
+        add r2, r2, r0
+        ldr r0, r2, E_TYPE
+        cmp r0, EN_NONE
+        brz act_al_done
+        ld r1, st_px
+        str r1, r2, E_TX
+        ld r1, st_py
+        str r1, r2, E_TY
+        mov r1, ALERT_TURNS
+        str r1, r2, E_ALERT
+        ldr r1, r2, E_STATE
+        cmp r1, ES_IDLE
+        brnz act_al_done
+        bl act_type_info
+        cmp r0, 0
+        brz act_al_hunt
+        ldr r1, r0, ET_AI
+        cmp r1, AI_WORKER
+        bre act_al_flee
+act_al_hunt:
+        mov r1, ES_HUNT
+        str r1, r2, E_STATE
+        br act_al_done
+act_al_flee:
+        mov r1, ES_FLEE
+        str r1, r2, E_STATE
+act_al_done:
+        pop lr
+        pop r2
         pop r1
         pop r0
         ret
@@ -230,7 +281,7 @@ act_sp_slot:
         br act_sp_set_next
 act_sp_rand:
         mov r0, 0
-        rand r0, r1
+        bl rng_range
 act_sp_set_next:
         ld r1, st_time
         add r0, r0, r1
@@ -318,7 +369,7 @@ act_sf_do_one:
         ; Weighted random pick among eligible hostile types
         mov r0, 1
         ld r1, act_sf_wsum
-        rand r0, r1
+        bl rng_range
         mov r3, r0              ; roll in 1..wsum
         mov r2, 1
 act_sf_pick_lp:
@@ -1006,7 +1057,7 @@ act_th_idle:
         ; 50% random step, 50% wait
         mov r0, 0
         mov r1, 1
-        rand r0, r1
+        bl rng_range
         cmp r0, 0
         brz act_th_apply_cost
         bl act_step_random
@@ -1126,7 +1177,7 @@ act_step_random:
         push lr
         mov r0, 0
         mov r1, 7
-        rand r0, r1
+        bl rng_range
         st r0, act_mv_d0
         mov r0, 0
         st r0, act_mv_k
@@ -1195,7 +1246,7 @@ act_step_bfs_toward:
         st r0, act_mv_bx
         mov r0, 0
         mov r1, 7
-        rand r0, r1
+        bl rng_range
         st r0, act_mv_d0
         mov r0, 0
         st r0, act_mv_k
@@ -1274,8 +1325,9 @@ act_sbt_fail:
         pop lr
         ret
 
-; Step toward hunting goal: BFS when targeting player, greedy toward (E_TX,E_TY)
-; with BFS fallback if player moved away after breaking LOS. Returns r0=1|0.
+; Step toward hunting goal: BFS only when seeing the player or when
+; (E_TX,E_TY) == (st_px,st_py); otherwise greedy toward (E_TX,E_TY) and
+; return 0 (wait) if blocked — never fall back to the player-seeded BFS.
 act_step_hunt:
         push lr
         ld r0, act_th_see
@@ -1310,7 +1362,7 @@ act_sh_gdo:
         st r0, act_mv_bx
         mov r0, 0
         mov r1, 7
-        rand r0, r1
+        bl rng_range
         st r0, act_mv_d0
         mov r0, 0
         st r0, act_mv_k
@@ -1320,7 +1372,7 @@ act_sh_glp:
         brlt act_sh_gtry
         ld r0, act_mv_bx
         cmp r0, 0
-        brn act_sh_bfs          ; blocked on corner -> BFS fallback
+        brn act_sh_gfail        ; blocked: wait rather than leaking player position via BFS
         ld r1, act_mv_by
         bl act_do_step
         mov r0, 1
@@ -1433,7 +1485,7 @@ act_sa_init:
         st r0, act_mv_bx
         mov r0, 0
         mov r1, 7
-        rand r0, r1
+        bl rng_range
         st r0, act_mv_d0
         mov r0, 0
         st r0, act_mv_k

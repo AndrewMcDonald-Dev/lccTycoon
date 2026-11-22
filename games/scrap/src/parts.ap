@@ -621,11 +621,12 @@ prt_dmg_noout:
         brz prt_dmg_core
         mov r2, CORE_HIT_EMPTY
         mul r1, r2
-        add r1, r1, CORE_HIT_PCT ; r1 = core_pct (10..66)
+        add r1, r1, CORE_HIT_PCT ; r1 = core_pct (6..48)
+        mov r2, r1              ; r2 = core_pct
         mov r0, 1
-        mov r2, 100
-        rand r0, r2             ; r0 in 1..100
-        cmp r0, r1
+        mov r1, 100
+        bl rng_range            ; r0 in 1..100
+        cmp r0, r2
         brlt prt_dmg_core
         bre prt_dmg_core
 
@@ -653,7 +654,8 @@ prt_dmg_c1n:
 
         ; roll weighted pick in [1, total_cover]
         mov r0, 1
-        rand r0, r2
+        mov r1, r2
+        bl rng_range
         mov r2, r0
 
         ; pass 2: find slot where countdown drops <= 0
@@ -922,6 +924,7 @@ prt_random_part:
         push r2
         push r3
         push r4
+        push lr
         ; max_tier in r1: depth <= TIER3_DEPTH → 3; <= TIER2_DEPTH → 2; else 1
         cmp r0, TIER3_DEPTH
         brlt prt_rp_t3
@@ -953,9 +956,12 @@ prt_rp_n1:
         brp prt_rp_lp1
 
         ; pick k in [1, r2]
+        mov r3, r1              ; preserve max_tier across rng_range
         mov r0, 1
-        rand r0, r2
+        mov r1, r2
+        bl rng_range
         mov r2, r0
+        mov r1, r3              ; restore max_tier
 
         ; pass 2: find the k-th eligible part id (1..PART_COUNT)
         mov r3, 1
@@ -973,6 +979,7 @@ prt_rp_n2:
         br prt_rp_lp2
 prt_rp_found:
         mov r0, r3
+        pop lr
         pop r4
         pop r3
         pop r2

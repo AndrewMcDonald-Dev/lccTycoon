@@ -139,5 +139,6 @@ drv_s_rooms:    .string "Rooms:"
 drv_s_start:    .string "Start:"
 
         .include "../../src/state.ap"
+        .include "../../src/rng.ap"
         .include "../../src/dungeon.ap"
         .include "video.ap"

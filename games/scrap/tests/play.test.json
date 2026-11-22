@@ -3,34 +3,44 @@
     {
       "name": "vi-keys move player across all 8 directions and advance turn and time",
       "clock": 1000,
-      "keys": "<enter> k h j l y u b n",
+      "keys": "<enter> l j n u y b h k",
       "expect": {
         "status": "frames-complete",
         "maxStepsPerFrame": 2000000,
         "memory": {
-          "st_px": 52,
-          "st_py": 9,
+          "st_px": 14,
+          "st_py": 20,
           "st_turn": 8,
           "st_time": 800,
           "st_ply_next": 800,
           "st_mode": 0
         },
         "frames": [
-          { "frame": 1, "screen": { "contains": ["Turn 1"] } },
-          { "frame": 8, "screen": { "contains": ["Turn 8"] } }
+          {
+            "frame": 1,
+            "screen": {
+              "contains": ["Turn 1"]
+            }
+          },
+          {
+            "frame": 8,
+            "screen": {
+              "contains": ["Turn 8"]
+            }
+          }
         ]
       }
     },
     {
       "name": "arrow keys move player 4 ways and advance turn and time",
       "clock": 1000,
-      "keys": "<enter> <up> <left> <down> <right>",
+      "keys": "<enter> <right> <down> <right> <up>",
       "expect": {
         "status": "frames-complete",
         "maxStepsPerFrame": 2000000,
         "memory": {
-          "st_px": 52,
-          "st_py": 9,
+          "st_px": 16,
+          "st_py": 20,
           "st_turn": 4,
           "st_time": 400,
           "st_mode": 0
@@ -44,8 +54,8 @@
       "expect": {
         "status": "frames-complete",
         "memory": {
-          "st_px": 52,
-          "st_py": 9,
+          "st_px": 14,
+          "st_py": 20,
           "st_turn": 2,
           "st_time": 200,
           "st_ply_next": 200
@@ -55,12 +65,12 @@
     {
       "name": "walls block movement without spending time or advancing turn",
       "clock": 1000,
-      "keys": "<enter> j <down> b n",
+      "keys": "<enter> k <up> y u",
       "expect": {
         "status": "frames-complete",
         "memory": {
-          "st_px": 52,
-          "st_py": 9,
+          "st_px": 14,
+          "st_py": 20,
           "st_turn": 0,
           "st_time": 0,
           "st_ply_next": 0
@@ -70,45 +80,48 @@
     {
       "name": "walking through a closed door opens it",
       "clock": 1000,
-      "keys": "<enter> h h y y",
+      "keys": "<enter> l*2 u k*4 y h",
       "expect": {
         "status": "frames-complete",
         "memory": {
-          "st_px": 48,
-          "st_py": 7,
-          "st_turn": 4,
-          "st_time": 400
+          "st_px": 15,
+          "st_py": 14,
+          "st_turn": 9,
+          "st_time": 900
         },
         "screen": {
-          "contains": ["Turn 4"]
-        }
+          "contains": ["Turn 9", "@'"]
+        },
+        "frames": [
+          {
+            "frame": 7,
+            "screen": {
+              "lines": {
+                "14": "                +··#######                                      │1 -                              "
+              }
+            }
+          }
+        ]
       }
     },
     {
       "name": "g picks up, e1 attaches, r4 detaches, x1 drops with accurate TU costs and messages",
       "clock": 1000,
-      "keys": "<enter> k*5 g e 1 r 4 x 1",
+      "keys": "<enter> j*2 g e 1 r 4 x 1",
       "expect": {
         "status": "frames-complete",
         "maxStepsPerFrame": 2000000,
         "memory": {
-          "st_px": 52,
-          "st_py": 4,
-          "st_turn": 9,
-          "st_time": 950,
+          "st_px": 14,
+          "st_py": 22,
+          "st_turn": 6,
+          "st_time": 650,
           "st_mode": 0,
-          "st_slots": [1, 20, 1, 20, 9, 15, 0, 0, 12, 15, 14, 9, 0, 0, 0, 0],
+          "st_slots": [1, 20, 1, 20, 9, 15, 0, 0, 12, 15, 12, 12, 0, 0, 0, 0],
           "st_inv": [0, 0, 0, 0, 0, 0, 0, 0]
         },
         "screen": {
-          "contains": [
-            "You see Scatter Tube.",
-            "Picked up Scatter Tube.",
-            "Attached Scatter Tube.",
-            "Removed Rivet Gun.",
-            "Dropped Rivet Gun.",
-            "Here: Rivet Gun"
-          ]
+          "contains": ["You see Spark Prod.", "Picked up Spark Prod.", "Attached Spark Prod.", "Removed Rivet Gun.", "Dropped Rivet Gun.", "Here: Rivet Gun"]
         }
       }
     },
@@ -170,46 +183,62 @@
     {
       "name": "bump melee attacks adjacent robot, advances time, and can destroy it",
       "clock": 1000,
-      "keys": "<enter> h h y y y k y h*15",
+      "keys": "<enter> l*2 u k*4 y h*8 b j*4 n h*2",
       "expect": {
         "status": "frames-complete",
         "maxStepsPerFrame": 2000000,
         "memory": {
-          "st_px": 35,
-          "st_py": 4,
-          "st_turn": 22,
-          "st_time": 2200,
+          "st_px": 8,
+          "st_py": 18,
+          "st_turn": 24,
+          "st_time": 2400,
           "st_kills": 1
         },
         "screen": {
-          "contains": ["Kills 1"]
+          "contains": ["Kills 1", "Spark Prod hits Flit for 4.", "Flit destroyed."]
         }
       }
     },
     {
       "name": "f enters target mode, Tab/[ / ] cycle visible targets, and f fires and costs time",
       "clock": 1000,
-      "keys": "<enter> h h y y y k y h*17 b h*18 f <tab> [ ] f",
+      "keys": "<enter> l*2 u k*4 y h*8 b j .*8 f <tab> [ ] f",
       "expect": {
         "status": "frames-complete",
         "maxStepsPerFrame": 2000000,
         "memory": {
           "st_mode": 0,
-          "st_target": 1,
-          "st_turn": 44,
-          "st_time": 4400
+          "st_target": 3,
+          "st_turn": 27,
+          "st_time": 2700
         },
         "screen": {
-          "contains": ["Rivet Gun hits Scuttler for 2.", "Scuttler", "10/12"]
+          "contains": ["Rivet Gun hits Flit for 4.", "Flit", "2/6"]
         },
         "frames": [
           {
-            "frame": 44,
-            "screen": { "contains": ["TARGET: Tab / ] / [ cycle target"] }
+            "frame": 27,
+            "screen": {
+              "contains": ["TARGET: Tab / ] / [ cycle target", "Hit 70%  Dist 1"]
+            }
           },
           {
-            "frame": 45,
-            "screen": { "contains": ["Scuttler", "TARGET: Tab / ] / [ cycle target"] }
+            "frame": 28,
+            "screen": {
+              "contains": ["Flit", "Hit 67%  Dist 2"]
+            }
+          },
+          {
+            "frame": 29,
+            "screen": {
+              "contains": ["Hit 70%  Dist 1"]
+            }
+          },
+          {
+            "frame": 30,
+            "screen": {
+              "contains": ["Hit 67%  Dist 2", "TARGET: Tab / ] / [ cycle target"]
+            }
           }
         ]
       }
@@ -217,32 +246,32 @@
     {
       "name": "Enter in target mode also fires and costs time",
       "clock": 1000,
-      "keys": "<enter> h h y y y k y h*17 b h*18 f <tab> <enter>",
+      "keys": "<enter> l*2 u k*4 y h*8 b j .*8 f <tab> <enter>",
       "expect": {
         "status": "frames-complete",
         "maxStepsPerFrame": 2000000,
         "memory": {
           "st_mode": 0,
-          "st_target": 1,
-          "st_turn": 44,
-          "st_time": 4400
+          "st_target": 3,
+          "st_turn": 27,
+          "st_time": 2700
         },
         "screen": {
-          "contains": ["Rivet Gun hits Scuttler for 2."]
+          "contains": ["Rivet Gun hits Flit for 4."]
         }
       }
     },
     {
       "name": "Esc cancels targeting mode and clears target without spending time",
       "clock": 1000,
-      "keys": "<enter> h h y y y k y h*17 b h*18 f <esc>",
+      "keys": "<enter> l*2 u k*4 y h*8 b j .*8 f <esc>",
       "expect": {
         "status": "frames-complete",
         "memory": {
           "st_mode": 0,
           "st_target": -1,
-          "st_turn": 43,
-          "st_time": 4300
+          "st_turn": 26,
+          "st_time": 2600
         }
       }
     },
@@ -259,12 +288,52 @@
           "st_game_state": 1
         },
         "frames": [
-          { "frame": 1, "screen": { "contains": ["EQUIP: 1-4"] } },
-          { "frame": 3, "screen": { "contains": ["REMOVE: 1-8"] } },
-          { "frame": 5, "screen": { "contains": ["DROP: 1-4"] } },
-          { "frame": 7, "screen": { "contains": ["CONTROLS & GUIDE", "HELP: press any key to close"] } },
-          { "frame": 9, "screen": { "contains": ["Quit? y = yes"] } }
+          {
+            "frame": 1,
+            "screen": {
+              "contains": ["EQUIP: 1-4"]
+            }
+          },
+          {
+            "frame": 3,
+            "screen": {
+              "contains": ["REMOVE: 1-8"]
+            }
+          },
+          {
+            "frame": 5,
+            "screen": {
+              "contains": ["DROP: 1-4"]
+            }
+          },
+          {
+            "frame": 7,
+            "screen": {
+              "contains": ["CONTROLS & GUIDE", "HELP: press any key to close"]
+            }
+          },
+          {
+            "frame": 9,
+            "screen": {
+              "contains": ["Quit? y = yes"]
+            }
+          }
         ]
+      }
+    },
+    {
+      "name": "Esc and a key arriving in the same frame: the key is not lost",
+      "clock": 1000,
+      "keys": "<enter> e <esc>l",
+      "expect": {
+        "status": "frames-complete",
+        "memory": {
+          "st_mode": 0,
+          "st_turn": 1,
+          "st_time": 100,
+          "st_px": 15,
+          "st_py": 20
+        }
       }
     },
     {
@@ -286,14 +355,14 @@
     {
       "name": "climbing stairs on depth 10 reaches depth 9 with new floor and updated best depth",
       "clock": 1000,
-      "keys": "<enter> h h y y y k y h*17 b h*21 b b j <lt>",
+      "keys": "<enter> l*2 u k*2 u*2 l*21 u*2 l*9 u*4 k*4 u l*2 u l*3 <lt>",
       "expect": {
         "status": "frames-complete",
         "maxStepsPerFrame": 2000000,
         "memory": {
           "st_depth": 9,
           "st_depth_best": 9,
-          "st_turn": 50,
+          "st_turn": 55,
           "st_game_state": 1,
           "st_climb": 0,
           "st_target": -1
@@ -306,7 +375,7 @@
     {
       "name": "core destruction shows death end screen with killer and score, and Q quits",
       "clock": 1000,
-      "keys": "<enter> h h y y y k y h*15 .*54",
+      "keys": "<enter> l*2 u k*4 y h*8 b j .*3 j*2 .*66",
       "expect": {
         "status": "frames-complete",
         "maxStepsPerFrame": 2000000,
@@ -324,7 +393,7 @@
     {
       "name": "play again from death screen returns to title and starts a clean new game",
       "clock": 1000,
-      "keys": "<enter> h h y y y k y h*15 .*54 _10 <space> <enter>",
+      "keys": "<enter> l*2 u k*4 y h*8 b j .*3 j*2 .*66 _20 <space> <enter>",
       "expect": {
         "status": "frames-complete",
         "maxStepsPerFrame": 2000000,

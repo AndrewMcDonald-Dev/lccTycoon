@@ -970,6 +970,56 @@ drv_psurv_done:
         mov r0, 1
         st r0, drv_regs_ok
 
+        ; =====================================================================
+        ; 7. Sniping an idle robot beyond its ET_SIGHT wakes it (act_alert)
+        ; =====================================================================
+        bl act_clear
+        mov r0, 0
+        st r0, st_time
+        st r0, st_ply_next
+        mov r0, 10
+        st r0, st_px
+        mov r0, 10
+        st r0, st_py
+        ; Idle Scuttler (ET_SIGHT=6) at (17,10), dist 7 > ET_SIGHT
+        mov r0, EN_SCUTTLER
+        mov r1, 17
+        mov r2, 10
+        bl act_spawn            ; idx 0
+        mov r1, 2
+        bl cbt_damage_enemy     ; survives (12-2=10) -> must alert!
+        lea r2, st_enemies
+        ldr r0, r2, E_STATE
+        st r0, drv_snp_h_st     ; expect ES_HUNT (1)
+        ldr r0, r2, E_TX
+        st r0, drv_snp_h_tx     ; expect 10
+        ldr r0, r2, E_TY
+        st r0, drv_snp_h_ty     ; expect 10
+        ldr r0, r2, E_ALERT
+        st r0, drv_snp_h_al     ; expect ALERT_TURNS (12)
+        ; Step act_run: woken Scuttler moves closer toward player (x: 17 -> 16)
+        mov r0, 0
+        str r0, r2, E_NEXT
+        mov r0, 100
+        st r0, st_ply_next
+        bl act_run
+        lea r2, st_enemies
+        ldr r0, r2, E_X
+        st r0, drv_snp_h_x1     ; expect 16
+        ; Idle Tinker (ET_SIGHT=6) at (17,10), dist 7 > ET_SIGHT
+        bl act_clear
+        mov r0, EN_TINKER
+        mov r1, 17
+        mov r2, 10
+        bl act_spawn            ; idx 0
+        mov r1, 2
+        bl cbt_damage_enemy     ; survives (8-2=6) -> must flee!
+        lea r2, st_enemies
+        ldr r0, r2, E_STATE
+        st r0, drv_snp_w_st     ; expect ES_FLEE (2)
+        ldr r0, r2, E_ALERT
+        st r0, drv_snp_w_al     ; expect ALERT_TURNS (12)
+
         ; Render one UI frame so we can visually inspect combat messages & colors
         bl ui_draw
         bl video_present
@@ -1281,9 +1331,18 @@ drv_psurv_msg:    .zero MSG_LEN
 
 ; 6. register preservation
 drv_regs_ok:      .word 0
+; 7. snipe wake-up
+drv_snp_h_st:     .word 99
+drv_snp_h_tx:     .word 99
+drv_snp_h_ty:     .word 99
+drv_snp_h_al:     .word 99
+drv_snp_h_x1:     .word 99
+drv_snp_w_st:     .word 99
+drv_snp_w_al:     .word 99
 
 ; ---- modules under test + real dependencies ---------------------------------
         .include "../../src/state.ap"
+        .include "../../src/rng.ap"
         .include "../../src/dungeon.ap"
         .include "../../src/fov.ap"
         .include "../../src/parts.ap"

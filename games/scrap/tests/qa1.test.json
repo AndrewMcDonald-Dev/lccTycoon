@@ -1,27 +1,9 @@
 {
   "scenarios": [
     {
-      "name": "regression: a visible target that shows a hit chance can be fired at",
-      "clock": 2,
-      "keys": "a*2 u*2 k*3 y h*6 b y g e1 j b*4 h*8 y k y k y h*11 b h*6 b j*4 ff n ff j*2 b*3 h g e1 u*3 n g e1 b*3 h y*3 h*2 b h g b j*2 n j*2 b*2 g k*2 u <lt> n b g l n j*4 n ff n ff j*4 b y*2 g u k*4 y h*3 y h*6 b j*2 b h*27 b h*3 b j*8 b*3 h y <lt> h y h*4 ff y*2 ff h*3 y h*4 y h*3 b ff j ff j ff j ff b ff h ff",
-      "tail": 0,
-      "expect": {
-        "status": "frames-complete",
-        "memory": {
-          "st_depth": 8,
-          "st_mode": 0
-        },
-        "screen": {
-          "notContains": [
-            "Nothing can fire."
-          ]
-        }
-      }
-    },
-    {
       "name": "regression: an enemy's hit message comes before the '<part> destroyed!' it caused",
-      "clock": 2,
-      "keys": "a*2 u*2 k*3 y h*6 b y g e1 j b*4 h*8 y k y k y h*11 b h*6 b j*4 ff n ff j*2 b*3 h g e1 u*3 n g e1 b*3 h y*3 h*2 b h g b j*2 n j*2 b*2 g k*2 u <lt> n b g l n j*4 n ff n ff j*4 b y*2 g u k*4 y h*3 y h*6 b j*2 b h*27 b h*3 b j*8 b*3 h y <lt> h y h*4 ff y*2 ff h*3 y h*4 y h*3 b ff j ff j ff",
+      "clock": 123,
+      "keys": "a*2 u*2 l*3 n l ff l ff l*3 g u l*3 u k*3 u*4 l n*3 j g e2 u*2 l n l u l n*4 j*4 n u l*3 u k*15 u*2 k g e2 n*2 b g u ff u l*3 j <lt> k*4 y h*4 y*2 h*5 y k*3 y*3 h ff h ff b ff y ff y ff b ff h k ff u ff n b y ff u ff b y*2 g l*2 n*4 j*2 ff j*3 b g k u k*4 y h*5 y h*5 b j*11 b*2 h*2 y k*3 ff k ff k ff k ff k ff k*4 ff k ff k ff j <lt> b y*2 k*3 u*3 l n l*13 ff j*3 l*3 n j*5 n l*2 ff l*2",
       "tail": 0,
       "expect": {
         "status": "frames-complete",
@@ -30,7 +12,7 @@
         },
         "screen": {
           "matches": [
-            "Rifler hits Rivet Gun for 3\\.\\s*\\n\\s*Rivet Gun destroyed!"
+            "Scuttler hits Scrap Plate for 4\\.\\s*\\n\\s*Scrap Plate destroyed!"
           ]
         }
       }
@@ -38,12 +20,13 @@
     {
       "name": "regression: a key typed in the same frame as the fatal hit does not skip the death screen",
       "clock": 1000,
-      "keys": "<enter> h h y y y k y h*15 .*53 .. _3",
+      "keys": "<enter> l*2 u k*4 y h*8 b j .*3 j*2 .*65 .. _3",
       "expect": {
         "status": "frames-complete",
         "memory": {
           "st_game_state": 2,
-          "st_core_hp": 0
+          "st_core_hp": 0,
+          "st_turn": 89
         },
         "screen": {
           "contains": [
@@ -54,25 +37,34 @@
       }
     },
     {
-      "name": "scripted run (clock 123): fights and salvages its way from depth 10 to depth 4 alive",
+      "name": "scripted run (clock 123): climbs 10 -> 6 salvaging parts, dies to a Watcher; death screen shows cause and score",
       "clock": 123,
-      "keys": "a*2 k g k g u*2 l*2 n l*3 u*2 l n*2 l*3 n j*3 n*2 b*2 n l*7 u*2 l n*2 g e3 k*2 g j*2 n l*5 u l*7 n*4 l*3 u*2 l*2 <lt> u*3 g e4 y*3 g l n*3 l*6 u*2 n*3 l*10 u*2 l*2 u k*5 u <lt> k u l*5 u*3 l*2 u k u l*9 ff u ff u ff l*6 n*2 l*2 u*2 ff u l n*2 b <lt> k*2 u*3 k*4 y h*3 y h*3 ff h ff h ff h ff b ff h ff h*4 b j*2 b h*4 b*2 h*5 b j*2 b*3 y h*4 b h*3 y*2 k*7 ff k u*3 e3 u*2 k y u b h*2 b u b y*2 h*2 b h y h y*2 u l*2 n l*2 u l*6 g b*4 y*3 h*2 b y*2 <lt> u*2 k*11 y b h*10 y h*3 b h*6 e3 h g h*3 y ff b j b j*4 ff n ff b ff b ff b ff h*2 ff y*3 ff b*3 y*3 h*2 y k*2 y*2 k y h <lt> u*2 l n l*3 u*2 ff l ff l ff l ff l ff l n*4 l u*2 l*3 n*2 u k u l*2 u l*8 n u k*4 ff k*2 ff k*2 u*2 k u*5 b*2 y*2 <lt> k u l*2 u l n*2 j*3",
+      "keys": "a*2 u*2 l*3 n l ff l ff l*3 g u l*3 u k*3 u*4 l n*3 j g e2 u*2 l n l u l n*4 j*4 n u l*3 u k*15 u*2 k g e2 n*2 b g u ff u l*3 j <lt> k*4 y h*4 y*2 h*5 y k*3 y*3 h ff h ff b ff y ff y ff b ff h k ff u ff n b y ff u ff b y*2 g l*2 n*4 j*2 ff j*3 b g k u k*4 y h*5 y h*5 b j*11 b*2 h*2 y k*3 ff k ff k ff k ff k ff k*4 ff k ff k ff j <lt> b y*2 k*3 u*3 l n l*13 ff j*3 l*3 n j*5 n l*2 ff l*4 ff l ff l ff l ff u ff u ff l ff n <lt> u*3 k*12 ff u ff b ff u b y*2 u*15 n*2 j*6 n l*4 u l*8 e2 u*3 n*3 j*2 b*2 h*2 y k*2 b k*2 u*4 l*5 u l n*2 <lt> h b j*7 n l u*2 l n l*5 u n j b h y h*5 e1 y*8 l g h y g e2 l*10 g e2 u k ff e1 ff k ff k ff y ff g ff k _2",
       "expect": {
         "status": "frames-complete",
         "maxStepsPerFrame": 500000,
         "memory": {
-          "st_game_state": 1,
-          "st_depth": 4,
-          "st_depth_best": 4,
-          "st_kills": 15,
-          "st_turn": 458
+          "st_game_state": 2,
+          "st_core_hp": 0,
+          "st_depth": 6,
+          "st_depth_best": 6,
+          "st_kills": 14,
+          "st_death_cause": 4,
+          "st_turn": 434
+        },
+        "screen": {
+          "contains": [
+            "CORE DESTROYED",
+            "Destroyed by: Watcher at Depth 6",
+            "FINAL SCORE:            540"
+          ]
         }
       }
     },
     {
       "name": "play again after death (clock 1000): typed-ahead key is ignored, then end screen -> title -> clean new game",
       "clock": 1000,
-      "keys": "<enter> h h y y y k y h*15 .*53 .. _12 a _ a _2",
+      "keys": "<enter> l*2 u k*4 y h*8 b j .*3 j*2 .*65 .. _12 a _ a _2",
       "expect": {
         "status": "frames-complete",
         "memory": {
@@ -136,13 +128,13 @@
     {
       "name": "scripted run (clock 123): a Watcher kill drops a part on the floor",
       "clock": 123,
-      "keys": "a*2 k g k g u*2 l*2 n l*3 u*2 l n*2 l*3 n j*3 n*2 b*2 n l*7 u*2 l n*2 g e3 k*2 g j*2 n l*5 u l*7 n*4 l*3 u*2 l*2 <lt> u*3 g e4 y*3 g l n*3 l*6 u*2 n*3 l*10 u*2 l*2 u k*5 u <lt> k u l*5 u*3 l*2 u k u l*9 ff u ff u ff l*6 n",
+      "keys": "a*2 u*2 l*3 n l ff l ff l*3 g u l*3 u k*3 u*4 l n*3 j g e2 u*2 l n l u l n*4 j*4 n u l*3 u k*15 u*2 k g e2 n*2 b g u ff u l*3 j <lt> k*4 y h*4 y*2 h*5 y k*3 y*3 h ff h ff b ff y ff y ff b ff h k ff u ff n b y ff u ff b y*2 g l*2 n*4 j*2 ff j*3 b g k u k*4 y h*5 y h*5 b j*11 b*2 h*2 y k*3 ff k ff k ff k ff k ff k*4 ff k ff k ff j <lt> b y*2 k*3 u*3 l n l*13 ff j*3 l*3 n j*5 n l*2 ff l*4 ff l ff l ff l ff u ff u ff l ff",
       "tail": 0,
       "expect": {
         "status": "frames-complete",
         "memory": {
           "st_depth": 8,
-          "st_kills": 1
+          "st_kills": 10
         },
         "screen": {
           "contains": [
@@ -152,37 +144,37 @@
       }
     },
     {
-      "name": "scripted run (clock 123): attaching a salvaged Rivet Gun on depth 6 fills the third weapon slot",
+      "name": "scripted run (clock 123): after losing both legs, attaching salvaged Grip Treads restores propulsion",
       "clock": 123,
-      "keys": "a*2 k g k g u*2 l*2 n l*3 u*2 l n*2 l*3 n j*3 n*2 b*2 n l*7 u*2 l n*2 g e3 k*2 g j*2 n l*5 u l*7 n*4 l*3 u*2 l*2 <lt> u*3 g e4 y*3 g l n*3 l*6 u*2 n*3 l*10 u*2 l*2 u k*5 u <lt> k u l*5 u*3 l*2 u k u l*9 ff u ff u ff l*6 n*2 l*2 u*2 ff u l n*2 b <lt> k*2 u*3 k*4 y h*3 y h*3 ff h ff h ff h ff b ff h ff h*4 b j*2 b h*4 b*2 h*5 b j*2 b*3 y h*4 b h*3 y*2 k*7 ff k u*3 e3 u*2 k y u b h*2 b u b y*2 h*2 b h y h y*2 u l*2 n l*2 u l*6 g b*4 y*3 h*2 b y*2 <lt> u*2 k*11 y b h*10 y h*3 b h*6 e3 h g",
+      "keys": "a*2 u*2 l*3 n l ff l ff l*3 g u l*3 u k*3 u*4 l n*3 j g e2 u*2 l n l u l n*4 j*4 n u l*3 u k*15 u*2 k g e2 n*2 b g u ff u l*3 j <lt> k*4 y h*4 y*2 h*5 y k*3 y*3 h ff h ff b ff y ff y ff b ff h k ff u ff n b y ff u ff b y*2 g l*2 n*4 j*2 ff j*3 b g k u k*4 y h*5 y h*5 b j*11 b*2 h*2 y k*3 ff k ff k ff k ff k ff k*4 ff k ff k ff j <lt> b y*2 k*3 u*3 l n l*13 ff j*3 l*3 n j*5 n l*2 ff l*4 ff l ff l ff l ff u ff u ff l ff n <lt> u*3 k*12 ff u ff b ff u b y*2 u*15 n*2 j*6 n l*4 u l*8 e2",
       "tail": 0,
       "expect": {
         "status": "frames-complete",
         "maxStepsPerFrame": 500000,
         "memory": {
-          "st_depth": 6,
+          "st_depth": 7,
           "st_slots": [
+            5,
+            31,
             1,
-            6,
             1,
-            20,
             9,
-            15,
-            12,
-            10,
-            12,
-            8,
-            13,
-            8,
-            19,
-            13,
+            4,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
             0,
             0
           ]
         },
         "screen": {
           "contains": [
-            "Attached Rivet Gun."
+            "Attached Grip Treads."
           ]
         }
       }

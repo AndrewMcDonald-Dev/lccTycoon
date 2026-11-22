@@ -824,6 +824,129 @@ drv_dec_wall:
         st r0, drv_dec_al2      ; expect 0
 
         ; ============================================================
+        ; 8b. Blocked greedy hunt MUST NOT leak player position via BFS
+        ; ============================================================
+        mov r0, 1
+        sleep r0
+        bl drv_make_open_room
+        ; Vertical wall at x=15, y=6..14 (open around wall at y=5 and y=15)
+        mov r3, 6
+drv_nb_wall:
+        mov r0, 15
+        mov r1, r3
+        mov r2, T_WALL
+        bl dun_set
+        add r3, r3, 1
+        mov r0, 15
+        cmp r3, r0
+        brlt drv_nb_wall
+        bl act_clear
+        mov r0, 0
+        st r0, st_time
+        st r0, st_ply_next
+        mov r0, 18
+        st r0, st_px
+        mov r0, 10
+        st r0, st_py
+        ; Scuttler at (14,10), hunting stale E_TX=16, E_TY=10 (!= st_px,st_py), cannot see player
+        mov r0, EN_SCUTTLER
+        mov r1, 14
+        mov r2, 10
+        bl act_spawn
+        lea r2, st_enemies
+        mov r0, 0
+        str r0, r2, E_NEXT
+        mov r0, ES_HUNT
+        str r0, r2, E_STATE
+        mov r0, 16
+        str r0, r2, E_TX
+        mov r0, 10
+        str r0, r2, E_TY
+        mov r0, 5
+        str r0, r2, E_ALERT
+        mov r0, 100
+        st r0, st_ply_next
+        bl act_run              ; greedy blocked by wall -> must WAIT at (14,10), NOT BFS around wall!
+        lea r2, st_enemies
+        ldr r0, r2, E_X
+        st r0, drv_nobfs_x      ; expect 14
+        ldr r0, r2, E_Y
+        st r0, drv_nobfs_y      ; expect 10
+        ; Now set (E_TX, E_TY) == (st_px, st_py) = (18, 10): BFS IS allowed and steps around wall
+        mov r0, 18
+        str r0, r2, E_TX
+        mov r0, 10
+        str r0, r2, E_TY
+        mov r0, 200
+        st r0, st_ply_next
+        bl act_run
+        lea r2, st_enemies
+        ldr r0, r2, E_Y
+        cmp r0, 10
+        brne drv_yesbfs_ok
+        mov r0, 0
+        br drv_yesbfs_st
+drv_yesbfs_ok:
+        mov r0, 1
+drv_yesbfs_st:
+        st r0, drv_yesbfs_mv    ; expect 1 (moved vertically around wall via BFS)
+
+        ; ============================================================
+        ; 8c. act_alert: wakes ES_IDLE hostile -> ES_HUNT, worker -> ES_FLEE,
+        ;     preserves ES_FLEE, sets E_TX/E_TY/E_ALERT
+        ; ============================================================
+        bl act_clear
+        mov r0, 10
+        st r0, st_px
+        mov r0, 11
+        st r0, st_py
+        mov r0, EN_SCUTTLER
+        mov r1, 30
+        mov r2, 11
+        bl act_spawn            ; slot 0 (idle hostile)
+        mov r0, EN_TINKER
+        mov r1, 32
+        mov r2, 11
+        bl act_spawn            ; slot 1 (idle worker)
+        mov r0, EN_SCUTTLER
+        mov r1, 34
+        mov r2, 11
+        bl act_spawn            ; slot 2 (already fleeing hostile)
+        mov r0, 2
+        sll r0, ENEMY_SHIFT
+        lea r2, st_enemies
+        add r2, r2, r0
+        mov r0, ES_FLEE
+        str r0, r2, E_STATE
+        mov r0, 0
+        bl act_alert
+        mov r0, 1
+        bl act_alert
+        mov r0, 2
+        bl act_alert
+        lea r2, st_enemies
+        ldr r0, r2, E_STATE
+        st r0, drv_al_h_st      ; expect ES_HUNT (1)
+        ldr r0, r2, E_TX
+        st r0, drv_al_h_tx      ; expect 10
+        ldr r0, r2, E_TY
+        st r0, drv_al_h_ty      ; expect 11
+        ldr r0, r2, E_ALERT
+        st r0, drv_al_h_al      ; expect ALERT_TURNS (12)
+        add r2, r2, 8
+        add r2, r2, 8
+        ldr r0, r2, E_STATE
+        st r0, drv_al_w_st      ; expect ES_FLEE (2)
+        ldr r0, r2, E_ALERT
+        st r0, drv_al_w_al      ; expect ALERT_TURNS (12)
+        add r2, r2, 8
+        add r2, r2, 8
+        ldr r0, r2, E_STATE
+        st r0, drv_al_f_st      ; expect ES_FLEE (2) (not downgraded to ES_HUNT)
+        ldr r0, r2, E_ALERT
+        st r0, drv_al_f_al      ; expect ALERT_TURNS (12)
+
+        ; ============================================================
         ; 9. act_next_visible: nearest (-1), +1 wrap, -1 wrap, none
         ; ============================================================
         bl drv_make_open_room
@@ -955,6 +1078,18 @@ drv_dec_wall:
         mov r0, -1
         mov r1, 1
         bl act_next_visible
+        cmp r1, 1
+        brnz drv_reg_bad
+        cmp r2, 12
+        brnz drv_reg_bad
+        cmp r3, 13
+        brnz drv_reg_bad
+        cmp r4, 14
+        brnz drv_reg_bad
+        mov r0, 0
+        bl act_alert
+        cmp r0, 0
+        brnz drv_reg_bad
         cmp r1, 1
         brnz drv_reg_bad
         cmp r2, 12
@@ -1165,6 +1300,17 @@ drv_dec_st1:        .word 99
 drv_dec_al1:        .word 99
 drv_dec_st2:        .word 99
 drv_dec_al2:        .word 99
+drv_nobfs_x:        .word 99
+drv_nobfs_y:        .word 99
+drv_yesbfs_mv:      .word 99
+drv_al_h_st:        .word 99
+drv_al_h_tx:        .word 99
+drv_al_h_ty:        .word 99
+drv_al_h_al:        .word 99
+drv_al_w_st:        .word 99
+drv_al_w_al:        .word 99
+drv_al_f_st:        .word 99
+drv_al_f_al:        .word 99
 drv_nv_none:        .word 99
 drv_nv_near:        .word 99
 drv_nv_fwd1:        .word 99
@@ -1177,6 +1323,7 @@ drv_nv_only_tnk:    .word 99
 drv_regs_ok:        .word 99
 
         .include "../../src/state.ap"
+        .include "../../src/rng.ap"
         .include "../../src/dungeon.ap"
         .include "../../src/fov.ap"
         .include "../../src/actors.ap"

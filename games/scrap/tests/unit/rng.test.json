@@ -1,0 +1,21 @@
+{
+  "game": "rng_driver.ap",
+  "scenarios": [
+    {
+      "name": "rng_range covers 2..5 in 32 calls, 0..7 in 64 calls, stays in bounds over 1000 calls, handles lo==hi, preserves regs",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_raw_mask": 3,
+          "drv_seen4": 15,
+          "drv_seen8": 255,
+          "drv_oob": 0,
+          "drv_eq_0": 0,
+          "drv_eq_7": 7,
+          "drv_eq_neg": -3,
+          "drv_regs_ok": 1
+        }
+      }
+    }
+  ]
+}

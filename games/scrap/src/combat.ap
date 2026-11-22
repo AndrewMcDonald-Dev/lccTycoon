@@ -7,16 +7,16 @@
 ; All routines: args r0..r4, result r0, all other registers preserved.
 ;
 ;; cbt_hit_chance    r0=accuracy% r1=distance   -> r0=accuracy - HIT_DIST_PEN×(distance-1), clamped HIT_MIN..HIT_MAX
-;; cbt_player_fire   r0=enemy index             -> r0=number of weapons fired (0 = target not visible, or none had range >= distance and energy; caller spends no time). Checks
-;;                   fov_visible(E_X, E_Y), then fires every ranged weapon slot (P_W_MELEE 0) in slot order: spend P_W_ENERGY, roll hit (P_W_ACC + st_acc_bonus), damage
-;;                   rand(DMIN..DMAX) via cbt_damage_enemy; message per shot; stops once the target is destroyed.
+;; cbt_player_fire   r0=enemy index             -> r0=number of weapons fired (>0), -1 if in-range ranged weapon(s) lacked energy, 0 otherwise (target not visible, no ranged
+;;                   or out of range; caller spends no time). Checks fov_visible(E_X, E_Y), then fires every ranged weapon slot (P_W_MELEE 0) in slot order: spend P_W_ENERGY,
+;;                   roll hit (P_W_ACC + st_acc_bonus), damage rng_range(DMIN..DMAX) via cbt_damage_enemy; message per shot; stops once the target is destroyed.
 ;; cbt_player_melee  r0=enemy index             -> -        bump attack with every melee weapon slot (each spends P_W_ENERGY if it can, else is skipped); with none usable, a
 ;;                   core ram RAM_DMIN..RAM_DMAX at RAM_ACC. Messages.
 ;; cbt_enemy_attack  r0=enemy index             -> -        that enemy attacks the player: hit = cbt_hit_chance(ET_ACC, dist) - st_evade (>= HIT_MIN); damage
-;;                   rand(ET_DMIN..ET_DMAX) → prt_damage; message "<name> hits <part|core> for N." (A_BAD), followed by "<part> destroyed!" (A_BAD) if prt_damage destroyed a part,
+;;                   rng_range(ET_DMIN..ET_DMAX) → prt_damage; message "<name> hits <part|core> for N." (A_BAD), followed by "<part> destroyed!" (A_BAD) if prt_damage destroyed a part,
 ;;                   or "<name> misses." (A_DIM); if the core dies sets st_death_cause = the enemy's type.
-;; cbt_damage_enemy  r0=enemy index r1=damage   -> r0=1 destroyed, 0 still alive. On destruction: message "<name> destroyed.", st_kills++, ET_DROP_PCT chance to itm_place
-;;                   one random part from ET_DROP at rand(DROP_HP_MIN..100)% integrity on its tile, act_kill. Clears st_target if it was the target.
+;; cbt_damage_enemy  r0=enemy index r1=damage   -> r0=1 destroyed, 0 still alive. On survival: alerts the enemy via act_alert. On destruction: message "<name> destroyed.",
+;;                   st_kills++, ET_DROP_PCT chance to itm_place one random part from ET_DROP at rng_range(DROP_HP_MIN..100)% integrity on its tile, act_kill. Clears st_target if it was the target.
 ; ---------------------------------------------------------------------
 
 ; ---- hit chance -------------------------------------------------------------
@@ -58,6 +58,7 @@ cbt_hc_done:
 ;   fp-5  slot index
 ;   fp-6  pinfo (catalog record ptr)
 ;   fp-7  dmg
+;   fp-8  energy_blocked (1 if any in-range ranged weapon lacked energy)
 cbt_player_fire:
         push r1
         push r2
@@ -66,10 +67,11 @@ cbt_player_fire:
         push lr
         push fp
         mov fp, sp
-        sub sp, sp, 7
+        sub sp, sp, 8
 
         mov r1, 0
         str r1, fp, -4          ; fired = 0
+        str r1, fp, -8          ; energy_blocked = 0
 
         ; Validate enemy index 0..MAX_ENEMIES-1
         cmp r0, 0
@@ -143,8 +145,12 @@ cbt_pf_slot:
         ldr r0, r0, P_W_ENERGY
         bl prt_spend_energy
         cmp r0, 0
-        brz cbt_pf_next         ; not enough energy
+        brnz cbt_pf_fire
+        mov r0, 1
+        str r0, fp, -8          ; in-range ranged weapon lacked energy
+        br cbt_pf_next
 
+cbt_pf_fire:
         ; Weapon fires
         ldr r0, fp, -4
         add r0, r0, 1
@@ -162,15 +168,15 @@ cbt_pf_slot:
         ; Roll 1..100 <= hit%
         mov r0, 1
         mov r1, 100
-        rand r0, r1
+        bl rng_range
         cmp r0, r2
         brgt cbt_pf_miss
 
-        ; Hit: damage rand(DMIN..DMAX)
+        ; Hit: damage rng_range(DMIN..DMAX)
         ldr r4, fp, -6
         ldr r0, r4, P_W_DMIN
         ldr r1, r4, P_W_DMAX
-        rand r0, r1
+        bl rng_range
         str r0, fp, -7
 
         ; Message: "<Weapon> hits <Enemy> for <N>."
@@ -220,6 +226,12 @@ cbt_pf_ret0:
         br cbt_pf_out
 cbt_pf_done:
         ldr r0, fp, -4
+        cmp r0, 0
+        brp cbt_pf_out
+        ldr r1, fp, -8
+        cmp r1, 0
+        brz cbt_pf_out
+        mov r0, -1              ; failed only because of energy
 cbt_pf_out:
         mov sp, fp
         pop fp
@@ -317,15 +329,15 @@ cbt_pm_slot:
 
         mov r0, 1
         mov r1, 100
-        rand r0, r1
+        bl rng_range
         cmp r0, r2
         brgt cbt_pm_miss
 
-        ; Hit: damage rand(DMIN..DMAX)
+        ; Hit: damage rng_range(DMIN..DMAX)
         ldr r4, fp, -5
         ldr r0, r4, P_W_DMIN
         ldr r1, r4, P_W_DMAX
-        rand r0, r1
+        bl rng_range
         str r0, fp, -6
 
         ; Message: "<Weapon> hits <Enemy> for <N>."
@@ -382,13 +394,13 @@ cbt_pm_after_lp:
 
         mov r0, 1
         mov r1, 100
-        rand r0, r1
+        bl rng_range
         cmp r0, r2
         brgt cbt_pm_ram_miss
 
         mov r0, RAM_DMIN
         mov r1, RAM_DMAX
-        rand r0, r1
+        bl rng_range
         str r0, fp, -6
 
         lea r0, cbt_s_core_rams
@@ -500,15 +512,15 @@ cbt_ea_hitok:
         ; Roll 1..100 <= hit%
         mov r0, 1
         mov r1, 100
-        rand r0, r1
+        bl rng_range
         cmp r0, r2
         brgt cbt_ea_miss
 
-        ; Hit: roll rand(ET_DMIN..ET_DMAX)
+        ; Hit: roll rng_range(ET_DMIN..ET_DMAX)
         ldr r4, fp, -2
         ldr r0, r4, ET_DMIN
         ldr r1, r4, ET_DMAX
-        rand r0, r1
+        bl rng_range
         str r0, fp, -3          ; dmg
 
         ; Snapshot attached part ids before prt_damage (which empties destroyed slots)
@@ -716,14 +728,14 @@ cbt_de_drop:
         ldr r4, fp, -3          ; tptr
         cmp r4, 0
         brz cbt_de_kill
-        ldr r1, r4, ET_DROP_PCT
-        cmp r1, 0
+        ldr r2, r4, ET_DROP_PCT
+        cmp r2, 0
         brlt cbt_de_kill
         brz cbt_de_kill
         mov r0, 1
-        mov r2, 100
-        rand r0, r2
-        cmp r0, r1
+        mov r1, 100
+        bl rng_range
+        cmp r0, r2
         brgt cbt_de_kill
 
         ldr r4, r4, ET_DROP
@@ -734,7 +746,7 @@ cbt_de_drop:
         brlt cbt_de_kill
         brz cbt_de_kill
         mov r0, 1
-        rand r0, r1             ; k in 1..count
+        bl rng_range            ; k in 1..count
         add r4, r4, r0
         ldr r2, r4, 0           ; part id
         str r2, fp, -6
@@ -744,10 +756,10 @@ cbt_de_drop:
         brz cbt_de_kill
         ldr r3, r0, P_MAXHP     ; max integrity
 
-        ; integrity = rand(DROP_HP_MIN..100)% of P_MAXHP (rounded half-up, >= 1)
+        ; integrity = rng_range(DROP_HP_MIN..100)% of P_MAXHP (rounded half-up, >= 1)
         mov r0, DROP_HP_MIN
         mov r1, 100
-        rand r0, r1
+        bl rng_range
         mul r3, r0
         mov r0, 50
         add r3, r3, r0
@@ -780,6 +792,8 @@ cbt_de_kill:
 
 cbt_de_survive:
         str r2, r3, E_HP
+        ldr r0, fp, -1
+        bl act_alert
 cbt_de_alive:
         mov r0, 0
 cbt_de_done:
