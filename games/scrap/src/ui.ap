@@ -45,6 +45,7 @@
 ; Offsets from st_msg_head (see src/state.ap)
         .define UI_MSG_HEAD_OFF     0
         .define UI_MSG_ATTR_OFF     1
+        .define UI_MSG_TEXT_OFF     1+MSG_COUNT
 
 ; =====================================================================
 ; Message ring: ui_init, ui_msg, ui_msg_add, ui_msg_addn, ui_msg_attr
@@ -122,7 +123,7 @@ ui_msg_add:
         ldr r1, r2, UI_MSG_HEAD_OFF
         and r1, r1, MSG_COUNT-1
         sll r1, MSG_SHIFT
-        add r2, r2, 9           ; st_msg_text = st_msg_head + 1 + MSG_COUNT (9)
+        add r2, r2, UI_MSG_TEXT_OFF ; st_msg_text, from st_msg_head
         add r2, r2, r1
         mov r3, MSG_LEN-1
 ui_msg_add_scan:
