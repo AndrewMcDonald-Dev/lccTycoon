@@ -1,0 +1,19 @@
+{
+  "game": "bfs_cache_driver.ap",
+  "scenarios": [
+    {
+      "name": "act_ensure_bfs rebuilds and rechecks border when st_map changes without player move",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_step1_x": 8,
+          "drv_step1_y": 5,
+          "drv_border_clean": 1,
+          "drv_step2_x": 9,
+          "drv_step2_y": 4,
+          "drv_border_dirty": -1
+        }
+      }
+    }
+  ]
+}

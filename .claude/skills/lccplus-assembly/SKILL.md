@@ -231,6 +231,7 @@ These exist only through `tools/lccgame.js` (headless runner and `play`), not in
 | `farcall` / `farjump` (0xF1 / 0xF2) | Absolute call / jump to the address in the next word. The build inserts them when a `bl`/`br*` target is out of reach; you rarely write them yourself. |
 | `.include "file"` | Textual include (once per file), relative path or `lib/`. |
 | `.define NAME expr` | UPPER_CASE integer constants with `+ - * / % << >> & \| ^ ~ ( )` and `'c'`, usable in any operand. |
+| `.pstring "text"` | Packed 2-chars/word NUL-terminated string (`(c0 << 8) \| c1`; trailing `0x0000` for even length; escapes `\n \r \t \\ \" \' \0`). |
 
 Vectors 0xF0–0xF4 are this project's; the upstream LCC+ traps use 0xF5–0xFF.
 

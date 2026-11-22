@@ -21,8 +21,45 @@ const { evalExpr, ExprError } = require('./expr');
 
 const INCLUDE_RE = /^\s*\.include\s+"([^"]+)"\s*(;.*)?$/i;
 const DEFINE_RE = /^\s*\.define\s+(\S+)\s+(.+?)\s*$/i;
+const PSTRING_RE = /^(\s*)([A-Za-z_$@][\w$@]*:)?(\s*)\.pstring(?:\s+(.*))?$/i;
 const DEFINE_NAME_RE = /^[A-Z_][A-Z0-9_]*$/;
 const RESERVED = new Set(['R0', 'R1', 'R2', 'R3', 'R4', 'R5', 'R6', 'R7', 'FP', 'SP', 'LR']);
+
+// Parse `.pstring "..."` into packed 16-bit big-endian words ((c0 << 8) | c1),
+// NUL-terminated (odd length: last word is (last << 8) | 0; even length: trailing 0x0000).
+function parsePstringLiteral(raw) {
+  const s = (raw || '').trim();
+  if (s.length < 2 || s[0] !== '"' || s[s.length - 1] !== '"') {
+    throw new Error('.pstring expects a double-quoted string literal, e.g. .pstring "text"');
+  }
+  const codes = [];
+  let i = 1;
+  const end = s.length - 1;
+  while (i < end) {
+    const ch = s[i++];
+    if (ch === '"') {
+      throw new Error('.pstring has unexpected quote or trailing text after string literal');
+    }
+    if (ch === '\\') {
+      if (i >= end) throw new Error('.pstring has unterminated escape sequence');
+      const esc = s[i++];
+      const escMap = { n: 10, r: 13, t: 9, '\\': 92, '"': 34, "'": 39, '0': 0 };
+      if (!(esc in escMap)) throw new Error(`.pstring unknown escape \\${esc}`);
+      codes.push(escMap[esc]);
+    } else {
+      const code = ch.charCodeAt(0);
+      if (code > 255) throw new Error(`.pstring character out of 8-bit range: ${ch}`);
+      codes.push(code);
+    }
+  }
+  codes.push(0);
+  if (codes.length % 2 === 1) codes.push(0);
+  const words = [];
+  for (let j = 0; j < codes.length; j += 2) {
+    words.push((codes[j] << 8) | codes[j + 1]);
+  }
+  return words;
+}
 
 class BuildError extends Error {
   constructor(message, diagnostics) {
@@ -207,6 +244,21 @@ function preprocess(entryFile) {
           }
         }
         lines.push(`; .define ${name} = ${defines.get(name)}`); map.push(loc);
+        return;
+      }
+      const pstr = splitComment(raw)[0].match(PSTRING_RE);
+      if (pstr) {
+        const [, lead, label, , arg] = pstr;
+        try {
+          const words = parsePstringLiteral(arg);
+          words.forEach((w, wi) => {
+            const prefix = wi === 0 ? (label ? `${lead}${label} ` : (lead || '        ')) : '        ';
+            lines.push(`${prefix}.word ${hex4(w)}`);
+            map.push(loc);
+          });
+        } catch (e) {
+          diagnostics.push({ ...loc, message: e.message, source: raw });
+        }
         return;
       }
       let out = raw;

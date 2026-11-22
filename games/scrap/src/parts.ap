@@ -937,22 +937,36 @@ prt_random_part:
         push r3
         push r4
         push lr
-        ; max_tier in r1 (1..3), eligible count in r2 (9/18/23 for tiers 1/2/3)
-        mov r1, 3
-        mov r2, 23
+        ; max_tier in r1 (1..3)
         cmp r0, TIER3_DEPTH
-        brgt prt_rp_chk2
-        br prt_rp_pick
-prt_rp_chk2:
-        mov r1, 2
-        mov r2, 18
+        brlt prt_rp_t3
+        bre prt_rp_t3
         cmp r0, TIER2_DEPTH
-        brgt prt_rp_t1
-        br prt_rp_pick
-prt_rp_t1:
+        brlt prt_rp_t2
+        bre prt_rp_t2
         mov r1, 1
-        mov r2, 9
-prt_rp_pick:
+        br prt_rp_count
+prt_rp_t3:
+        mov r1, 3
+        br prt_rp_count
+prt_rp_t2:
+        mov r1, 2
+prt_rp_count:
+        ; pass 1: count eligible parts (P_TIER <= r1), bounded by PART_COUNT
+        mov r2, 0
+        mov r3, PART_COUNT
+        lea r4, prt_catalog
+prt_rp_lp1:
+        ldr r0, r4, P_TIER
+        cmp r0, r1
+        brgt prt_rp_n1
+        add r2, r2, 1
+prt_rp_n1:
+        mov r0, PART_SIZE
+        add r4, r4, r0
+        sub r3, r3, 1
+        brp prt_rp_lp1
+
         ; pick k in [1, r2]
         mov r3, r1              ; preserve max_tier across rng_range
         mov r0, 1
@@ -961,7 +975,7 @@ prt_rp_pick:
         mov r2, r0
         mov r1, r3              ; restore max_tier
 
-        ; find the k-th eligible part id (1..PART_COUNT)
+        ; pass 2: find the k-th eligible part id (1..PART_COUNT)
         mov r3, 1
         lea r4, prt_catalog
 prt_rp_lp2:

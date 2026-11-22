@@ -1,0 +1,105 @@
+; Unit driver (Fix 5): verifies the T_* tile-kind numbering invariants relied
+; on by fast paths in actors.ap, fov.ap, dungeon.ap, and render.ap:
+;   1. T_KIND_COUNT <= 8 and (FOV_VISIBLE | FOV_KNOWN) <= 3 (32-word ren_tbl_all)
+;   2. For every kind k in 0..T_KIND_COUNT-1:
+;        dun_walkable(k) == ((k & 5) != 0)
+;        dun_opaque(k)   == !(k == T_FLOOR || k > T_DOOR)
+;        ((k & 13) == 0) == (dun_walkable(k) == 0)   (border-clean OR mask)
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        mov r4, 0               ; error count
+
+        ; 1. T_KIND_COUNT <= 8
+        mov r0, T_KIND_COUNT
+        cmp r0, 8
+        brlt drv_cnt_ok
+        bre drv_cnt_ok
+        add r4, r4, 1
+drv_cnt_ok:
+
+        ; 2. (FOV_VISIBLE | FOV_KNOWN) <= 3
+        mov r0, FOV_VISIBLE|FOV_KNOWN
+        cmp r0, 3
+        brlt drv_fov_ok
+        bre drv_fov_ok
+        add r4, r4, 1
+drv_fov_ok:
+
+        ; 3. Loop k = 0..T_KIND_COUNT-1
+        mov r3, 0
+drv_lp:
+        mov r0, T_KIND_COUNT
+        cmp r3, r0
+        brlt drv_body
+        br drv_done
+drv_body:
+        ; Place kind k on tile (5, 5)
+        mov r0, 5
+        mov r1, 5
+        mov r2, r3
+        bl dun_set
+
+        ; Check dun_walkable(5, 5) == ((k & 5) != 0)
+        mov r0, 5
+        mov r1, 5
+        bl dun_walkable
+        mov r1, r0              ; r1 = actual walkable (0 or 1)
+        mov r2, r3
+        and r2, r2, 5
+        brz drv_w_exp0
+        mov r2, 1
+drv_w_exp0:
+        cmp r1, r2
+        bre drv_walk_ok
+        add r4, r4, 1
+drv_walk_ok:
+
+        ; Check border-mask rule: ((k & 13) == 0) iff (dun_walkable(k) == 0)
+        ; (equivalently: ((k & 13) != 0) == dun_walkable(k))
+        mov r2, r3
+        and r2, r2, 13
+        brz drv_b_exp0
+        mov r2, 1
+drv_b_exp0:
+        cmp r1, r2
+        bre drv_bdr_ok
+        add r4, r4, 1
+drv_bdr_ok:
+
+        ; Check dun_opaque(5, 5) == !(k == T_FLOOR || k > T_DOOR)
+        mov r0, 5
+        mov r1, 5
+        bl dun_opaque
+        mov r1, r0              ; r1 = actual opaque (0 or 1)
+        mov r2, 1               ; assume opaque
+        cmp r3, T_FLOOR
+        bre drv_op_trans
+        cmp r3, T_DOOR
+        brgt drv_op_trans
+        br drv_op_chk
+drv_op_trans:
+        mov r2, 0               ; transparent
+drv_op_chk:
+        cmp r1, r2
+        bre drv_op_ok
+        add r4, r4, 1
+drv_op_ok:
+
+        add r3, r3, 1
+        br drv_lp
+
+drv_done:
+        st r4, drv_bad
+        st r3, drv_kinds_checked
+        halt
+
+drv_bad:           .word -1
+drv_kinds_checked: .word 0
+
+        .include "../../src/state.ap"
+        .include "../../src/rng.ap"
+        .include "../../src/dungeon.ap"

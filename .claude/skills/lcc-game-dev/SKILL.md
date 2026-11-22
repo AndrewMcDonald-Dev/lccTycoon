@@ -54,6 +54,9 @@ treat them as the contract. Calling convention for every public routine (same as
 - `.define NAME expr` — UPPER_CASE integer constants; usable in any operand, with
   `+ - * / % << >> & | ^ ~ ( )`, `'c'` chars, `0x..`: `str r2, r0, COLS+2`,
   `.zero MAP_W*MAP_H`, `.word G_BLOCK|FG_GREEN`. Define before use (defs at top).
+- `.pstring "text"` — 2-chars-per-word packed NUL-terminated string, expanding to `.word`
+  entries `(c0 << 8) | c1` (odd length ends with `(last << 8) | 0`, even length appends
+  `0x0000`; escapes `\n \r \t \\ \" \' \0`).
 - **Far references are automatic**: `bl`, `br*`, `ld`, `st`, `lea` whose target is beyond
   PC-relative reach are rewritten into far forms (registers and flags preserved; costs a few
   words — `build --verbose` lists them). You do *not* need pointer cells for reach any more.

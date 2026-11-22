@@ -19,9 +19,13 @@
 ; ---------------------------------------------------------------------
 
 ; ---- local pool 1 (fov_reset, fov_visible, fov_known) ---------------
+; Offsets into fixed-order fov_bbox_valid..fov_by1 block (pool 2):
+        .define FOV_ST_BBOX_VALID 0
+        .define FOV_ST_CACHE_OK   1
+        .define FOV_ST_BY1        5
 fov_p_fov0:     .word st_fov
 fov_c_ms0:      .word MAP_SIZE
-fov_p_st0:      .word fov_bbox_valid ; +0 bbox_valid, +1 cache_ok, +5 by1
+fov_p_st0:      .word fov_bbox_valid
 
 ; ---- fov_reset () -> - ----------------------------------------------
 fov_reset:
@@ -45,10 +49,10 @@ fov_reset_lp:
         brp fov_reset_lp
         ld r0, fov_p_st0
         mov r2, 1
-        str r2, r0, 0           ; fov_bbox_valid = 1
-        str r1, r0, 1           ; fov_cache_ok = 0
+        str r2, r0, FOV_ST_BBOX_VALID
+        str r1, r0, FOV_ST_CACHE_OK
         mov r2, -1
-        str r2, r0, 5           ; fov_by1 = -1 (empty bbox)
+        str r2, r0, FOV_ST_BY1  ; empty bbox
         pop r2
         pop r1
         pop r0
@@ -125,8 +129,7 @@ fov_update:
         push r4
         push lr
 
-        ; 0. Fast cache check: if (px, py, sight) unchanged and st_map inside
-        ;    the previous visible bbox has identical rolling hash, skip!
+        ; 0. Fast cache check: if (px, py, sight, st_map_ver) unchanged, skip!
         ld r0, fov_cache_ok
         cmp r0, 0
         brz fov_upd_recompute
@@ -144,9 +147,10 @@ fov_update:
         ld r1, fov_rad
         cmp r0, r1
         brne fov_upd_recompute
-        bl fov_hash_bbox        ; r2 = hash
-        ld r0, fov_h1
-        cmp r0, r2
+        ld r3, fov_p_mver
+        ldr r0, r3, 0           ; st_map_ver
+        ld r1, fov_mver
+        cmp r0, r1
         bre fov_upd_done
 
 fov_upd_recompute:
@@ -294,7 +298,7 @@ fov_upd_clr_done:
 fov_upd_chk_r:
         ld r0, fov_rad
         cmp r0, 1
-        brlt fov_upd_save_hash
+        brlt fov_upd_save_cache
 
         ; 3. Scan 4 quadrants: N, S, E, W
         mov r0, 0
@@ -331,9 +335,10 @@ fov_upd_chk_r:
         st r0, fov_row_dir
         bl fov_scan_quad
 
-fov_upd_save_hash:
-        bl fov_hash_bbox
-        st r2, fov_h1
+fov_upd_save_cache:
+        ld r3, fov_p_mver
+        ldr r0, r3, 0
+        st r0, fov_mver
         mov r0, 1
         st r0, fov_cache_ok
 
@@ -352,15 +357,22 @@ fov_p_fov:      .word st_fov
 fov_p_map:      .word st_map
 fov_p_px:       .word st_px         ; +0: st_px, +1: st_py
 fov_p_sight:    .word st_sight
+fov_p_mver:     .word st_map_ver
 fov_c_map_size: .word MAP_SIZE
 fov_m2f:        .word 0
-fov_bbox_valid: .word 0             ; +0 from fov_p_st0
-fov_cache_ok:   .word 0             ; +1
-fov_bx0:        .word 0             ; +2
-fov_bx1:        .word -1            ; +3
-fov_by0:        .word 0             ; +4
-fov_by1:        .word -1            ; +5
-fov_h1:         .word 0
+; Fixed-order bbox/cache state block (indexed via fov_p_st0=&fov_bbox_valid
+; and fov_p_bb3=&fov_bx0; keep order matching FOV_ST_* and FOV_BB_*):
+        .define FOV_BB_BX0      0
+        .define FOV_BB_BX1      1
+        .define FOV_BB_BY0      2
+        .define FOV_BB_BY1      3
+fov_bbox_valid: .word 0             ; +FOV_ST_BBOX_VALID
+fov_cache_ok:   .word 0             ; +FOV_ST_CACHE_OK
+fov_bx0:        .word 0             ; +FOV_BB_BX0
+fov_bx1:        .word -1            ; +FOV_BB_BX1
+fov_by0:        .word 0             ; +FOV_BB_BY0
+fov_by1:        .word -1            ; +FOV_ST_BY1 / +FOV_BB_BY1
+fov_mver:       .word 0
 fov_clr_w:      .word 0
 fov_clr_stride: .word 0
 fov_px:         .word 0
@@ -713,11 +725,9 @@ fov_sc_ret:
 
 ; ---- local pool 3 (helpers + fov_los) -------------------------------
 fov_p_map3:     .word st_map
-fov_p_bb3:      .word fov_bx0       ; +0 bx0, +1 bx1, +2 by0, +3 by1
+fov_p_bb3:      .word fov_bx0       ; fixed-order block: FOV_BB_BX0..FOV_BB_BY1
 fov_p_rad3:     .word fov_rad
 fov_p_base3:    .word fov_base_c
-fov_hb_w:       .word 0
-fov_hb_stride:  .word 0
 
 ; Update bbox pair: r0=&var_min (r0+1=&var_max), r1=lo, r4=hi; other pair gets fp-10.
 ; Preserves r2, r3!
@@ -737,14 +747,14 @@ fov_ubb_c1:
 fov_ubb_s1:
         str r4, r0, 1
 fov_ubb_oth:
-        ; Toggle between fov_bx0 (+0) and fov_by0 (+2)
+        ; Toggle between fov_bx0 (+FOV_BB_BX0) and fov_by0 (+FOV_BB_BY0)
         ld r1, fov_p_bb3
         cmp r0, r1
         bre fov_ubb_to_y
         mov r0, r1              ; was by0 -> now bx0
         br fov_ubb_do_c
 fov_ubb_to_y:
-        add r0, r1, 2           ; was bx0 -> now by0
+        add r0, r1, FOV_BB_BY0  ; was bx0 -> now by0
 fov_ubb_do_c:
         ldr r1, fp, -10         ; constCoord
         ldr r2, r0, 0
@@ -806,71 +816,6 @@ fov_fdiv_neg:
         div r0, r1
         not r0, r0
         add r0, r0, 1
-        ret
-
-; ---- internal: fov_hash_bbox () -> r2=rolling hash of st_map --------
-; Computes h = rol(h, 3) + tile over [fov_bx0..fov_bx1] x [fov_by0..fov_by1].
-fov_hash_bbox:
-        mov r2, 0
-        ld r3, fov_p_bb3
-        ldr r1, r3, 2           ; by0
-        ldr r4, r3, 3           ; by1
-        cmp r4, r1
-        brlt fov_hb_ret
-        ldr r0, r3, 0           ; bx0
-        ldr r3, r3, 1           ; bx1
-        cmp r3, r0
-        brlt fov_hb_ret
-        sub r4, r4, r1
-        add r4, r4, 1           ; r4 = h
-        sub r3, r3, r0
-        add r3, r3, 1           ; r3 = w
-        st r3, fov_hb_w
-        mov r2, MAP_W
-        sub r2, r2, r3
-        st r2, fov_hb_stride
-        sll r1, MAP_SHIFT
-        add r0, r1, r0
-        ld r1, fov_p_map3
-        add r0, r1, r0          ; r0 = &st_map[(by0<<6) + bx0]
-        mov r2, 0               ; hash = 0
-fov_hb_row:
-        ld r1, fov_hb_w
-        cmp r1, 4
-        brlt fov_hb_t1
-fov_hb_c4:
-        ldr r3, r0, 0
-        rol r2, 3
-        add r2, r2, r3
-        ldr r3, r0, 1
-        rol r2, 3
-        add r2, r2, r3
-        ldr r3, r0, 2
-        rol r2, 3
-        add r2, r2, r3
-        ldr r3, r0, 3
-        rol r2, 3
-        add r2, r2, r3
-        add r0, r0, 4
-        sub r1, r1, 4
-        cmp r1, 4
-        brgt fov_hb_c4
-        bre fov_hb_c4
-        cmp r1, 0
-        brz fov_hb_rn
-fov_hb_t1:
-        ldr r3, r0, 0
-        rol r2, 3
-        add r2, r2, r3
-        add r0, r0, 1
-        sub r1, r1, 1
-        brp fov_hb_t1
-fov_hb_rn:
-        ld r1, fov_hb_stride
-        add r0, r0, r1
-        sub r4, r4, 1
-        brp fov_hb_row
-fov_hb_ret:
         ret
 
 ; ---- fov_los r0=x0 r1=y0 r2=x1 r3=y1 -> r0=0|1 ----------------------

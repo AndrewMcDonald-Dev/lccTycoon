@@ -22,8 +22,7 @@
 dun_p_map1:     .word st_map
 dun_p_rooms1:   .word st_rooms
 dun_p_rcnt1:    .word st_room_count
-dun_p_px1:      .word st_px
-dun_k_mapsize:  .word MAP_SIZE
+dun_p_mver1:    .word st_map_ver
 dun_walk_tbl:
         .word 0                 ; T_ROCK (0)
         .word 1                 ; T_FLOOR (1)
@@ -82,6 +81,10 @@ dun_set:
         ld r3, dun_p_map1
         add r3, r3, r1
         and r2, r2, T_KIND_MASK
+        str r2, r3, 0
+        ld r3, dun_p_mver1
+        ldr r2, r3, 0
+        add r2, r2, 1
         str r2, r3, 0
 dun_set_done:
         pop r3
@@ -248,7 +251,6 @@ dun_p_map1b:    .word st_map
 dun_p_rooms1b:  .word st_rooms
 dun_p_rcnt1b:   .word st_room_count
 dun_p_px1b:     .word st_px
-dun_k_ms1b:     .word MAP_SIZE
 dun_rf_tries:   .word 0
 dun_rf_xend:    .word 0
 dun_rf_yend:    .word 0
@@ -357,6 +359,7 @@ dun_rf_done:
 dun_p_map2:     .word st_map
 dun_p_rooms2:   .word st_rooms
 dun_p_rcnt2:    .word st_room_count
+dun_p_mver2:    .word st_map_ver
 dun_k_ms2:      .word MAP_SIZE
 dun_depth:      .word 10
 dun_target:     .word 8
@@ -424,6 +427,10 @@ dun_clr_loop:
         brp dun_clr_loop
         ld r1, dun_p_rcnt2
         str r2, r1, 0           ; T_ROCK == 0
+        ld r1, dun_p_mver2
+        ldr r0, r1, 0
+        add r0, r0, 1
+        str r0, r1, 0
         ret
 
 ; Place ROOMS_MIN..MAX_ROOMS non-overlapping rooms (wall boxes disjoint).

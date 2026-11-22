@@ -639,6 +639,10 @@ drv_fm_lp:
         add r1, r1, 1
         sub r2, r2, 1
         brp drv_fm_lp
+        lea r1, st_map_ver
+        ldr r2, r1, 0
+        add r2, r2, 1
+        str r2, r1, 0
         pop r2
         pop r1
         pop r0
@@ -654,6 +658,10 @@ drv_set_tile:
         lea r3, st_map
         add r3, r3, r1
         str r2, r3, 0
+        lea r3, st_map_ver
+        ldr r0, r3, 0
+        add r0, r0, 1
+        str r0, r3, 0
         pop r3
         pop r1
         pop r0

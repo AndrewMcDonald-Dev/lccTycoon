@@ -72,22 +72,6 @@ drv_ok4:
         brz drv_ok5
         add r4, r4, 1           ; CBT_ST_PY != st_py - st_game_state
 drv_ok5:
-        lea r0, st_acc_bonus
-        lea r1, st_game_state
-        sub r0, r0, r1
-        mov r1, CBT_ST_ACC_BONUS
-        cmp r0, r1
-        brz drv_ok6
-        add r4, r4, 1           ; CBT_ST_ACC_BONUS != st_acc_bonus - st_game_state
-drv_ok6:
-        lea r0, st_evade
-        lea r1, st_game_state
-        sub r0, r0, r1
-        mov r1, CBT_ST_EVADE
-        cmp r0, r1
-        brz drv_ok7
-        add r4, r4, 1           ; CBT_ST_EVADE != st_evade - st_game_state
-drv_ok7:
         lea r0, st_game_state
         lea r1, st_game_state
         sub r0, r0, r1
@@ -224,14 +208,6 @@ drv_ok23:
         brz drv_ok24
         add r4, r4, 1           ; PLY_ST_PY != st_py - st_game_state
 drv_ok24:
-        lea r0, st_ply_next
-        lea r1, st_game_state
-        sub r0, r0, r1
-        mov r1, PLY_ST_PLY_NEXT
-        cmp r0, r1
-        brz drv_ok25
-        add r4, r4, 1           ; PLY_ST_PLY_NEXT != st_ply_next - st_game_state
-drv_ok25:
         lea r0, st_move_cost
         lea r1, st_game_state
         sub r0, r0, r1
@@ -440,11 +416,43 @@ drv_ok50:
         brz drv_ok51
         add r4, r4, 1           ; MSG_COUNT != st_msg_text - st_msg_attr
 drv_ok51:
+        lea r0, st_py
+        lea r1, st_px
+        sub r0, r0, r1
+        mov r1, 1
+        cmp r0, r1
+        brz drv_ok52
+        add r4, r4, 1           ; st_py - st_px != 1
+drv_ok52:
+        lea r0, st_stairs_y
+        lea r1, st_stairs_x
+        sub r0, r0, r1
+        mov r1, 1
+        cmp r0, r1
+        brz drv_ok53
+        add r4, r4, 1           ; st_stairs_y - st_stairs_x != 1
+drv_ok53:
+        lea r0, st_inv
+        lea r1, st_slots
+        sub r0, r0, r1
+        mov r1, NUM_SLOTS*SLOT_SIZE
+        cmp r0, r1
+        brz drv_ok54
+        add r4, r4, 1           ; st_inv - st_slots != NUM_SLOTS*SLOT_SIZE
+drv_ok54:
+        lea r0, st_fov
+        lea r1, st_map
+        sub r0, r0, r1
+        ld r1, drv_k_mapsize
+        cmp r0, r1
+        brz drv_ok55
+        add r4, r4, 1           ; st_fov - st_map != MAP_SIZE
+drv_ok55:
         st r4, drv_bad
-        mov r4, 52
+        mov r4, 53
         st r4, drv_count
         halt
 
-drv_bad:   .word -1
-drv_count: .word 0
-
+drv_k_mapsize: .word MAP_SIZE
+drv_bad:       .word -1
+drv_count:     .word 0

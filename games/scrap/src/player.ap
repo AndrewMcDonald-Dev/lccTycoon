@@ -38,7 +38,6 @@
         .define PLY_ST_CLIMB        9
         .define PLY_ST_PX           12
         .define PLY_ST_PY           13
-        .define PLY_ST_PLY_NEXT     14
         .define PLY_ST_MOVE_COST    19
 
 ; ---- internal helpers -------------------------------------------------------
@@ -382,7 +381,7 @@ ply_mv_walk:
         mov r0, r2
         mov r1, r3
         mov r2, T_DOOR_OPEN
-        bl dun_set
+        bl dun_set              ; opens door and bumps st_map_ver
 
 ply_mv_item:
         ; If there is an item on the new tile, post a message naming it

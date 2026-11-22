@@ -26,8 +26,6 @@
         .define CBT_ST_DEATH_CAUSE  10
         .define CBT_ST_PX           12
         .define CBT_ST_PY           13
-        .define CBT_ST_ACC_BONUS    23
-        .define CBT_ST_EVADE        24
 
 ; ---- internal helpers -------------------------------------------------------
 ; cbt_enemy_ptr (r0=enemy_idx -> r0=eptr or 0 if invalid or EN_NONE)
@@ -438,7 +436,7 @@ cbt_pm_out:
 ;   fp-2  tptr
 ;   fp-3  rolled dmg
 ;   fp-4  slot hit (-1 = core, 0..NUM_SLOTS-1 = slot)
-;   fp-5  shown dmg (after armor reduction)
+;   fp-5  (unused)
 ;   fp-6  snapped part id of hit slot
 ;   fp-7  destroyed part id (from prt_damage, or -1)
 ;   fp-8..-15  snapshot of st_slots[0..7].S_PART (8 words, fp-15 = slot 0)

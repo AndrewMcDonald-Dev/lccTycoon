@@ -2,12 +2,12 @@
   "game": "state_offsets_driver.ap",
   "scenarios": [
     {
-      "name": "all 52 module copies of state.ap offsets match the real layout",
+      "name": "all 53 module copies and layout guards of state.ap match the real layout",
       "expect": {
         "status": "halted",
         "memory": {
           "drv_bad": 0,
-          "drv_count": 52
+          "drv_count": 53
         }
       }
     }

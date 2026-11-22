@@ -19,7 +19,7 @@ USAGE
 
 COMMANDS
   build <target> [--map] [--listing] [--symbols] [--out path.ep]
-        Assemble (.include, .define, far-reference relaxation, game.json lint).
+        Assemble (.include, .define, .pstring, far-reference relaxation, game.json lint).
         Errors: file:line + hint. --map: words per file/module and memory budget.
 
   run <target> [options]

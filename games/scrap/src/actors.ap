@@ -608,6 +608,7 @@ act_bfs_valid:     .word 0
 act_bfs_border_ok: .word 0          ; 0=unchecked, 1=all border impassable, -1=walkable border
 act_bfs_px:        .word 0
 act_bfs_py:        .word 0
+act_bfs_mver:      .word 0
 act_bfs_head:      .word 0
 act_bfs_prev_tail: .word act_queue
 act_bfs_mdiff:     .word 0
@@ -615,15 +616,20 @@ act_p_dist:        .word act_dist
 act_p_queue:       .word act_queue
 act_p_map3:        .word st_map
 act_p_px3:         .word st_px      ; +0: st_px, +1: st_py
-act_c_south_lim:   .word MAP_SIZE-MAP_W
+act_p_mver3:       .word st_map_ver
 
-; Ensure act_dist matches current (st_px, st_py). Preserves all regs.
+; Ensure act_dist matches current (st_px, st_py, st_map_ver). Preserves all regs.
 act_ensure_bfs:
         push r0
         push r1
         ld r0, act_bfs_valid
         cmp r0, 0
         brz act_eb_run
+        ld r1, act_p_mver3
+        ld r0, act_bfs_mver
+        ldr r1, r1, 0
+        cmp r0, r1
+        brne act_eb_ver_chg
         ld r1, act_p_px3
         ld r0, act_bfs_px
         ldr r1, r1, 0
@@ -635,6 +641,13 @@ act_ensure_bfs:
         cmp r0, r1
         bre act_eb_ok
 act_eb_run:
+        push r2
+        push r3
+        push r4
+        br act_bfs_body
+act_eb_ver_chg:
+        mov r0, 0
+        st r0, act_bfs_border_ok ; map changed: recheck border fast-path
         push r2
         push r3
         push r4
@@ -681,7 +694,10 @@ act_bf_clr_done:
         ld r0, act_p_queue
         st r0, act_bfs_prev_tail
 
-        ; 2. Seed player position
+        ; 2. Seed player position & map version
+        ld r2, act_p_mver3
+        ldr r2, r2, 0
+        st r2, act_bfs_mver
         ld r2, act_p_px3
         ldr r0, r2, 0           ; st_px
         ldr r1, r2, 1           ; st_py
@@ -873,8 +889,8 @@ act_bf_s:
         add r3, r3, 1
 
 act_bf_n:
-        ; North (-MAP_W, -128 from South)
-        mov r0, -128
+        ; North (-MAP_W, -2*MAP_W from South)
+        mov r0, -2*MAP_W
         add r4, r4, r0
         add r2, r2, r0
         ldr r0, r4, 0
@@ -1084,16 +1100,22 @@ act_run_done:
 ; =====================================================================
 
 ; ---- local pool 5 (BEFORE act_think: negative PC offsets!) ----------
+; Fixed-order scratch block relative to act_th_eptr (indexed via act_p_th5b / act_p_th5c):
+        .define ACT_TH_EPTR     0
+        .define ACT_TH_X        2
+        .define ACT_TH_Y        3
+        .define ACT_TH_DIST     4
+        .define ACT_TH_SEE      5
 act_p_enemies5: .word st_enemies
 act_p_px5:      .word st_px         ; +0: st_px, +1: st_py
 act_p_spotted:  .word act_s_spotted
 act_th_idx:     .word 0
-act_th_eptr:    .word 0
+act_th_eptr:    .word 0             ; +ACT_TH_EPTR
 act_th_tptr:    .word 0
-act_th_x:       .word 0
-act_th_y:       .word 0
-act_th_dist:    .word 0
-act_th_see:     .word 0
+act_th_x:       .word 0             ; +ACT_TH_X
+act_th_y:       .word 0             ; +ACT_TH_Y
+act_th_dist:    .word 0             ; +ACT_TH_DIST
+act_th_see:     .word 0             ; +ACT_TH_SEE
 act_th_ai:      .word 0
 act_th_cost:    .word 0
 
@@ -1375,22 +1397,36 @@ act_th_ret:
 ; =====================================================================
 
 ; ---- local pool 5b (BEFORE movement helpers: negative PC offsets!) --
+; Fixed-order scratch block relative to act_mv_d0 (indexed via act_p_mv5c):
+        .define ACT_MV_D0       0
+        .define ACT_MV_K        1
+        .define ACT_MV_NX       2
+        .define ACT_MV_NY       3
+        .define ACT_MV_NIDX     4
+        .define ACT_MV_BEST     5
+        .define ACT_MV_BX       6
+        .define ACT_MV_BY       7
+        .define ACT_MV_SC       8
+        .define ACT_MV_TX       9
+        .define ACT_MV_TY       10
+        .define ACT_MV_CURD     11
 act_p_px5b:     .word st_px         ; +0: st_px, +1: st_py
 act_p_map5b:    .word st_map
+act_p_mver5b:   .word st_map_ver
 act_p_dist5b:   .word act_dist
-act_p_th5b:     .word act_th_eptr   ; +0 eptr, +2 x, +3 y, +4 dist, +5 see
-act_mv_d0:      .word 0
-act_mv_k:       .word 0
-act_mv_nx:      .word 0
-act_mv_ny:      .word 0
-act_mv_nidx:    .word 0
-act_mv_best:    .word 0
-act_mv_bx:      .word 0
-act_mv_by:      .word 0
-act_mv_sc:      .word 0
-act_mv_tx:      .word 0
-act_mv_ty:      .word 0
-act_mv_curd:    .word 0
+act_p_th5b:     .word act_th_eptr   ; fixed-order block: ACT_TH_*
+act_mv_d0:      .word 0             ; +ACT_MV_D0
+act_mv_k:       .word 0             ; +ACT_MV_K
+act_mv_nx:      .word 0             ; +ACT_MV_NX
+act_mv_ny:      .word 0             ; +ACT_MV_NY
+act_mv_nidx:    .word 0             ; +ACT_MV_NIDX
+act_mv_best:    .word 0             ; +ACT_MV_BEST
+act_mv_bx:      .word 0             ; +ACT_MV_BX
+act_mv_by:      .word 0             ; +ACT_MV_BY
+act_mv_sc:      .word 0             ; +ACT_MV_SC
+act_mv_tx:      .word 0             ; +ACT_MV_TX
+act_mv_ty:      .word 0             ; +ACT_MV_TY
+act_mv_curd:    .word 0             ; +ACT_MV_CURD
 ; 8-way direction tables (N, NE, E, SE, S, SW, W, NW)
 act_dx:
         .word 0
@@ -1414,11 +1450,11 @@ act_dy:
 ; Commit step to (r0=nx, r1=ny); opens T_DOOR if stepped onto.
 act_do_step:
         ld r3, act_p_th5b
-        ldr r4, r3, 0           ; act_th_eptr
+        ldr r4, r3, ACT_TH_EPTR
         str r0, r4, E_X
         str r1, r4, E_Y
-        str r0, r3, 2           ; act_th_x
-        str r1, r3, 3           ; act_th_y
+        str r0, r3, ACT_TH_X
+        str r1, r3, ACT_TH_Y
         mov r2, r1
         sll r2, MAP_SHIFT
         or r2, r0
@@ -1429,6 +1465,10 @@ act_do_step:
         cmp r2, T_DOOR
         brne act_ds_done
         mov r2, T_DOOR_OPEN
+        str r2, r3, 0
+        ld r3, act_p_mver5b
+        ldr r2, r3, 0
+        add r2, r2, 1
         str r2, r3, 0
 act_ds_done:
         ret
@@ -1501,9 +1541,9 @@ act_sr_try:
         add r3, r3, r0
         ldr r3, r3, 0
         ld r4, act_p_th5b
-        ldr r0, r4, 2           ; act_th_x
+        ldr r0, r4, ACT_TH_X
         add r0, r0, r2
-        ldr r1, r4, 3           ; act_th_y
+        ldr r1, r4, ACT_TH_Y
         add r1, r1, r3
         st r0, act_mv_nx
         st r1, act_mv_ny
@@ -1533,9 +1573,9 @@ act_step_bfs_toward:
         push lr
         bl act_ensure_bfs
         ld r4, act_p_th5b
-        ldr r0, r4, 3           ; act_th_y
+        ldr r0, r4, ACT_TH_Y
         sll r0, MAP_SHIFT
-        ldr r1, r4, 2           ; act_th_x
+        ldr r1, r4, ACT_TH_X
         or r0, r1
         ld r2, act_p_dist5b
         add r2, r2, r0
@@ -1543,7 +1583,7 @@ act_step_bfs_toward:
         cmp r0, 0
         brz act_sbt_fail
         sll r0, 3
-        ldr r1, r4, 4           ; act_th_dist
+        ldr r1, r4, ACT_TH_DIST
         add r0, r0, r1
         st r0, act_mv_best
         mov r0, -1
@@ -1577,9 +1617,9 @@ act_sbt_try:
         add r3, r3, r0
         ldr r3, r3, 0
         ld r4, act_p_th5b
-        ldr r0, r4, 2
+        ldr r0, r4, ACT_TH_X
         add r0, r0, r2
-        ldr r1, r4, 3
+        ldr r1, r4, ACT_TH_Y
         add r1, r1, r3
         st r0, act_mv_nx
         st r1, act_mv_ny
@@ -1634,8 +1674,8 @@ act_sbt_fail:
 ; ---- local pool 5c (before act_step_hunt & act_step_away) -----------
 act_p_px5c:     .word st_px
 act_p_dist5c:   .word act_dist
-act_p_th5c:     .word act_th_eptr   ; +0 eptr, +2 x, +3 y, +4 dist, +5 see
-act_p_mv5c:     .word act_mv_d0     ; +0 d0,+1 k,+2 nx,+3 ny,+4 nidx,+5 best,+6 bx,+7 by,+8 sc,+9 tx,+10 ty,+11 curd
+act_p_th5c:     .word act_th_eptr   ; fixed-order block: ACT_TH_*
+act_p_mv5c:     .word act_mv_d0     ; fixed-order block: ACT_MV_*
 act_p_dx5c:     .word act_dx
 act_p_dy5c:     .word act_dy
 
@@ -1643,10 +1683,10 @@ act_p_dy5c:     .word act_dy
 act_step_hunt:
         push lr
         ld r3, act_p_th5c
-        ldr r0, r3, 5           ; act_th_see
+        ldr r0, r3, ACT_TH_SEE
         cmp r0, 0
         brnz act_sh_bfs_top
-        ldr r4, r3, 0           ; act_th_eptr
+        ldr r4, r3, ACT_TH_EPTR
         ld r2, act_p_px5c
         ldr r0, r4, E_TX
         ldr r1, r2, 0
@@ -1664,11 +1704,11 @@ act_sh_greedy:
         ldr r2, r4, E_TX
         ldr r3, r4, E_TY
         ld r4, act_p_mv5c
-        str r2, r4, 9           ; act_mv_tx
-        str r3, r4, 10          ; act_mv_ty
+        str r2, r4, ACT_MV_TX
+        str r3, r4, ACT_MV_TY
         ld r4, act_p_th5c
-        ldr r0, r4, 2           ; act_th_x
-        ldr r1, r4, 3           ; act_th_y
+        ldr r0, r4, ACT_TH_X
+        ldr r1, r4, ACT_TH_Y
         cmp r0, r2
         brne act_sh_gdo
         cmp r1, r3
@@ -1676,31 +1716,31 @@ act_sh_greedy:
 act_sh_gdo:
         bl act_score_to_target
         ld r4, act_p_mv5c
-        str r0, r4, 5           ; act_mv_best
+        str r0, r4, ACT_MV_BEST
         mov r0, -1
-        str r0, r4, 6           ; act_mv_bx
+        str r0, r4, ACT_MV_BX
         mov r0, 0
         mov r1, 7
         bl rng_range
         ld r4, act_p_mv5c
-        str r0, r4, 0           ; act_mv_d0
+        str r0, r4, ACT_MV_D0
         mov r0, 0
-        str r0, r4, 1           ; act_mv_k
+        str r0, r4, ACT_MV_K
 act_sh_glp:
         ld r4, act_p_mv5c
-        ldr r0, r4, 1           ; k
+        ldr r0, r4, ACT_MV_K
         cmp r0, 8
         brlt act_sh_gtry
-        ldr r0, r4, 6           ; bx
+        ldr r0, r4, ACT_MV_BX
         cmp r0, 0
         brn act_sh_gfail
-        ldr r1, r4, 7           ; by
+        ldr r1, r4, ACT_MV_BY
         bl act_do_step
         mov r0, 1
         pop lr
         ret
 act_sh_gtry:
-        ldr r1, r4, 0           ; d0
+        ldr r1, r4, ACT_MV_D0
         add r0, r0, r1
         and r0, r0, 7
         ld r2, act_p_dx5c
@@ -1710,47 +1750,47 @@ act_sh_gtry:
         add r3, r3, r0
         ldr r3, r3, 0
         ld r1, act_p_th5c
-        ldr r0, r1, 2           ; act_th_x
+        ldr r0, r1, ACT_TH_X
         add r0, r0, r2
-        ldr r1, r1, 3           ; act_th_y
+        ldr r1, r1, ACT_TH_Y
         add r1, r1, r3
-        str r0, r4, 2           ; nx
-        str r1, r4, 3           ; ny
+        str r0, r4, ACT_MV_NX
+        str r1, r4, ACT_MV_NY
         bl act_tile_free_static
         cmp r0, 0
         brz act_sh_gnext
         ld r4, act_p_mv5c
-        ldr r0, r4, 2
-        ldr r1, r4, 3
-        ldr r2, r4, 9
-        ldr r3, r4, 10
+        ldr r0, r4, ACT_MV_NX
+        ldr r1, r4, ACT_MV_NY
+        ldr r2, r4, ACT_MV_TX
+        ldr r3, r4, ACT_MV_TY
         bl act_score_to_target
         ld r4, act_p_mv5c
-        ldr r1, r4, 5           ; best
+        ldr r1, r4, ACT_MV_BEST
         cmp r0, r1
         brlt act_sh_gocc
         br act_sh_gnext
 act_sh_gocc:
-        str r0, r4, 8           ; sc
-        ldr r0, r4, 2
-        ldr r1, r4, 3
+        str r0, r4, ACT_MV_SC
+        ldr r0, r4, ACT_MV_NX
+        ldr r1, r4, ACT_MV_NY
         bl act_at
         cmp r0, 0
         brn act_sh_gtake
         br act_sh_gnext
 act_sh_gtake:
         ld r4, act_p_mv5c
-        ldr r0, r4, 8
-        str r0, r4, 5
-        ldr r0, r4, 2
-        str r0, r4, 6
-        ldr r0, r4, 3
-        str r0, r4, 7
+        ldr r0, r4, ACT_MV_SC
+        str r0, r4, ACT_MV_BEST
+        ldr r0, r4, ACT_MV_NX
+        str r0, r4, ACT_MV_BX
+        ldr r0, r4, ACT_MV_NY
+        str r0, r4, ACT_MV_BY
 act_sh_gnext:
         ld r4, act_p_mv5c
-        ldr r0, r4, 1
+        ldr r0, r4, ACT_MV_K
         add r0, r0, 1
-        str r0, r4, 1
+        str r0, r4, ACT_MV_K
         br act_sh_glp
 act_sh_gfail:
         mov r0, 0
@@ -1783,50 +1823,50 @@ act_step_away:
         push lr
         bl act_ensure_bfs
         ld r3, act_p_th5c
-        ldr r0, r3, 3           ; act_th_y
+        ldr r0, r3, ACT_TH_Y
         sll r0, MAP_SHIFT
-        ldr r1, r3, 2           ; act_th_x
+        ldr r1, r3, ACT_TH_X
         or r0, r1
         ld r2, act_p_dist5c
         add r2, r2, r0
         ldr r0, r2, 0           ; cur_d
         ld r4, act_p_mv5c
-        str r0, r4, 11          ; curd
+        str r0, r4, ACT_MV_CURD
         cmp r0, 0
         brz act_sa_unreach
         sll r0, 3
-        ldr r1, r3, 4           ; act_th_dist
+        ldr r1, r3, ACT_TH_DIST
         add r0, r0, r1
-        str r0, r4, 5           ; best
+        str r0, r4, ACT_MV_BEST
         br act_sa_init
 act_sa_unreach:
-        ldr r0, r3, 4
-        str r0, r4, 5
+        ldr r0, r3, ACT_TH_DIST
+        str r0, r4, ACT_MV_BEST
 act_sa_init:
         mov r0, -1
-        str r0, r4, 6           ; bx
+        str r0, r4, ACT_MV_BX
         mov r0, 0
         mov r1, 7
         bl rng_range
         ld r4, act_p_mv5c
-        str r0, r4, 0           ; d0
+        str r0, r4, ACT_MV_D0
         mov r0, 0
-        str r0, r4, 1           ; k
+        str r0, r4, ACT_MV_K
 act_sa_lp:
         ld r4, act_p_mv5c
-        ldr r0, r4, 1           ; k
+        ldr r0, r4, ACT_MV_K
         cmp r0, 8
         brlt act_sa_try
-        ldr r0, r4, 6           ; bx
+        ldr r0, r4, ACT_MV_BX
         cmp r0, 0
         brn act_sa_fail
-        ldr r1, r4, 7           ; by
+        ldr r1, r4, ACT_MV_BY
         bl act_do_step
         mov r0, 1
         pop lr
         ret
 act_sa_try:
-        ldr r1, r4, 0           ; d0
+        ldr r1, r4, ACT_MV_D0
         add r0, r0, r1
         and r0, r0, 7
         ld r2, act_p_dx5c
@@ -1836,71 +1876,71 @@ act_sa_try:
         add r3, r3, r0
         ldr r3, r3, 0
         ld r1, act_p_th5c
-        ldr r0, r1, 2
+        ldr r0, r1, ACT_TH_X
         add r0, r0, r2
-        ldr r1, r1, 3
+        ldr r1, r1, ACT_TH_Y
         add r1, r1, r3
-        str r0, r4, 2           ; nx
-        str r1, r4, 3           ; ny
+        str r0, r4, ACT_MV_NX
+        str r1, r4, ACT_MV_NY
         bl act_tile_free_static
         cmp r0, 0
         brz act_sa_next
         ld r4, act_p_mv5c
-        ldr r0, r4, 11          ; curd
+        ldr r0, r4, ACT_MV_CURD
         cmp r0, 0
         brz act_sa_cheb_only
-        ldr r2, r4, 4           ; nidx
+        ldr r2, r4, ACT_MV_NIDX
         ld r3, act_p_dist5c
         add r3, r3, r2
         ldr r0, r3, 0           ; nd
         cmp r0, 0
         brz act_sa_next
         sll r0, 3
-        str r0, r4, 8           ; sc
-        ldr r0, r4, 2
-        ldr r1, r4, 3
+        str r0, r4, ACT_MV_SC
+        ldr r0, r4, ACT_MV_NX
+        ldr r1, r4, ACT_MV_NY
         ld r3, act_p_px5c
         ldr r2, r3, 0
         ldr r3, r3, 1
         bl dun_dist
         ld r4, act_p_mv5c
-        ldr r1, r4, 8
+        ldr r1, r4, ACT_MV_SC
         add r0, r0, r1
         br act_sa_cmp
 act_sa_cheb_only:
-        ldr r0, r4, 2
-        ldr r1, r4, 3
+        ldr r0, r4, ACT_MV_NX
+        ldr r1, r4, ACT_MV_NY
         ld r3, act_p_px5c
         ldr r2, r3, 0
         ldr r3, r3, 1
         bl dun_dist
         ld r4, act_p_mv5c
 act_sa_cmp:
-        ldr r1, r4, 5           ; best
+        ldr r1, r4, ACT_MV_BEST
         cmp r0, r1
         brgt act_sa_occ
         br act_sa_next
 act_sa_occ:
-        str r0, r4, 8           ; sc
-        ldr r0, r4, 2
-        ldr r1, r4, 3
+        str r0, r4, ACT_MV_SC
+        ldr r0, r4, ACT_MV_NX
+        ldr r1, r4, ACT_MV_NY
         bl act_at
         cmp r0, 0
         brn act_sa_take
         br act_sa_next
 act_sa_take:
         ld r4, act_p_mv5c
-        ldr r0, r4, 8
-        str r0, r4, 5
-        ldr r0, r4, 2
-        str r0, r4, 6
-        ldr r0, r4, 3
-        str r0, r4, 7
+        ldr r0, r4, ACT_MV_SC
+        str r0, r4, ACT_MV_BEST
+        ldr r0, r4, ACT_MV_NX
+        str r0, r4, ACT_MV_BX
+        ldr r0, r4, ACT_MV_NY
+        str r0, r4, ACT_MV_BY
 act_sa_next:
         ld r4, act_p_mv5c
-        ldr r0, r4, 1
+        ldr r0, r4, ACT_MV_K
         add r0, r0, 1
-        str r0, r4, 1
+        str r0, r4, ACT_MV_K
         br act_sa_lp
 act_sa_fail:
         mov r0, 0

@@ -15,7 +15,6 @@
 
 ; ---- local pointer pool 1 (before itm_clear..itm_place) ---------------------
 itm_p_items0:   .word st_items
-itm_p_map0:     .word st_map
 
 ; ---- clear pool -------------------------------------------------------------
 itm_clear:

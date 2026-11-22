@@ -1,0 +1,170 @@
+; Unit driver (Fix 1 regression): FOV cache invalidation on st_map changes
+; without moving (px, py) or changing st_sight.
+; Case 1: two dun_set mutations inside the visible bbox that collide under the
+;         old 16-bit rol-3 hash (open door at (11,10) + close door at (7,8)):
+;         tile (12,10) behind (11,10) MUST become visible after fov_update.
+; Case 2: enemy stepping through a closed door (act_do_step) without moving the
+;         player opens the door and bumps st_map_ver so fov_update sees past it.
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        mov r0, 42
+        srand r0
+        mov r0, GAME_PLAY
+        st r0, st_game_state
+
+        ; ---- Case 1: colliding map edits via dun_set without player moving ----
+        ; Fill whole map with T_FLOOR
+        mov r1, 0
+drv_f_y:
+        mov r0, 0
+drv_f_x:
+        mov r2, T_FLOOR
+        bl dun_set
+        add r0, r0, 1
+        mov r3, MAP_W
+        cmp r0, r3
+        brlt drv_f_x
+        add r1, r1, 1
+        mov r3, MAP_H
+        cmp r1, r3
+        brlt drv_f_y
+
+        ; Vertical wall at x=11, y=0..MAP_H-1
+        mov r1, 0
+drv_w_y:
+        mov r0, 11
+        mov r2, T_WALL
+        bl dun_set
+        add r1, r1, 1
+        mov r3, MAP_H
+        cmp r1, r3
+        brlt drv_w_y
+
+        ; Closed door at (11,10), open door at (7,8) (16 tiles apart in [6..11]x[6..14])
+        mov r0, 11
+        mov r1, 10
+        mov r2, T_DOOR
+        bl dun_set
+        mov r0, 7
+        mov r1, 8
+        mov r2, T_DOOR_OPEN
+        bl dun_set
+
+        mov r0, 10
+        st r0, st_px
+        mov r0, 10
+        st r0, st_py
+        mov r0, 4
+        st r0, st_sight
+
+        bl fov_reset
+        bl fov_update
+
+        ; Before opening (11,10): (12,10) is blocked -> 0
+        mov r0, 12
+        mov r1, 10
+        bl fov_visible
+        st r0, drv_before_open
+
+        ; Colliding pair of dun_set calls without moving player:
+        ; (11,10) T_DOOR -> T_DOOR_OPEN (+1), (7,8) T_DOOR_OPEN -> T_DOOR (-1)
+        mov r0, 11
+        mov r1, 10
+        mov r2, T_DOOR_OPEN
+        bl dun_set
+        mov r0, 7
+        mov r1, 8
+        mov r2, T_DOOR
+        bl dun_set
+
+        bl fov_update
+
+        ; After opening (11,10): (12,10) MUST be visible -> 1
+        mov r0, 12
+        mov r1, 10
+        bl fov_visible
+        st r0, drv_after_open
+
+        ; ---- Case 2: enemy opens closed door via act_run without player moving ----
+        ; Put closed door at (11,10) again, put player at (9,10), enemy at (12,10)
+        ; hunting toward (9,10) through the single door at (11,10) (wall at x=11).
+        mov r0, 11
+        mov r1, 10
+        mov r2, T_DOOR
+        bl dun_set
+        mov r0, 9
+        st r0, st_px
+        mov r0, 10
+        st r0, st_py
+        mov r0, 4
+        st r0, st_sight
+        bl fov_reset
+        bl fov_update
+
+        ; Before enemy opens door: (13,10) is blocked -> 0
+        mov r0, 13
+        mov r1, 10
+        bl fov_visible
+        st r0, drv_en_before
+
+        bl act_clear
+        mov r0, 0
+        st r0, st_time
+        mov r0, EN_SCUTTLER
+        mov r1, 12
+        mov r2, 10
+        bl act_spawn
+        ; Force enemy 0 to be hunting player at (9,10), E_NEXT = 0
+        lea r1, st_enemies
+        mov r2, 0
+        str r2, r1, E_NEXT
+        mov r2, ES_HUNT
+        str r2, r1, E_STATE
+        mov r2, 9
+        str r2, r1, E_TX
+        mov r2, 10
+        str r2, r1, E_TY
+        mov r2, 10
+        str r2, r1, E_ALERT
+        mov r0, 100
+        st r0, st_ply_next
+        bl act_run
+
+        ; Enemy stepped onto (11,10) and opened the door -> T_DOOR_OPEN
+        mov r0, 11
+        mov r1, 10
+        bl dun_get
+        st r0, drv_en_door
+
+        ; Now fov_update (player did not move) MUST see past the opened door to (13,10)
+        bl fov_update
+        mov r0, 13
+        mov r1, 10
+        bl fov_visible
+        st r0, drv_en_after
+
+        halt
+
+; Stubs required by actors.ap
+cbt_enemy_attack:
+        ret
+ui_msg:
+        ret
+ui_msg_add:
+        ret
+
+drv_before_open: .word 99
+drv_after_open:  .word 99
+drv_en_before:   .word 99
+drv_en_door:     .word 99
+drv_en_after:    .word 99
+
+        .include "../../src/state.ap"
+        .include "../../src/rng.ap"
+        .include "../../src/dungeon.ap"
+        .include "../../src/fov.ap"
+        .include "../../src/actors.ap"

@@ -58,6 +58,7 @@ st_stairs_x:    .word 0             ; the '<' tile of this floor — W: dungeon
 st_stairs_y:    .word 0
 st_room_count:  .word 0             ; rooms in st_rooms 0..MAX_ROOMS — W: dungeon
 st_start_room:  .word 0             ; room the player starts in (no spawns there) — W: dungeon
+st_map_ver:     .word 0             ; bumped on every st_map write after floor generation — W: dungeon dun_set, actors door open, player door open
 st_rooms:       .zero MAX_ROOMS*ROOM_SIZE ; RM_* records — W: dungeon
 
 ; ---- message ring (W: ui_msg* only; read: ui) ---------------------------------------
