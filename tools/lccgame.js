@@ -39,7 +39,8 @@ COMMANDS
 
   test [targets or dirs...]   Run scenario files (*.test.json). Default: games/, lib/, tools/tests/.
   check                       Build every game + run every test (the integration gate).
-  play <target>               Interactive, real terminal (for humans, not agents).
+  play <target> [--term-colors]  Interactive, real terminal (for humans, not agents).
+                                 Uses a built-in opaque 24-bit palette by default; --term-colors uses terminal ANSI colors.
   new <name> [--modular]      Scaffold games/<name>/ (--modular: game.json + src/ modules).
   api <target> [--lib]        Print every module's ';;' contract lines (public API) — paste
                               into subagent briefs. --lib also includes lib/ routines.
@@ -59,7 +60,7 @@ FRAMES
 function parseArgs(argv) {
   const pos = [];
   const opt = {};
-  const flagOnly = ['lib', 'listing', 'symbols', 'json', 'colors', 'quiet', 'verbose', 'map', 'profile', 'modular', 'no-relax'];
+  const flagOnly = ['lib', 'listing', 'symbols', 'json', 'colors', 'term-colors', 'quiet', 'verbose', 'map', 'profile', 'modular', 'no-relax'];
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a.startsWith('--')) {
@@ -430,7 +431,7 @@ function cmdPlay(pos, opt) {
   fs.mkdirSync(path.dirname(out), { recursive: true });
   fs.writeFileSync(out, b.bytes);
   if (!process.stdin.isTTY) die('play needs an interactive terminal. Agents: use `run` with --keys instead.');
-  require('./lib/player').play(out);
+  require('./lib/player').play(out, opt['term-colors'] ? { colorMode: 'ansi' } : {});
 }
 
 function copyDir(src, dst) {
