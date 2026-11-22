@@ -1,0 +1,85 @@
+; Unit driver (Fix 1 regression): verifies itm_clear clears exactly
+; MAX_ITEMS*ITEM_SIZE words and does NOT overrun when MAX_ITEMS is odd.
+        .lccplus
+        .start drv_main
+
+; Minimal constants required by src/items.ap, with ODD MAX_ITEMS = 5 (20 words).
+        .define MAX_ITEMS       5
+        .define ITEM_SIZE       4
+        .define ITEM_SHIFT      2
+        .define I_PART          0
+        .define I_X             1
+        .define I_Y             2
+        .define I_HP            3
+        .define PART_NONE       0
+        .define P_MAXHP         3
+        .define LOOT_MIN        3
+        .define LOOT_MAX        5
+        .define DROP_HP_MIN     50
+        .define MAP_W           64
+        .define MAP_H           24
+        .define MAP_SHIFT       6
+        .define MAP_XMASK       63
+        .define T_KIND_MASK     0x000F
+        .define T_ROCK          0
+        .define T_FLOOR         1
+        .define T_WALL          2
+        .define T_STAIRS        5
+        .define T_KIND_COUNT    7
+        .define ROOM_SIZE       4
+        .define RM_X            0
+        .define RM_Y            1
+        .define RM_W            2
+        .define RM_H            3
+
+drv_main:
+        ; Dirty all MAX_ITEMS*ITEM_SIZE (20) words of st_items
+        lea r0, st_items
+        mov r1, 77
+        mov r2, MAX_ITEMS*ITEM_SIZE
+drv_dirty:
+        str r1, r0, 0
+        add r0, r0, 1
+        sub r2, r2, 1
+        brp drv_dirty
+
+        ; Call itm_clear: must zero st_items[0..19] and leave drv_canary0..3 intact
+        bl itm_clear
+
+        ; Check every word of st_items is now 0
+        lea r0, st_items
+        mov r1, 0
+        mov r2, MAX_ITEMS*ITEM_SIZE
+drv_chk:
+        ldr r3, r0, 0
+        or r1, r3
+        add r0, r0, 1
+        sub r2, r2, 1
+        brp drv_chk
+        st r1, drv_pool_or
+        halt
+
+; Pool immediately followed by canary words (no padding between st_items and canary)
+st_items:       .zero MAX_ITEMS*ITEM_SIZE
+drv_canary0:    .word 1111
+drv_canary1:    .word 2222
+drv_canary2:    .word 3333
+drv_canary3:    .word 4444
+drv_pool_or:    .word 99
+
+; Minimal stubs for external symbols referenced by src/items.ap
+st_map:         .word 0
+st_px:          .word 0
+                .word 0
+st_stairs_x:    .word 0
+                .word 0
+st_room_count:  .word 0
+st_rooms:       .word 0
+rng_range:
+prt_random_part:
+prt_info:
+dun_random_floor:
+        mov r0, 0
+        ret
+
+        .include "../../src/items.ap"

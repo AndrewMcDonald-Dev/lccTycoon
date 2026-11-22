@@ -1,8 +1,8 @@
 ; ---------------------------------------------------------------------
 ; Module: render (prefix ren_) — owner WP5. Draws the map viewport
 ; (VIEW_ROW/VIEW_COL, VIEW_ROWS×VIEW_COLS = the whole floor, tile (x,y) at
-; cell (VIEW_ROW+y, VIEW_COL+x)) every frame, writing cells directly
-; (video_addr of the row, then one store per cell).
+; cell (VIEW_ROW+y, VIEW_COL+x)) every frame. Draws into st_cells (the game
+; display, 100x30); st_screen must be the bound display.
 ; Layers, bottom to top:
 ;   tiles  FOV_VISIBLE → kind glyph with its A_* color (defs palette);
 ;          FOV_KNOWN only → same glyph in A_MEMORY; unknown → blank
@@ -12,7 +12,7 @@
 ;   target in MODE_TARGET the st_target enemy's cell gets A_TARGET_BG
 ; All routines: args r0..r4, result r0, all other registers preserved.
 ;
-;; ren_draw       ()                 -> -        redraw the whole viewport as above (budget ≤ 150K instructions)
+;; ren_draw       ()                 -> -        redraw the whole viewport as above; draws into st_cells (the game display, 100x30); st_screen must be the bound display (budget ≤ 150K instructions)
 ;; ren_tile_cell  r0=kind r1=visible -> r0=cell for a tile kind (r1=1 visible colors, 0 remembered A_MEMORY); T_ROCK → blank
 ; ---------------------------------------------------------------------
 
@@ -56,7 +56,7 @@ ren_draw:
         str r0, fp, -4
         lea r1, st_fov          ; r1 = fov pointer
 ren_row_lp:
-        mov r2, VIEW_COLS/8     ; 8 blocks of 8 tiles per row
+        mov r2, VIEW_COLS/8     ; VIEW_COLS==MAP_W is always a multiple of 8 (defs.ap invariant 5)
 ren_blk_lp:
         ; Chunk 0 (offsets 0..3)
         ldr r0, r1, 0

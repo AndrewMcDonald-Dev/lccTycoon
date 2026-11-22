@@ -408,7 +408,8 @@ dun_gen_d_ok:
         pop r0
         ret
 
-; Fill st_map with T_ROCK (8x unrolled) and reset st_room_count = 0.
+; Fill st_map with T_ROCK (8x unrolled; MAP_SIZE is always a multiple of 8 per
+; defs.ap invariant 5) and reset st_room_count = 0.
 dun_clear_map:
         ld r0, dun_p_map2
         ld r1, dun_k_ms2

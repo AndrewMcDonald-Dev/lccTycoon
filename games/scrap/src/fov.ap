@@ -34,7 +34,7 @@ fov_reset:
         push r2
         ld r0, fov_p_fov0
         mov r1, 0
-        ld r2, fov_c_ms0
+        ld r2, fov_c_ms0        ; MAP_SIZE is always a multiple of 8 (defs.ap invariant 5)
 fov_reset_lp:
         str r1, r0, 0
         str r1, r0, 1
@@ -218,7 +218,7 @@ fov_upd_clr_rn:
 
 fov_upd_clr_full:
         ld r0, fov_p_fov
-        ld r2, fov_c_map_size
+        ld r2, fov_c_map_size   ; MAP_SIZE is always a multiple of 8 (defs.ap invariant 5)
 fov_upd_clr:
         ldr r1, r0, 0
         and r1, r1, FOV_KNOWN

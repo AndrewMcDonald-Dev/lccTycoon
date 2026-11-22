@@ -1,0 +1,15 @@
+{
+  "game": "ui_bar_overflow_driver.ap",
+  "scenarios": [
+    {
+      "name": "ui_bar with 16-bit overflowing value*width writes only within its bar cells",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_done_flag": 1,
+          "drv_bad_cells": 0
+        }
+      }
+    }
+  ]
+}

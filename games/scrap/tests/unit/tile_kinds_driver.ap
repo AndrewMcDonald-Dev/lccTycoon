@@ -1,6 +1,7 @@
-; Unit driver (Fix 5): verifies the T_* tile-kind numbering invariants relied
-; on by fast paths in actors.ap, fov.ap, dungeon.ap, and render.ap:
-;   1. T_KIND_COUNT <= 8 and (FOV_VISIBLE | FOV_KNOWN) <= 3 (32-word ren_tbl_all)
+; Unit driver (Fix 5 / R2 Fix 6): verifies the T_* tile-kind and FOV_* bit
+; numbering invariants relied on by fast paths in actors.ap, fov.ap,
+; dungeon.ap, and render.ap:
+;   1. T_KIND_COUNT <= 8, FOV_VISIBLE == 1, FOV_KNOWN == 2 (32-word ren_tbl_all)
 ;   2. For every kind k in 0..T_KIND_COUNT-1:
 ;        dun_walkable(k) == ((k & 5) != 0)
 ;        dun_opaque(k)   == !(k == T_FLOOR || k > T_DOOR)
@@ -21,13 +22,18 @@ drv_main:
         add r4, r4, 1
 drv_cnt_ok:
 
-        ; 2. (FOV_VISIBLE | FOV_KNOWN) <= 3
-        mov r0, FOV_VISIBLE|FOV_KNOWN
-        cmp r0, 3
-        brlt drv_fov_ok
-        bre drv_fov_ok
+        ; 2. Exact FOV_VISIBLE == 1 and FOV_KNOWN == 2 (ren_tbl_all block layout:
+        ;    block 0=blank, 1=visible, 2=remembered, 3=visible|known)
+        mov r0, FOV_VISIBLE
+        cmp r0, 1
+        bre drv_fvis_ok
         add r4, r4, 1
-drv_fov_ok:
+drv_fvis_ok:
+        mov r0, FOV_KNOWN
+        cmp r0, 2
+        bre drv_fknw_ok
+        add r4, r4, 1
+drv_fknw_ok:
 
         ; 3. Loop k = 0..T_KIND_COUNT-1
         mov r3, 0

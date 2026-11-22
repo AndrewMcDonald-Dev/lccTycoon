@@ -1,0 +1,18 @@
+{
+  "game": "items_clear_odd_driver.ap",
+  "scenarios": [
+    {
+      "name": "itm_clear with odd MAX_ITEMS zeroes pool without overrunning following words",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_pool_or": 0,
+          "drv_canary0": 1111,
+          "drv_canary1": 2222,
+          "drv_canary2": 3333,
+          "drv_canary3": 4444
+        }
+      }
+    }
+  ]
+}

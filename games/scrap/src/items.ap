@@ -23,18 +23,14 @@ itm_clear:
         push r2
         ld r0, itm_p_items0
         mov r1, 0
-        mov r2, MAX_ITEMS*ITEM_SIZE
+        mov r2, MAX_ITEMS       ; 1 record (ITEM_SIZE=4 words) per iter; exact for any MAX_ITEMS
 itm_clr_lp:
         str r1, r0, 0
         str r1, r0, 1
         str r1, r0, 2
         str r1, r0, 3
-        str r1, r0, 4
-        str r1, r0, 5
-        str r1, r0, 6
-        str r1, r0, 7
-        add r0, r0, 8
-        sub r2, r2, 8
+        add r0, r0, ITEM_SIZE
+        sub r2, r2, 1
         brp itm_clr_lp
         pop r2
         pop r1

@@ -54,7 +54,7 @@ act_clear:
         push r2
         ld r0, act_p_enemies1
         mov r1, 0
-        ld r2, act_c_pool_words
+        ld r2, act_c_pool_words ; ENEMY_SIZE=16=2*8, so count is always a multiple of 8
 act_clr_lp:
         str r1, r0, 0
         str r1, r0, 1
@@ -659,14 +659,15 @@ act_eb_ok:
 
 act_bfs_body:
         ; 1. Selectively clear only tiles visited in the previous BFS
+        ; Count = prev_tail - act_queue (0..MAP_SIZE); avoids signed pointer compares
         ld r0, act_p_queue
         ld r2, act_bfs_prev_tail
-        cmp r0, r2
-        bre act_bf_clr_done
+        sub r2, r2, r0
+        brz act_bf_clr_done
         mov r1, 0
-        sub r2, r2, 4
-        cmp r0, r2
-        brgt act_bf_clr_t0
+        sub r2, r2, 3           ; > 0 iff remaining >= 4
+        brp act_bf_clr4
+        br act_bf_clr_t0
 act_bf_clr4:
         ldr r3, r0, 0
         str r1, r3, 0
@@ -677,19 +678,17 @@ act_bf_clr4:
         ldr r3, r0, 3
         str r1, r3, 0
         add r0, r0, 4
-        cmp r0, r2
-        brlt act_bf_clr4
-        bre act_bf_clr4
+        sub r2, r2, 4
+        brp act_bf_clr4
 act_bf_clr_t0:
-        add r2, r2, 4
-        cmp r0, r2
-        bre act_bf_clr_done
+        add r2, r2, 3           ; remaining 0..3
+        brz act_bf_clr_done
 act_bf_clr1:
         ldr r3, r0, 0
         str r1, r3, 0
         add r0, r0, 1
-        cmp r0, r2
-        brlt act_bf_clr1
+        sub r2, r2, 1
+        brp act_bf_clr1
 act_bf_clr_done:
         ld r0, act_p_queue
         st r0, act_bfs_prev_tail
@@ -768,9 +767,10 @@ act_bf_go_slow:
 
 act_bf_chk_border:
         ; First BFS on this floor: check 172 border tiles once and cache result
+        ; MAP_W is a multiple of 8 (defs.ap invariant 5).
         mov r0, 0
         ld r1, act_p_map3
-        mov r2, 8
+        mov r2, MAP_W/8
 act_bf_btop:
         ldr r4, r1, 0
         or r0, r4
@@ -803,7 +803,7 @@ act_bf_bside:
         add r1, r1, r4
         sub r2, r2, 1
         brp act_bf_bside
-        mov r2, 8
+        mov r2, MAP_W/8
 act_bf_bbot:
         ldr r4, r1, 0
         or r0, r4
@@ -1412,7 +1412,6 @@ act_th_ret:
         .define ACT_MV_CURD     11
 act_p_px5b:     .word st_px         ; +0: st_px, +1: st_py
 act_p_map5b:    .word st_map
-act_p_mver5b:   .word st_map_ver
 act_p_dist5b:   .word act_dist
 act_p_th5b:     .word act_th_eptr   ; fixed-order block: ACT_TH_*
 act_mv_d0:      .word 0             ; +ACT_MV_D0
@@ -1464,12 +1463,10 @@ act_do_step:
         and r2, r2, T_KIND_MASK
         cmp r2, T_DOOR
         brne act_ds_done
+        push lr
         mov r2, T_DOOR_OPEN
-        str r2, r3, 0
-        ld r3, act_p_mver5b
-        ldr r2, r3, 0
-        add r2, r2, 1
-        str r2, r3, 0
+        bl dun_set
+        pop lr
 act_ds_done:
         ret
 

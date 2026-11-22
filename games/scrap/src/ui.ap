@@ -7,20 +7,25 @@
 ; the loadout rows 1-8, highlighted A_SELECT), the help overlay
 ; (MODE_HELP, drawn over the viewport), and the title / end screens.
 ; Message ring: st_msg_text/st_msg_attr/st_msg_head, written only here.
+; Display contract: ui_draw, ui_title, ui_end_screen and their helpers draw
+; into st_cells (the game display, 100x30); st_screen must be the bound
+; display. ui_bar draws through the bound display (video_addr).
 ; All routines: args r0..r4, result r0, all other registers preserved.
 ;
 ;; ui_init        ()                -> -       new game: clear the message ring
-;; ui_title       ()                -> r0=1 start, 0 quit   title screen with its own frames (draw, video_present, drain pending input when st_frame != 0, sleep FRAME_MS, nbain): "SCRAPCORE", short pitch, "any key to start, Q to quit"
+;; ui_title       ()                -> r0=1 start, 0 quit   title screen with its own frames (draw, video_present, drain pending input when st_frame != 0, sleep FRAME_MS, nbain): "SCRAPCORE", short pitch, "any key to start, Q to quit";
+;;                   draws into st_cells (the game display, 100x30); st_screen must be the bound display
 ;; ui_draw        ()                -> -       draw panel (title + depth/Surface + turn, core and energy bars via ui_bar, move cost/sight/kills, 8 loadout rows "<kind letter> <name>
 ;;                   <bar>", 4 inventory rows "<digit> <kind> <name> <stat> <hp>/<max>", target name + hp bar + hit chance, item under player "Here: <name> [<kind> <stat>]"), message rows, help row; menu highlights and help overlay by st_mode; MODE_QUIT help
-;;                   row reads "Quit? y = yes, any other key = no"
+;;                   row reads "Quit? y = yes, any other key = no"; draws into st_cells (the game display, 100x30); st_screen must be the bound display
 ;; ui_end_screen  ()                -> r0=1 play again, 0 quit   death (cause = st_death_cause type name, depth) or win screen ("Surface" for depth 0) with st_kills, st_turn, st_depth_best and
-;;                   ui_score; drains pending input, ignores keys for END_GRACE_FRAMES (10) frames, then waits for a key (Q quits, any other key plays again)
+;;                   ui_score; drains pending input, ignores keys for END_GRACE_FRAMES (10) frames, then waits for a key (Q quits, any other key plays again);
+;;                   draws into st_cells (the game display, 100x30); st_screen must be the bound display
 ;; ui_msg         r0=str            -> -       start a new message: copy the string (truncated to MSG_LEN-1) into the next ring slot, attr A_MSG, make it st_msg_head
 ;; ui_msg_add     r0=str            -> -       append a string to the newest message (truncated)
 ;; ui_msg_addn    r0=n              -> -       append signed decimal n to the newest message
 ;; ui_msg_attr    r0=attr           -> -       set the color of the newest message (e.g. A_BAD for damage)
-;; ui_bar         r0=row r1=col r2=value r3=max r4=width -> -   bar of width cells: filled G_BLOCK part = value×width/max (A_GOOD > 60%, A_WARN 30-60%, A_BAD < 30%), rest G_LIGHT A_DIM
+;; ui_bar         r0=row r1=col r2=value r3=max r4=width -> -   bar of width cells on the bound display: filled G_BLOCK part = value×width/max (A_GOOD > 60%, A_WARN 30-60%, A_BAD < 30%), rest G_LIGHT A_DIM
 ;; ui_score       ()                -> r0=score   (START_DEPTH - st_depth_best)×SCORE_DEPTH + st_kills×SCORE_KILL (+ SCORE_WIN if GAME_WON)
 ; ---------------------------------------------------------------------
 
@@ -198,14 +203,14 @@ ui_sc_dpos:
         ldr r1, r3, UI_ST_GAME_STATE
         cmp r1, GAME_WON
         brnz ui_sc_done
-        mov r1, SCORE_WIN>>3
-        sll r1, 3
+        ld r1, ui_k_score_win
         add r0, r0, r1
 ui_sc_done:
         pop r3
         pop r2
         pop r1
         ret
+ui_k_score_win: .word SCORE_WIN
 
 ; =====================================================================
 ; Progress bar: ui_bar (r0=row r1=col r2=value r3=max r4=width)
@@ -253,6 +258,7 @@ ui_bar_ptr:
         push r0                 ; sp+0 = dst_ptr
         cmp r3, 0
         brp ui_bp_maxok
+ui_bp_zero:
         mov r1, 0               ; filled = 0
         mov r3, A_BAD>>8
         sll r3, 8
@@ -260,21 +266,34 @@ ui_bar_ptr:
 ui_bp_maxok:
         cmp r2, 0
         brp ui_bp_vpos
-        mov r2, 0
+        br ui_bp_zero
 ui_bp_vpos:
         cmp r2, r3
         brlt ui_bp_vok
         mov r2, r3
 ui_bp_vok:
-        ; filled = (value * width) / max; if value > 0 and filled == 0 -> filled = 1
+        ; Scale (value, max) down if max > 255 so value*width (<=255*100) and
+        ; value*10 (<=2550) never overflow signed 16-bit arithmetic.
+        mov r0, 255
+ui_bp_scale:
+        cmp r3, r0
+        brlt ui_bp_sc_ok
+        bre ui_bp_sc_ok
+        srl r2, 1
+        srl r3, 1
+        br ui_bp_scale
+ui_bp_sc_ok:
+        ; filled = (value * width) / max; value > 0 and filled <= 0 -> 1; clamp 0..width
         mov r0, r2
         mul r0, r4
         div r0, r3
-        cmp r2, 0
-        brz ui_bp_fok
         cmp r0, 0
-        brnz ui_bp_fok
+        brp ui_bp_fhi
         mov r0, 1
+ui_bp_fhi:
+        cmp r4, r0
+        brgt ui_bp_fok
+        mov r0, r4
 ui_bp_fok:
         push r0                 ; sp+0 = filled, sp+1 = dst_ptr
         ; color: value*5 > max*3 -> A_GOOD; value*10 >= max*3 -> A_WARN; else A_BAD
@@ -1541,7 +1560,6 @@ ui_end_kills:
         bl ui_put_num
         mov r0, 17
         mov r1, 26
-        mov r2, 1
         mov r3, 48
         mov r4, A_DIM>>8
         sll r4, 8
@@ -1649,6 +1667,10 @@ ui_ff_ret:
 ; ui_fill_run (r0=dst_ptr, r1=count, r4=cell -> r0=dst_ptr+count)
 ; Unrolled x15 + computed-jump tail (0..14). Preserves r1..r4.
 ui_fill_run:
+        cmp r1, 0
+        brp ui_fr_go
+        ret
+ui_fr_go:
         push r1
         push r3
         lea r3, ui_ff_tail_end

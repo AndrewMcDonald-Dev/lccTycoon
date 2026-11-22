@@ -72,6 +72,10 @@
 ;   4. T_KIND_COUNT <= 8, st_map high bits (4..15) == 0, and st_fov values in 0..3
 ;      (FOV_VISIBLE=1, FOV_KNOWN=2). Relied on by:
 ;      render.ap ren_slow4, which indexes 32-word ren_tbl_all with (fov << 3) + kind.
+;   5. MAP_W (== VIEW_COLS) is a multiple of 8 (MAP_SHIFT >= 3, so MAP_SIZE =
+;      MAP_W*MAP_H is also a multiple of 8). Relied on by 8x-unrolled map/border
+;      loops in actors.ap (act_bf_chk_border), dungeon.ap (dun_clear_map),
+;      fov.ap (fov_reset, fov_upd_clr_full), and render.ap (ren_row_lp).
         .define T_KIND_MASK     0x000F
         .define T_OUT           -1      ; dun_get result outside the map
         .define T_ROCK          0       ; solid, never dug (drawn blank) — blocks move + sight

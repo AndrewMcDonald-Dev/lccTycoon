@@ -1,0 +1,220 @@
+; Unit driver (Fix 4 regression): verifies ui_bar never overflows 16-bit
+; arithmetic into negative/oversized fill counts, never jumps outside
+; ui_fill_run, and never writes outside its bar cells.
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        lea r0, st_screen
+        bl video_bind
+        ; Fill entire screen with sentinel '#' | FG_CYAN
+        ld r0, drv_sentinel
+        bl video_clear
+
+        ; Case 1: ui_bar(0, 0, 1024, 1024, 100) — 1024*100 overflows 16-bit signed!
+        mov r0, 0
+        mov r1, 0
+        ld r2, drv_k_1024
+        ld r3, drv_k_1024
+        mov r4, 100
+        bl ui_bar
+
+        ; Case 2: ui_bar(2, 5, 1024, 1024, 40) — 1024*40 overflows 16-bit signed!
+        mov r0, 2
+        mov r1, 5
+        ld r2, drv_k_1024
+        ld r3, drv_k_1024
+        mov r4, 40
+        bl ui_bar
+
+        ; Case 3: ui_bar(3, 10, 512, 1024, 80) — 512*80 overflows 16-bit signed (50%)
+        mov r0, 3
+        mov r1, 10
+        ld r2, drv_k_512
+        ld r3, drv_k_1024
+        mov r4, 80
+        bl ui_bar
+
+        ; Case 4: ui_bar(4, 10, 32767, 32767, 50) — max positive i16 (100%)
+        mov r0, 4
+        mov r1, 10
+        ld r2, drv_k_32767
+        ld r3, drv_k_32767
+        mov r4, 50
+        bl ui_bar
+
+        ; Case 5: ui_bar(5, 10, 1, 1024, 50) — tiny positive value (< 1 cell -> 1 cell A_BAD)
+        mov r0, 5
+        mov r1, 10
+        mov r2, 1
+        ld r3, drv_k_1024
+        mov r4, 50
+        bl ui_bar
+
+        ; Verify all cells of bars and all adjacent / row-1 sentinel cells
+        mov r4, 0               ; error count
+
+        ; Check row 0 (100 cells of G_BLOCK|A_GOOD)
+        mov r0, 0
+        mov r1, 0
+        mov r2, 100
+        ld r3, drv_c_good
+        bl drv_chk_run
+        add r4, r4, r0
+
+        ; Check row 1 completely untouched (100 sentinels)
+        mov r0, 1
+        mov r1, 0
+        mov r2, 100
+        ld r3, drv_sentinel
+        bl drv_chk_run
+        add r4, r4, r0
+
+        ; Check row 2: [0..4] sentinel, [5..44] A_GOOD, [45..99] sentinel
+        mov r0, 2
+        mov r1, 0
+        mov r2, 5
+        ld r3, drv_sentinel
+        bl drv_chk_run
+        add r4, r4, r0
+        mov r0, 2
+        mov r1, 5
+        mov r2, 40
+        ld r3, drv_c_good
+        bl drv_chk_run
+        add r4, r4, r0
+        mov r0, 2
+        mov r1, 45
+        mov r2, 55
+        ld r3, drv_sentinel
+        bl drv_chk_run
+        add r4, r4, r0
+
+        ; Check row 3: [0..9] sentinel, [10..49] A_WARN, [50..89] empty, [90..99] sentinel
+        mov r0, 3
+        mov r1, 0
+        mov r2, 10
+        ld r3, drv_sentinel
+        bl drv_chk_run
+        add r4, r4, r0
+        mov r0, 3
+        mov r1, 10
+        mov r2, 40
+        ld r3, drv_c_warn
+        bl drv_chk_run
+        add r4, r4, r0
+        mov r0, 3
+        mov r1, 50
+        mov r2, 40
+        ld r3, drv_c_empty
+        bl drv_chk_run
+        add r4, r4, r0
+        mov r0, 3
+        mov r1, 90
+        mov r2, 10
+        ld r3, drv_sentinel
+        bl drv_chk_run
+        add r4, r4, r0
+
+        ; Check row 4: [0..9] sentinel, [10..59] A_GOOD, [60..99] sentinel
+        mov r0, 4
+        mov r1, 0
+        mov r2, 10
+        ld r3, drv_sentinel
+        bl drv_chk_run
+        add r4, r4, r0
+        mov r0, 4
+        mov r1, 10
+        mov r2, 50
+        ld r3, drv_c_good
+        bl drv_chk_run
+        add r4, r4, r0
+        mov r0, 4
+        mov r1, 60
+        mov r2, 40
+        ld r3, drv_sentinel
+        bl drv_chk_run
+        add r4, r4, r0
+
+        ; Check row 5: [0..9] sentinel, [10] A_BAD, [11..59] empty, [60..99] sentinel
+        mov r0, 5
+        mov r1, 0
+        mov r2, 10
+        ld r3, drv_sentinel
+        bl drv_chk_run
+        add r4, r4, r0
+        mov r0, 5
+        mov r1, 10
+        mov r2, 1
+        ld r3, drv_c_bad
+        bl drv_chk_run
+        add r4, r4, r0
+        mov r0, 5
+        mov r1, 11
+        mov r2, 49
+        ld r3, drv_c_empty
+        bl drv_chk_run
+        add r4, r4, r0
+        mov r0, 5
+        mov r1, 60
+        mov r2, 40
+        ld r3, drv_sentinel
+        bl drv_chk_run
+        add r4, r4, r0
+
+        st r4, drv_bad_cells
+        mov r0, 1
+        st r0, drv_done_flag
+        halt
+
+; drv_chk_run (r0=row, r1=col, r2=count, r3=expected_cell -> r0=mismatch_count)
+drv_chk_run:
+        push r1
+        push r2
+        push r4
+        push lr
+        bl video_addr
+        mov r1, r0              ; ptr
+        mov r0, 0               ; mismatches
+drv_cr_lp:
+        ldr r4, r1, 0
+        cmp r4, r3
+        bre drv_cr_ok
+        add r0, r0, 1
+drv_cr_ok:
+        add r1, r1, 1
+        sub r2, r2, 1
+        brp drv_cr_lp
+        pop lr
+        pop r4
+        pop r2
+        pop r1
+        ret
+
+drv_sentinel:   .word '#'|FG_CYAN
+drv_c_good:     .word G_BLOCK|A_GOOD
+drv_c_warn:     .word G_BLOCK|A_WARN
+drv_c_bad:      .word G_BLOCK|A_BAD
+drv_c_empty:    .word G_LIGHT|A_DIM
+drv_k_512:      .word 512
+drv_k_1024:     .word 1024
+drv_k_32767:    .word 32767
+drv_bad_cells:  .word -1
+drv_done_flag:  .word 0
+
+; Stubs required by src/ui.ap
+prt_info:
+prt_name:
+act_type_info:
+act_name:
+itm_at:
+cbt_hit_chance:
+        mov r0, 0
+        ret
+
+        .include "../../src/state.ap"
+        .include "../../src/ui.ap"
+        .include "video.ap"
+        .include "util.ap"
