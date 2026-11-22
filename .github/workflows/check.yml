@@ -1,15 +1,103 @@
-name: check
+name: CI
+
 on:
-  pull_request:
   push:
     branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  check:
+  harness:
+    name: Harness & templates (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [22, 26]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
-      - run: node tools/lccgame.js check
-      - run: node tools/selftest.js
+          node-version: ${{ matrix.node-version }}
+
+      - name: Check toolchain JS syntax and module loads
+        run: |
+          for f in tools/*.js tools/lib/*.js; do
+            node --check "$f"
+          done
+          node -e "require('./tools/lib/player')"
+
+      - name: Run harness self-test (fast core vs upstream)
+        run: node tools/selftest.js
+
+      - name: Run harness, stdlib, and template tests
+        run: node tools/lccgame.js test tools/tests lib templates
+
+      - name: Smoke-test game scaffolding (simple & modular)
+        run: |
+          trap 'rm -rf games/ci-smoke-simple games/ci-smoke-modular' EXIT
+          node tools/lccgame.js new ci-smoke-simple
+          node tools/lccgame.js build games/ci-smoke-simple/main.ap
+          node tools/lccgame.js test games/ci-smoke-simple
+          node tools/lccgame.js new ci-smoke-modular --modular
+          node tools/lccgame.js build games/ci-smoke-modular
+          node tools/lccgame.js test games/ci-smoke-modular
+          node tools/lccgame.js api games/ci-smoke-modular --lib > /dev/null
+
+  check:
+    name: Build & test games
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+
+      - name: Run integration gate (build all + test all)
+        run: node tools/lccgame.js check
+
+      - name: Publish build & memory budget summary
+        if: always()
+        run: |
+          node - <<'EOF'
+          const fs = require('fs');
+          const path = require('path');
+          const { build, resolveTarget, ROOT } = require('./tools/lib/assemble');
+
+          const gamesDir = path.join(ROOT, 'games');
+          const entries = fs.readdirSync(gamesDir).sort()
+            .map(name => ({ name, dir: path.join(gamesDir, name) }))
+            .filter(g => fs.statSync(g.dir).isDirectory());
+
+          const rows = [
+            '## Game Builds & Memory Budgets',
+            '',
+            '| Game | Words | Budget | Usage | Far Refs | Status |',
+            '|---|---:|---:|---:|---:|---|',
+          ];
+          for (const { name, dir } of entries) {
+            const targetPath = fs.existsSync(path.join(dir, 'game.json')) ? dir : path.join(dir, 'main.ap');
+            if (!fs.existsSync(targetPath)) continue;
+            try {
+              const t = resolveTarget(targetPath);
+              const b = build(t.entry, { manifest: t.manifest, gameDir: t.gameDir });
+              const budget = (t.manifest && t.manifest.budget && t.manifest.budget.words) || 65536;
+              const pct = ((b.words / budget) * 100).toFixed(1) + '%';
+              rows.push(`| \`${name}\` | ${b.words.toLocaleString('en-US')} | ${budget.toLocaleString('en-US')} | ${pct} | ${b.relaxed.length.toLocaleString('en-US')} | OK |`);
+            } catch (_) {
+              rows.push(`| \`${name}\` | - | - | - | - | FAIL |`);
+            }
+          }
+          const out = rows.join('\n') + '\n';
+          if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, out);
+          else process.stdout.write(out);
+          EOF
