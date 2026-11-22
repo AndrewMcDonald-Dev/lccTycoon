@@ -18,6 +18,21 @@
 ;; dun_dist         r0=x0 r1=y0 r2=x1 r3=y1    -> r0=Chebyshev distance max(|dx|,|dy|)
 ; ---------------------------------------------------------------------
 
+; ---- local pool 1 (placed before routines: negative PC offsets) -----
+dun_p_map1:     .word st_map
+dun_p_rooms1:   .word st_rooms
+dun_p_rcnt1:    .word st_room_count
+dun_p_px1:      .word st_px
+dun_k_mapsize:  .word MAP_SIZE
+dun_walk_tbl:
+        .word 0                 ; T_ROCK (0)
+        .word 1                 ; T_FLOOR (1)
+        .word 0                 ; T_WALL (2)
+        .word 1                 ; T_DOOR (3)
+        .word 1                 ; T_DOOR_OPEN (4)
+        .word 1                 ; T_STAIRS (5)
+        .word 1                 ; T_RUBBLE (6)
+
 ; ---- tile access & predicates ---------------------------------------
 
 dun_get:
@@ -25,28 +40,25 @@ dun_get:
         push r2
         cmp r0, 0
         brn dun_get_out
-        mov r2, MAP_W
+        mov r2, MAP_W-1
         cmp r0, r2
-        brlt dun_get_xok
-        br dun_get_out
-dun_get_xok:
+        brgt dun_get_out
         cmp r1, 0
         brn dun_get_out
-        mov r2, MAP_H
+        mov r2, MAP_H-1
         cmp r1, r2
-        brlt dun_get_ok
-dun_get_out:
-        mov r0, T_OUT
-        pop r2
-        pop r1
-        ret
-dun_get_ok:
+        brgt dun_get_out
         sll r1, MAP_SHIFT
         or r1, r0
-        lea r2, st_map
+        ld r2, dun_p_map1
         add r2, r2, r1
         ldr r0, r2, 0
         and r0, r0, T_KIND_MASK
+        pop r2
+        pop r1
+        ret
+dun_get_out:
+        mov r0, T_OUT
         pop r2
         pop r1
         ret
@@ -57,21 +69,17 @@ dun_set:
         push r3
         cmp r0, 0
         brn dun_set_done
-        mov r3, MAP_W
+        mov r3, MAP_W-1
         cmp r0, r3
-        brlt dun_set_xok
-        br dun_set_done
-dun_set_xok:
+        brgt dun_set_done
         cmp r1, 0
         brn dun_set_done
-        mov r3, MAP_H
+        mov r3, MAP_H-1
         cmp r1, r3
-        brlt dun_set_ok
-        br dun_set_done
-dun_set_ok:
+        brgt dun_set_done
         sll r1, MAP_SHIFT
         or r1, r0
-        lea r3, st_map
+        ld r3, dun_p_map1
         add r3, r3, r1
         and r2, r2, T_KIND_MASK
         str r2, r3, 0
@@ -86,35 +94,30 @@ dun_walkable:
         push r2
         cmp r0, 0
         brn dun_walk_no
-        mov r2, MAP_W
+        mov r2, MAP_W-1
         cmp r0, r2
-        brlt dun_walk_xok
-        br dun_walk_no
-dun_walk_xok:
+        brgt dun_walk_no
         cmp r1, 0
         brn dun_walk_no
-        mov r2, MAP_H
+        mov r2, MAP_H-1
         cmp r1, r2
-        brlt dun_walk_in
-dun_walk_no:
-        mov r0, 0
-        pop r2
-        pop r1
-        ret
-dun_walk_in:
+        brgt dun_walk_no
         sll r1, MAP_SHIFT
         or r1, r0
-        lea r2, st_map
+        ld r2, dun_p_map1
         add r2, r2, r1
         ldr r0, r2, 0
         and r0, r0, T_KIND_MASK
-        cmp r0, T_KIND_COUNT
-        brlt dun_walk_lut
-        br dun_walk_no
-dun_walk_lut:
+        cmp r0, T_KIND_COUNT-1
+        brgt dun_walk_no
         lea r2, dun_walk_tbl
         add r2, r2, r0
         ldr r0, r2, 0
+        pop r2
+        pop r1
+        ret
+dun_walk_no:
+        mov r0, 0
         pop r2
         pop r1
         ret
@@ -124,62 +127,51 @@ dun_opaque:
         push r2
         cmp r0, 0
         brn dun_opaq_yes
-        mov r2, MAP_W
+        mov r2, MAP_W-1
         cmp r0, r2
-        brlt dun_opaq_xok
-        br dun_opaq_yes
-dun_opaq_xok:
+        brgt dun_opaq_yes
         cmp r1, 0
         brn dun_opaq_yes
-        mov r2, MAP_H
+        mov r2, MAP_H-1
         cmp r1, r2
-        brlt dun_opaq_in
+        brgt dun_opaq_yes
+        sll r1, MAP_SHIFT
+        or r1, r0
+        ld r2, dun_p_map1
+        add r2, r2, r1
+        ldr r0, r2, 0
+        and r0, r0, T_KIND_MASK
+        cmp r0, T_FLOOR         ; 1 -> transparent
+        bre dun_opaq_no
+        cmp r0, T_DOOR          ; > 3 (4..15) -> transparent; 0,2,3 -> opaque
+        brgt dun_opaq_no
 dun_opaq_yes:
         mov r0, 1
         pop r2
         pop r1
         ret
-dun_opaq_in:
-        sll r1, MAP_SHIFT
-        or r1, r0
-        lea r2, st_map
-        add r2, r2, r1
-        ldr r0, r2, 0
-        and r0, r0, T_KIND_MASK
-        cmp r0, T_KIND_COUNT
-        brlt dun_opaq_lut
+dun_opaq_no:
         mov r0, 0
-        pop r2
-        pop r1
-        ret
-dun_opaq_lut:
-        lea r2, dun_opaq_tbl
-        add r2, r2, r0
-        ldr r0, r2, 0
         pop r2
         pop r1
         ret
 
 dun_dist:
         push r1
-        push r2
         sub r0, r0, r2          ; dx = x0 - x1
         brp dun_dist_dx_ok
-        brz dun_dist_dx_ok
-        mov r2, 0
-        sub r0, r2, r0
+        not r0, r0
+        add r0, r0, 1           ; -0 == 0
 dun_dist_dx_ok:
         sub r1, r1, r3          ; dy = y0 - y1
         brp dun_dist_dy_ok
-        brz dun_dist_dy_ok
-        mov r2, 0
-        sub r1, r2, r1
+        not r1, r1
+        add r1, r1, 1
 dun_dist_dy_ok:
         cmp r0, r1
         brgt dun_dist_done
         mov r0, r1
 dun_dist_done:
-        pop r2
         pop r1
         ret
 
@@ -190,16 +182,18 @@ dun_room_of:
         push r4
         cmp r0, 0
         brn dun_room_none
-        mov r2, MAP_W
+        mov r2, MAP_W-1
         cmp r0, r2
-        brlt dun_room_xok
-        br dun_room_none
-dun_room_xok:
+        brgt dun_room_none
         cmp r1, 0
         brn dun_room_none
-        mov r2, MAP_H
+        mov r2, MAP_H-1
         cmp r1, r2
-        brlt dun_room_start
+        brgt dun_room_none
+        ld r2, dun_p_rcnt1
+        ldr r2, r2, 0
+        cmp r2, 0
+        brp dun_room_has
 dun_room_none:
         mov r0, -1
         pop r4
@@ -207,14 +201,9 @@ dun_room_none:
         pop r2
         pop r1
         ret
-dun_room_start:
-        ld r2, st_room_count
-        cmp r2, 0
-        brp dun_room_has
-        br dun_room_none
 dun_room_has:
         sll r2, ROOM_SHIFT
-        lea r4, st_rooms
+        ld r4, dun_p_rooms1
         add r2, r4, r2          ; end_ptr = st_rooms + count*ROOM_SIZE
         push r2                 ; [sp+0] = end_ptr
 dun_room_loop:
@@ -245,7 +234,7 @@ dun_room_next:
         br dun_room_loop
 dun_room_found:
         pop r2
-        lea r2, st_rooms
+        ld r2, dun_p_rooms1
         sub r0, r4, r2
         srl r0, ROOM_SHIFT
         pop r4
@@ -254,26 +243,39 @@ dun_room_found:
         pop r1
         ret
 
+; ---- local pool 1b (random_floor & clear_map) -----------------------
+dun_p_map1b:    .word st_map
+dun_p_rooms1b:  .word st_rooms
+dun_p_rcnt1b:   .word st_room_count
+dun_p_px1b:     .word st_px
+dun_k_ms1b:     .word MAP_SIZE
+dun_rf_tries:   .word 0
+dun_rf_xend:    .word 0
+dun_rf_yend:    .word 0
+dun_rf_tmp:     .word 0
+
 dun_random_floor:
         push r1
         push r2
         push r3
         push r4
         push lr
-        ld r2, st_room_count
+        ld r2, dun_p_rcnt1b
+        ldr r2, r2, 0
         cmp r2, 0
         brp dun_rf_start
         br dun_rf_fallback_ply
 dun_rf_start:
         mov r3, 64              ; max random attempts
-        st r3, dun_tries
+        st r3, dun_rf_tries
 dun_rf_try:
         mov r0, 0
-        ld r1, st_room_count
+        ld r1, dun_p_rcnt1b
+        ldr r1, r1, 0
         sub r1, r1, 1
         bl rng_range            ; r0 = random room index
         sll r0, ROOM_SHIFT
-        lea r4, st_rooms
+        ld r4, dun_p_rooms1b
         add r4, r4, r0          ; r4 = &st_rooms[i]
         ldr r0, r4, RM_X
         ldr r1, r4, RM_W
@@ -288,57 +290,58 @@ dun_rf_try:
         bl rng_range            ; r0 = y
         sll r0, MAP_SHIFT
         or r0, r2               ; r0 = (y << MAP_SHIFT) | x
-        lea r1, st_map
+        ld r1, dun_p_map1b
         add r1, r1, r0
         ldr r2, r1, 0
         cmp r2, T_FLOOR
         bre dun_rf_done
-        ld r3, dun_tries
+        ld r3, dun_rf_tries
         sub r3, r3, 1
-        st r3, dun_tries
+        st r3, dun_rf_tries
         brp dun_rf_try
         ; Deterministic linear fallback across all rooms
-        ld r3, st_room_count
-        lea r4, st_rooms
+        ld r3, dun_p_rcnt1b
+        ldr r3, r3, 0
+        ld r4, dun_p_rooms1b
 dun_rf_scan_room:
         ldr r1, r4, RM_Y
         ldr r2, r4, RM_H
         add r2, r1, r2
-        st r2, dun_y_end
+        st r2, dun_rf_yend
 dun_rf_scan_y:
         ldr r0, r4, RM_X
         ldr r2, r4, RM_W
         add r2, r0, r2
-        st r2, dun_x_end
+        st r2, dun_rf_xend
 dun_rf_scan_x:
         mov r2, r1
         sll r2, MAP_SHIFT
         or r2, r0
-        st r2, dun_tmp0
-        lea r2, st_map
-        ld r0, dun_tmp0
+        st r2, dun_rf_tmp
+        ld r2, dun_p_map1b
+        ld r0, dun_rf_tmp
         add r2, r2, r0
         ldr r2, r2, 0
         cmp r2, T_FLOOR
         bre dun_rf_done         ; r0 already holds idx
-        ; recover x = idx & MAP_XMASK
         mov r2, MAP_XMASK
         and r0, r0, r2
         add r0, r0, 1
-        ld r2, dun_x_end
+        ld r2, dun_rf_xend
         cmp r0, r2
         brlt dun_rf_scan_x
         add r1, r1, 1
-        ld r2, dun_y_end
+        ld r2, dun_rf_yend
         cmp r1, r2
         brlt dun_rf_scan_y
         add r4, r4, ROOM_SIZE
         sub r3, r3, 1
         brp dun_rf_scan_room
 dun_rf_fallback_ply:
-        ld r0, st_py
+        ld r1, dun_p_px1b
+        ldr r0, r1, 1           ; st_py
         sll r0, MAP_SHIFT
-        ld r1, st_px
+        ldr r1, r1, 0           ; st_px
         or r0, r1
 dun_rf_done:
         pop lr
@@ -349,6 +352,23 @@ dun_rf_done:
         ret
 
 ; ---- floor generation -----------------------------------------------
+
+; ---- local pool 2 (placed before generation routines) ---------------
+dun_p_map2:     .word st_map
+dun_p_rooms2:   .word st_rooms
+dun_p_rcnt2:    .word st_room_count
+dun_k_ms2:      .word MAP_SIZE
+dun_depth:      .word 10
+dun_target:     .word 8
+dun_tries:      .word 0
+dun_maxw:       .word ROOM_MAX_W
+dun_maxh:       .word ROOM_MAX_H
+dun_rx:         .word 0
+dun_ry:         .word 0
+dun_rw:         .word 0
+dun_rh:         .word 0
+dun_c_r1:       .word 0
+dun_c_b1:       .word 0
 
 dun_generate:
         push r0
@@ -385,24 +405,30 @@ dun_gen_d_ok:
         pop r0
         ret
 
-; Fill st_map with T_ROCK and reset st_room_count = 0.
+; Fill st_map with T_ROCK (8x unrolled) and reset st_room_count = 0.
 dun_clear_map:
-        lea r0, st_map
-        ld r1, dun_k_mapsize
+        ld r0, dun_p_map2
+        ld r1, dun_k_ms2
         mov r2, T_ROCK
 dun_clr_loop:
         str r2, r0, 0
-        add r0, r0, 1
-        sub r1, r1, 1
+        str r2, r0, 1
+        str r2, r0, 2
+        str r2, r0, 3
+        str r2, r0, 4
+        str r2, r0, 5
+        str r2, r0, 6
+        str r2, r0, 7
+        add r0, r0, 8
+        sub r1, r1, 8
         brp dun_clr_loop
-        mov r0, 0
-        st r0, st_room_count
+        ld r1, dun_p_rcnt2
+        str r2, r1, 0           ; T_ROCK == 0
         ret
 
 ; Place ROOMS_MIN..MAX_ROOMS non-overlapping rooms (wall boxes disjoint).
 dun_place_rooms:
         push lr
-        ; Choose target room count, tuned lightly by depth (deeper = fewer/roomier, shallower = denser)
         ld r2, dun_depth
         cmp r2, 8
         brlt dun_pr_mid
@@ -421,7 +447,6 @@ dun_pr_shallow:
 dun_pr_roll:
         bl rng_range
         st r0, dun_target
-        ; Pass 1: 100 attempts with full ROOM_MIN..ROOM_MAX sizes
         mov r0, 100
         st r0, dun_tries
         mov r0, ROOM_MAX_W
@@ -429,8 +454,8 @@ dun_pr_roll:
         mov r0, ROOM_MAX_H
         st r0, dun_maxh
         bl dun_try_place_loop
-        ; Pass 2: if still < ROOMS_MIN, try 120 compact rooms (4..6 x 3..4)
-        ld r0, st_room_count
+        ld r1, dun_p_rcnt2
+        ldr r0, r1, 0
         cmp r0, ROOMS_MIN
         brlt dun_pr_pass2
         pop lr
@@ -452,7 +477,8 @@ dun_pr_pass2:
 dun_try_place_loop:
         push lr
 dun_tpl_next:
-        ld r0, st_room_count
+        ld r2, dun_p_rcnt2
+        ldr r0, r2, 0
         ld r1, dun_target
         cmp r0, r1
         brlt dun_tpl_cnt_ok
@@ -467,24 +493,20 @@ dun_tpl_cnt_ok:
 dun_tpl_go:
         sub r0, r0, 1
         st r0, dun_tries
-        ; rw = rng_range(ROOM_MIN_W, dun_maxw)
         mov r0, ROOM_MIN_W
         ld r1, dun_maxw
         bl rng_range
         st r0, dun_rw
-        ; rh = rng_range(ROOM_MIN_H, dun_maxh)
         mov r0, ROOM_MIN_H
         ld r1, dun_maxh
         bl rng_range
         st r0, dun_rh
-        ; rx = rng_range(1, MAP_W - 1 - rw)
         mov r0, 1
         mov r1, MAP_W-1
         ld r2, dun_rw
         sub r1, r1, r2
         bl rng_range
         st r0, dun_rx
-        ; ry = rng_range(1, MAP_H - 1 - rh)
         mov r0, 1
         mov r1, MAP_H-1
         ld r2, dun_rh
@@ -494,13 +516,13 @@ dun_tpl_go:
         bl dun_room_fits
         cmp r0, 0
         brz dun_tpl_next
-        ; Append room to st_rooms[st_room_count]
-        ld r0, st_room_count
+        ld r3, dun_p_rcnt2
+        ldr r0, r3, 0
         mov r1, r0
         add r0, r0, 1
-        st r0, st_room_count
+        str r0, r3, 0
         sll r1, ROOM_SHIFT
-        lea r2, st_rooms
+        ld r2, dun_p_rooms2
         add r2, r2, r1
         ld r0, dun_rx
         str r0, r2, RM_X
@@ -513,16 +535,15 @@ dun_tpl_go:
         br dun_tpl_next
 
 ; Check candidate (dun_rx, dun_ry, dun_rw, dun_rh) against all placed rooms.
-; Returns r0 = 1 if wall boxes are disjoint, 0 on overlap.
 dun_room_fits:
-        ld r3, st_room_count
+        ld r3, dun_p_rcnt2
+        ldr r3, r3, 0
         cmp r3, 0
         brp dun_rfits_init
         mov r0, 1
         ret
 dun_rfits_init:
-        lea r4, st_rooms
-        ; Precompute candidate right+1 = rx + rw + 1, bottom+1 = ry + rh + 1
+        ld r4, dun_p_rooms2
         ld r0, dun_rx
         ld r1, dun_rw
         add r0, r0, r1
@@ -534,31 +555,26 @@ dun_rfits_init:
         add r0, r0, 1
         st r0, dun_c_b1
 dun_rfits_loop:
-        ; 1) cand_r1 < ox ?
         ld r0, dun_c_r1
         ldr r1, r4, RM_X
         cmp r0, r1
         brlt dun_rfits_next
-        ; 2) ox + ow + 1 < cand_x ?
         ldr r2, r4, RM_W
         add r1, r1, r2
         add r1, r1, 1
         ld r0, dun_rx
         cmp r1, r0
         brlt dun_rfits_next
-        ; 3) cand_b1 < oy ?
         ld r0, dun_c_b1
         ldr r1, r4, RM_Y
         cmp r0, r1
         brlt dun_rfits_next
-        ; 4) oy + oh + 1 < cand_y ?
         ldr r2, r4, RM_H
         add r1, r1, r2
         add r1, r1, 1
         ld r0, dun_ry
         cmp r1, r0
         brlt dun_rfits_next
-        ; Overlap!
         mov r0, 0
         ret
 dun_rfits_next:
@@ -568,14 +584,29 @@ dun_rfits_next:
         mov r0, 1
         ret
 
+; ---- local pool 2b (sort, carve, connect) ---------------------------
+dun_p_map2b:    .word st_map
+dun_p_rooms2b:  .word st_rooms
+dun_p_rcnt2b:   .word st_room_count
+dun_p_depth2b:  .word dun_depth
+dun_sr_x:       .word 0
+dun_sr_y:       .word 0
+dun_sr_w:       .word 0
+dun_sr_h:       .word 0
+dun_loop_i:     .word 0
+dun_rptr:       .word 0
+dun_tmp0:       .word 0
+
 ; Insertion-sort st_rooms by RM_X ascending (clean corridor topology).
 dun_sort_rooms:
-        ld r0, st_room_count
+        ld r0, dun_p_rcnt2b
+        ldr r0, r0, 0
         cmp r0, 2
         brlt dun_sr_done
-        mov r1, 1               ; i = 1
+        mov r1, 1
 dun_sr_outer:
-        ld r0, st_room_count
+        ld r0, dun_p_rcnt2b
+        ldr r0, r0, 0
         cmp r1, r0
         brlt dun_sr_pick
 dun_sr_done:
@@ -583,32 +614,30 @@ dun_sr_done:
 dun_sr_pick:
         mov r2, r1
         sll r2, ROOM_SHIFT
-        lea r4, st_rooms
-        add r4, r4, r2          ; r4 = &st_rooms[i]
+        ld r4, dun_p_rooms2b
+        add r4, r4, r2
         ldr r0, r4, RM_X
-        st r0, dun_rx
+        st r0, dun_sr_x
         ldr r0, r4, RM_Y
-        st r0, dun_ry
+        st r0, dun_sr_y
         ldr r0, r4, RM_W
-        st r0, dun_rw
+        st r0, dun_sr_w
         ldr r0, r4, RM_H
-        st r0, dun_rh
-        mov r3, r1              ; j = i
+        st r0, dun_sr_h
+        mov r3, r1
 dun_sr_inner:
         cmp r3, 0
         brp dun_sr_cmp
         br dun_sr_ins
 dun_sr_cmp:
-        sub r4, r4, ROOM_SIZE   ; r4 = &st_rooms[j-1]
+        sub r4, r4, ROOM_SIZE
         ldr r0, r4, RM_X
-        ld r2, dun_rx
+        ld r2, dun_sr_x
         cmp r0, r2
         brgt dun_sr_shift
-        ; Restore r4 to &st_rooms[j] and insert
         add r4, r4, ROOM_SIZE
         br dun_sr_ins
 dun_sr_shift:
-        ; Copy st_rooms[j-1] -> st_rooms[j]
         ldr r0, r4, RM_X
         str r0, r4, ROOM_SIZE+RM_X
         ldr r0, r4, RM_Y
@@ -620,33 +649,32 @@ dun_sr_shift:
         sub r3, r3, 1
         br dun_sr_inner
 dun_sr_ins:
-        ld r0, dun_rx
+        ld r0, dun_sr_x
         str r0, r4, RM_X
-        ld r0, dun_ry
+        ld r0, dun_sr_y
         str r0, r4, RM_Y
-        ld r0, dun_rw
+        ld r0, dun_sr_w
         str r0, r4, RM_W
-        ld r0, dun_rh
+        ld r0, dun_sr_h
         str r0, r4, RM_H
         add r1, r1, 1
         br dun_sr_outer
 
-; Carve every room: T_WALL border around [rx-1..rx+rw] x [ry-1..ry+rh],
-; then T_FLOOR interior [rx..rx+rw-1] x [ry..ry+rh-1].
+; Carve every room: T_WALL border, then T_FLOOR interior.
 dun_carve_rooms:
         push lr
-        ld r0, st_room_count
+        ld r0, dun_p_rcnt2b
+        ldr r0, r0, 0
         cmp r0, 0
         brp dun_cr_init
         pop lr
         ret
 dun_cr_init:
         st r0, dun_loop_i
-        lea r0, st_rooms
+        ld r0, dun_p_rooms2b
         st r0, dun_rptr
 dun_cr_next:
         ld r4, dun_rptr
-        ; Wall rectangle: x = rx-1 .. rx+rw, y = ry-1 .. ry+rh
         ldr r0, r4, RM_X
         sub r0, r0, 1
         ldr r1, r4, RM_Y
@@ -657,7 +685,6 @@ dun_cr_next:
         add r3, r3, 2
         mov r4, T_WALL
         bl dun_fill_rect
-        ; Floor interior: x = rx .. rx+rw-1, y = ry .. ry+rh-1
         ld r4, dun_rptr
         ldr r0, r4, RM_X
         ldr r1, r4, RM_Y
@@ -675,15 +702,15 @@ dun_cr_next:
         pop lr
         ret
 
-; Fill rectangle in st_map: r0=x, r1=y, r2=w, r3=h, r4=tile (in-bounds assumed).
+; Fill rectangle in st_map: r0=x, r1=y, r2=w, r3=h, r4=tile.
 dun_fill_rect:
-        st r2, dun_tmp0         ; width
+        st r2, dun_tmp0
         sll r1, MAP_SHIFT
         or r1, r0
-        lea r0, st_map
-        add r0, r0, r1          ; row start pointer
+        ld r0, dun_p_map2b
+        add r0, r0, r1
         mov r1, MAP_W
-        sub r1, r1, r2          ; row stride delta = MAP_W - w
+        sub r1, r1, r2
 dun_fr_row:
         ld r2, dun_tmp0
 dun_fr_col:
@@ -696,45 +723,50 @@ dun_fr_col:
         brp dun_fr_row
         ret
 
-; Connect rooms 0..count-1 in sequence (spanning chain) + 1..2 extra loops.
+; Connect rooms 0..count-1 in sequence + 1..2 extra loops.
 dun_connect_rooms:
         push lr
-        ld r0, st_room_count
+        ld r0, dun_p_rcnt2b
+        ldr r0, r0, 0
         cmp r0, 2
         brlt dun_con_done
         mov r0, 1
         st r0, dun_loop_i
 dun_con_chain:
         ld r1, dun_loop_i
-        ld r0, st_room_count
+        ld r0, dun_p_rcnt2b
+        ldr r0, r0, 0
         cmp r1, r0
         brlt dun_con_pair
         br dun_con_loops
 dun_con_pair:
-        sub r0, r1, 1           ; room i-1 -> room i
+        sub r0, r1, 1
         bl dun_connect_pair
         ld r1, dun_loop_i
         add r1, r1, 1
         st r1, dun_loop_i
         br dun_con_chain
 dun_con_loops:
-        ld r0, st_room_count
+        ld r0, dun_p_rcnt2b
+        ldr r0, r0, 0
         cmp r0, 4
         brlt dun_con_done
         mov r0, 1
-        ld r1, dun_depth
+        ld r1, dun_p_depth2b
+        ldr r1, r1, 0
         cmp r1, 6
         brgt dun_con_lset
         bre dun_con_lset
-        mov r0, 2               ; shallower depths: 2 loop corridors
+        mov r0, 2
 dun_con_lset:
         st r0, dun_loop_i
 dun_con_lstep:
         mov r0, 0
-        ld r1, st_room_count
-        sub r1, r1, 3           ; a in [0, count-3]
+        ld r1, dun_p_rcnt2b
+        ldr r1, r1, 0
+        sub r1, r1, 3
         bl rng_range
-        add r1, r0, 2           ; b = a + 2
+        add r1, r0, 2
         bl dun_connect_pair
         ld r0, dun_loop_i
         sub r0, r0, 1
@@ -744,42 +776,52 @@ dun_con_done:
         pop lr
         ret
 
+; ---- local pool 3 (corridors) ---------------------------------------
+dun_p_map3:     .word st_map
+dun_p_rooms3:   .word st_rooms
+dun_cx1:        .word 0
+dun_cy1:        .word 0
+dun_cx2:        .word 0
+dun_cy2:        .word 0
+dun_x_cur:      .word 0
+dun_x_end:      .word 0
+dun_y_cur:      .word 0
+dun_y_end:      .word 0
+
 ; Connect centers of room r0 and room r1 with an L-shaped corridor.
 dun_connect_pair:
         push lr
         sll r0, ROOM_SHIFT
-        lea r2, st_rooms
+        ld r2, dun_p_rooms3
         add r2, r2, r0
         ldr r3, r2, RM_W
         srl r3, 1
         ldr r0, r2, RM_X
-        add r0, r0, r3          ; cx1
+        add r0, r0, r3
         st r0, dun_cx1
         ldr r3, r2, RM_H
         srl r3, 1
         ldr r0, r2, RM_Y
-        add r0, r0, r3          ; cy1
+        add r0, r0, r3
         st r0, dun_cy1
         sll r1, ROOM_SHIFT
-        lea r2, st_rooms
+        ld r2, dun_p_rooms3
         add r2, r2, r1
         ldr r3, r2, RM_W
         srl r3, 1
         ldr r0, r2, RM_X
-        add r0, r0, r3          ; cx2
+        add r0, r0, r3
         st r0, dun_cx2
         ldr r3, r2, RM_H
         srl r3, 1
         ldr r0, r2, RM_Y
-        add r0, r0, r3          ; cy2
+        add r0, r0, r3
         st r0, dun_cy2
-        ; Coin flip: horizontal-first or vertical-first
         mov r0, 0
         mov r1, 1
         bl rng_range
         cmp r0, 0
         brnz dun_cp_vfirst
-        ; Horizontal (cx1..cx2 at cy1), then vertical (cy1..cy2 at cx2)
         ld r0, dun_cx1
         ld r1, dun_cx2
         ld r2, dun_cy1
@@ -791,7 +833,6 @@ dun_connect_pair:
         pop lr
         ret
 dun_cp_vfirst:
-        ; Vertical (cy1..cy2 at cx1), then horizontal (cx1..cx2 at cy2)
         ld r0, dun_cy1
         ld r1, dun_cy2
         ld r2, dun_cx1
@@ -803,7 +844,6 @@ dun_cp_vfirst:
         pop lr
         ret
 
-; Carve horizontal corridor from x=r0 to x=r1 (inclusive) at y=r2.
 dun_carve_h:
         push lr
         cmp r0, r1
@@ -828,7 +868,6 @@ dun_ch_loop:
         pop lr
         ret
 
-; Carve vertical corridor from y=r0 to y=r1 (inclusive) at x=r2.
 dun_carve_v:
         push lr
         cmp r0, r1
@@ -854,20 +893,17 @@ dun_cv_loop:
         pop lr
         ret
 
-; Turn (r0=x, r1=y) into T_FLOOR and wall any T_ROCK 8-neighbor with T_WALL.
-; Precondition: 1 <= x <= MAP_W-2, 1 <= y <= MAP_H-2.
 dun_dig_tile:
         sll r1, MAP_SHIFT
         or r1, r0
-        lea r0, st_map
-        add r1, r0, r1          ; r1 = &st_map[idx]
+        ld r0, dun_p_map3
+        add r1, r0, r1
         ldr r0, r1, 0
         cmp r0, T_FLOOR
         bre dun_dig_done
         mov r0, T_FLOOR
         str r0, r1, 0
         mov r4, T_WALL
-        ; Same row: -1, +1
         ldr r0, r1, -1
         cmp r0, T_ROCK
         brnz dun_dig_e
@@ -879,7 +915,7 @@ dun_dig_e:
         str r4, r1, 1
 dun_dig_row_n:
         mov r2, MAP_W
-        sub r3, r1, r2          ; r3 = &st_map[idx - MAP_W]
+        sub r3, r1, r2
         ldr r0, r3, -1
         cmp r0, T_ROCK
         brnz dun_dig_n
@@ -895,7 +931,7 @@ dun_dig_ne:
         brnz dun_dig_row_s
         str r4, r3, 1
 dun_dig_row_s:
-        add r3, r1, r2          ; r3 = &st_map[idx + MAP_W]
+        add r3, r1, r2
         ldr r0, r3, -1
         cmp r0, T_ROCK
         brnz dun_dig_s
@@ -913,118 +949,126 @@ dun_dig_se:
 dun_dig_done:
         ret
 
+; ---- local pool 4 (doors) -------------------------------------------
+dun_p_map4:     .word st_map
+dun_p_rooms4:   .word st_rooms
+dun_p_rcnt4:    .word st_room_count
+dun_pd_rx:      .word 0
+dun_pd_ry:      .word 0
+dun_pd_xend:    .word 0
+dun_pd_yend:    .word 0
+dun_pd_cur:     .word 0
+dun_pd_i:       .word 0
+dun_pd_rptr:    .word 0
+
 ; Place T_DOOR at DOOR_PCT of clean room exits (wall perimeter openings).
 dun_place_doors:
         push lr
-        ld r0, st_room_count
+        ld r0, dun_p_rcnt4
+        ldr r0, r0, 0
         cmp r0, 0
         brp dun_pd_init
         pop lr
         ret
 dun_pd_init:
-        st r0, dun_loop_i
-        lea r0, st_rooms
-        st r0, dun_rptr
+        st r0, dun_pd_i
+        ld r0, dun_p_rooms4
+        st r0, dun_pd_rptr
 dun_pd_room:
-        ld r4, dun_rptr
+        ld r4, dun_pd_rptr
         ldr r0, r4, RM_X
-        st r0, dun_rx
+        st r0, dun_pd_rx
         ldr r1, r4, RM_W
         add r0, r0, r1
-        st r0, dun_x_end        ; rx + rw
+        st r0, dun_pd_xend
         ldr r0, r4, RM_Y
-        st r0, dun_ry
+        st r0, dun_pd_ry
         ldr r1, r4, RM_H
         add r0, r0, r1
-        st r0, dun_y_end        ; ry + rh
+        st r0, dun_pd_yend
         ; Top wall: y = ry - 1, x = rx .. rx+rw-1
-        ld r0, dun_rx
-        st r0, dun_x_cur
+        ld r0, dun_pd_rx
+        st r0, dun_pd_cur
 dun_pd_top:
-        ld r0, dun_x_cur
-        ld r1, dun_x_end
+        ld r0, dun_pd_cur
+        ld r1, dun_pd_xend
         cmp r0, r1
         brlt dun_pd_top_do
         br dun_pd_bot_init
 dun_pd_top_do:
-        ld r1, dun_ry
+        ld r1, dun_pd_ry
         sub r1, r1, 1
         bl dun_try_door_h
-        ld r0, dun_x_cur
+        ld r0, dun_pd_cur
         add r0, r0, 1
-        st r0, dun_x_cur
+        st r0, dun_pd_cur
         br dun_pd_top
-        ; Bottom wall: y = ry + rh, x = rx .. rx+rw-1
 dun_pd_bot_init:
-        ld r0, dun_rx
-        st r0, dun_x_cur
+        ld r0, dun_pd_rx
+        st r0, dun_pd_cur
 dun_pd_bot:
-        ld r0, dun_x_cur
-        ld r1, dun_x_end
+        ld r0, dun_pd_cur
+        ld r1, dun_pd_xend
         cmp r0, r1
         brlt dun_pd_bot_do
         br dun_pd_left_init
 dun_pd_bot_do:
-        ld r1, dun_y_end
+        ld r1, dun_pd_yend
         bl dun_try_door_h
-        ld r0, dun_x_cur
+        ld r0, dun_pd_cur
         add r0, r0, 1
-        st r0, dun_x_cur
+        st r0, dun_pd_cur
         br dun_pd_bot
-        ; Left wall: x = rx - 1, y = ry .. ry+rh-1
 dun_pd_left_init:
-        ld r0, dun_ry
-        st r0, dun_y_cur
+        ld r0, dun_pd_ry
+        st r0, dun_pd_cur
 dun_pd_left:
-        ld r1, dun_y_cur
-        ld r0, dun_y_end
+        ld r1, dun_pd_cur
+        ld r0, dun_pd_yend
         cmp r1, r0
         brlt dun_pd_left_do
         br dun_pd_right_init
 dun_pd_left_do:
-        ld r0, dun_rx
+        ld r0, dun_pd_rx
         sub r0, r0, 1
         bl dun_try_door_v
-        ld r1, dun_y_cur
+        ld r1, dun_pd_cur
         add r1, r1, 1
-        st r1, dun_y_cur
+        st r1, dun_pd_cur
         br dun_pd_left
-        ; Right wall: x = rx + rw, y = ry .. ry+rh-1
 dun_pd_right_init:
-        ld r0, dun_ry
-        st r0, dun_y_cur
+        ld r0, dun_pd_ry
+        st r0, dun_pd_cur
 dun_pd_right:
-        ld r1, dun_y_cur
-        ld r0, dun_y_end
+        ld r1, dun_pd_cur
+        ld r0, dun_pd_yend
         cmp r1, r0
         brlt dun_pd_right_do
         br dun_pd_next_room
 dun_pd_right_do:
-        ld r0, dun_x_end
+        ld r0, dun_pd_xend
         bl dun_try_door_v
-        ld r1, dun_y_cur
+        ld r1, dun_pd_cur
         add r1, r1, 1
-        st r1, dun_y_cur
+        st r1, dun_pd_cur
         br dun_pd_right
 dun_pd_next_room:
-        ld r0, dun_rptr
+        ld r0, dun_pd_rptr
         add r0, r0, ROOM_SIZE
-        st r0, dun_rptr
-        ld r0, dun_loop_i
+        st r0, dun_pd_rptr
+        ld r0, dun_pd_i
         sub r0, r0, 1
-        st r0, dun_loop_i
+        st r0, dun_pd_i
         brp dun_pd_room
         pop lr
         ret
 
-; Horizontal wall doorway test at (r0=x, r1=y):
-; Must be T_FLOOR, with T_WALL at (x-1,y) and (x+1,y), and T_FLOOR at (x,y-1) and (x,y+1).
 dun_try_door_h:
         push lr
         sll r1, MAP_SHIFT
         or r1, r0
-        lea r0, st_map
-        add r2, r0, r1          ; r2 = &st_map[idx]
+        ld r0, dun_p_map4
+        add r2, r0, r1
         ldr r0, r2, 0
         cmp r0, T_FLOOR
         brnz dun_tdh_no
@@ -1043,26 +1087,17 @@ dun_try_door_h:
         ldr r0, r4, 0
         cmp r0, T_FLOOR
         brnz dun_tdh_no
-        mov r0, 1
-        mov r1, 100
-        bl rng_range
-        mov r1, DOOR_PCT
-        cmp r0, r1
-        brgt dun_tdh_no
-        mov r0, T_DOOR
-        str r0, r2, 0
+        br dun_td_roll
 dun_tdh_no:
         pop lr
         ret
 
-; Vertical wall doorway test at (r0=x, r1=y):
-; Must be T_FLOOR, with T_WALL at (x,y-1) and (x,y+1), and T_FLOOR at (x-1,y) and (x+1,y).
 dun_try_door_v:
         push lr
         sll r1, MAP_SHIFT
         or r1, r0
-        lea r0, st_map
-        add r2, r0, r1          ; r2 = &st_map[idx]
+        ld r0, dun_p_map4
+        add r2, r0, r1
         ldr r0, r2, 0
         cmp r0, T_FLOOR
         brnz dun_tdv_no
@@ -1081,6 +1116,7 @@ dun_try_door_v:
         ldr r0, r4, 0
         cmp r0, T_WALL
         brnz dun_tdv_no
+dun_td_roll:
         mov r0, 1
         mov r1, 100
         bl rng_range
@@ -1093,110 +1129,126 @@ dun_tdv_no:
         pop lr
         ret
 
+; ---- local pool 5 (endpoints & rubble) ------------------------------
+dun_p_map5:     .word st_map
+dun_p_rooms5:   .word st_rooms
+dun_p_rcnt5:    .word st_room_count
+dun_p_srm5:     .word st_start_room
+dun_p_px5:      .word st_px         ; +0: st_px, +1: st_py
+dun_p_stx5:     .word st_stairs_x   ; +0: st_stairs_x, +1: st_stairs_y
+dun_k_ms5:      .word MAP_SIZE
+dun_px_idx:     .word 0
+dun_px_ptr:     .word 0
+dun_best_d:     .word 0
+dun_best_r:     .word 0
+dun_pe_i:       .word 0
+
 ; Pick st_start_room, place player inside it, place T_STAIRS in the farthest room.
 dun_place_endpoints:
         push lr
         mov r0, 0
-        ld r1, st_room_count
+        ld r1, dun_p_rcnt5
+        ldr r1, r1, 0
         sub r1, r1, 1
         bl rng_range
-        st r0, st_start_room
+        ld r1, dun_p_srm5
+        str r0, r1, 0
         sll r0, ROOM_SHIFT
-        lea r4, st_rooms
+        ld r4, dun_p_rooms5
         add r4, r4, r0
-        ; Player at random interior tile of st_start_room
         ldr r0, r4, RM_X
         ldr r1, r4, RM_W
         add r1, r0, r1
         sub r1, r1, 1
         bl rng_range
-        st r0, st_px
+        ld r3, dun_p_px5
+        str r0, r3, 0           ; st_px
         mov r2, r0              ; r2 = px
         ldr r0, r4, RM_Y
         ldr r1, r4, RM_H
         add r1, r0, r1
         sub r1, r1, 1
         bl rng_range            ; r0 = py
-        st r0, st_py
+        str r0, r3, 1           ; st_py
         sll r0, MAP_SHIFT
         or r0, r2
         st r0, dun_px_idx
-        ; Find room != st_start_room maximizing Manhattan distance from (st_px, st_py)
         mov r0, -1
         st r0, dun_best_d
         mov r0, 0
         st r0, dun_best_r
-        st r0, dun_loop_i
-        lea r4, st_rooms
+        st r0, dun_pe_i
+        ld r4, dun_p_rooms5
 dun_pe_loop:
-        ld r0, dun_loop_i
-        ld r1, st_room_count
+        ld r0, dun_pe_i
+        ld r1, dun_p_rcnt5
+        ldr r1, r1, 0
         cmp r0, r1
         brlt dun_pe_chk
         br dun_pe_put
 dun_pe_chk:
-        ld r1, st_start_room
+        ld r1, dun_p_srm5
+        ldr r1, r1, 0
         cmp r0, r1
         bre dun_pe_next
-        ; center of room i
         ldr r0, r4, RM_X
         ldr r1, r4, RM_W
         srl r1, 1
-        add r0, r0, r1          ; cx
-        ld r2, st_px
+        add r0, r0, r1
+        ld r3, dun_p_px5
+        ldr r2, r3, 0
         sub r0, r0, r2
         brp dun_pe_dx_ok
-        brz dun_pe_dx_ok
-        mov r2, 0
-        sub r0, r2, r0
+        not r0, r0
+        add r0, r0, 1
 dun_pe_dx_ok:
         ldr r1, r4, RM_Y
         ldr r2, r4, RM_H
         srl r2, 1
-        add r1, r1, r2          ; cy
-        ld r2, st_py
+        add r1, r1, r2
+        ldr r2, r3, 1
         sub r1, r1, r2
         brp dun_pe_dy_ok
-        brz dun_pe_dy_ok
-        mov r2, 0
-        sub r1, r2, r1
+        not r1, r1
+        add r1, r1, 1
 dun_pe_dy_ok:
-        add r0, r0, r1          ; Manhattan distance
+        add r0, r0, r1
         ld r2, dun_best_d
         cmp r0, r2
         brgt dun_pe_better
         br dun_pe_next
 dun_pe_better:
         st r0, dun_best_d
-        ld r0, dun_loop_i
+        ld r0, dun_pe_i
         st r0, dun_best_r
 dun_pe_next:
         add r4, r4, ROOM_SIZE
-        ld r0, dun_loop_i
+        ld r0, dun_pe_i
         add r0, r0, 1
-        st r0, dun_loop_i
+        st r0, dun_pe_i
         br dun_pe_loop
 dun_pe_put:
         ld r0, dun_best_r
         sll r0, ROOM_SHIFT
-        lea r4, st_rooms
+        ld r4, dun_p_rooms5
         add r4, r4, r0
         ldr r0, r4, RM_X
         ldr r1, r4, RM_W
         add r1, r0, r1
         sub r1, r1, 1
         bl rng_range
-        st r0, st_stairs_x
-        mov r2, r0              ; r2 = stairs_x
+        ld r3, dun_p_stx5
+        str r0, r3, 0           ; st_stairs_x
+        mov r2, r0
         ldr r0, r4, RM_Y
         ldr r1, r4, RM_H
         add r1, r0, r1
         sub r1, r1, 1
-        bl rng_range            ; r0 = stairs_y
-        st r0, st_stairs_y
+        bl rng_range
+        str r0, r3, 1           ; st_stairs_y
         sll r0, MAP_SHIFT
         or r0, r2
-        lea r1, st_map
+        ld r1, dun_p_map5
         add r1, r1, r0
         mov r0, T_STAIRS
         str r0, r1, 0
@@ -1206,12 +1258,11 @@ dun_pe_put:
 ; Sprinkle T_RUBBLE over RUBBLE_PCT of T_FLOOR tiles (never on the player's tile).
 dun_place_rubble:
         push lr
-        lea r4, st_map
+        ld r4, dun_p_map5
         ld r0, dun_px_idx
-        add r4, r4, r0
-        st r4, dun_px_ptr
-        lea r4, st_map
-        ld r3, dun_k_mapsize
+        add r0, r4, r0
+        st r0, dun_px_ptr
+        ld r3, dun_k_ms5
 dun_prub_loop:
         ldr r0, r4, 0
         cmp r0, T_FLOOR
@@ -1232,51 +1283,3 @@ dun_prub_next:
         brp dun_prub_loop
         pop lr
         ret
-
-; ---- tables & private scratch ---------------------------------------
-dun_k_mapsize:  .word MAP_SIZE
-
-dun_walk_tbl:
-        .word 0                 ; T_ROCK (0)
-        .word 1                 ; T_FLOOR (1)
-        .word 0                 ; T_WALL (2)
-        .word 1                 ; T_DOOR (3)
-        .word 1                 ; T_DOOR_OPEN (4)
-        .word 1                 ; T_STAIRS (5)
-        .word 1                 ; T_RUBBLE (6)
-
-dun_opaq_tbl:
-        .word 1                 ; T_ROCK (0)
-        .word 0                 ; T_FLOOR (1)
-        .word 1                 ; T_WALL (2)
-        .word 1                 ; T_DOOR (3)
-        .word 0                 ; T_DOOR_OPEN (4)
-        .word 0                 ; T_STAIRS (5)
-        .word 0                 ; T_RUBBLE (6)
-
-dun_depth:      .word 10
-dun_target:     .word 8
-dun_tries:      .word 0
-dun_maxw:       .word ROOM_MAX_W
-dun_maxh:       .word ROOM_MAX_H
-dun_rx:         .word 0
-dun_ry:         .word 0
-dun_rw:         .word 0
-dun_rh:         .word 0
-dun_c_r1:       .word 0
-dun_c_b1:       .word 0
-dun_loop_i:     .word 0
-dun_rptr:       .word 0
-dun_tmp0:       .word 0
-dun_cx1:        .word 0
-dun_cy1:        .word 0
-dun_cx2:        .word 0
-dun_cy2:        .word 0
-dun_x_cur:      .word 0
-dun_x_end:      .word 0
-dun_y_cur:      .word 0
-dun_y_end:      .word 0
-dun_px_idx:     .word 0
-dun_px_ptr:     .word 0
-dun_best_d:     .word 0
-dun_best_r:     .word 0
