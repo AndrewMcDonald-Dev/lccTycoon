@@ -5,6 +5,9 @@
   "engines": { "node": ">=18" },
   "scripts": {
     "test": "node tools/lccgame.js test",
+    "test:templates": "node tools/lccgame.js test templates",
+    "check": "node tools/lccgame.js check",
+    "selftest": "node tools/selftest.js",
     "lccgame": "node tools/lccgame.js"
   }
 }
