@@ -97,7 +97,16 @@
       "keys": "0",
       "expect": {
         "status": "halted",
-        "screen": { "contains": ["hjkl/yubn/arrows move"] }
+        "screen": {
+          "contains": [
+            "hjkl/yubn/arrows move",
+            "f/F fire",
+            "; look",
+            "m log",
+            "z rest",
+            "o explore"
+          ]
+        }
       }
     },
     {
@@ -168,8 +177,15 @@
             "HELP: press any key to close",
             "SCRAPCORE - CONTROLS & GUIDE",
             "MOVEMENT & WORLD",
+            "Shift + dir",
+            "Rest to full",
+            "Auto-explore / Travel to stairs",
+            "Close open door / Climb stairs",
             "PARTS & SALVAGE",
-            "COMBAT & SYSTEM"
+            "Hold weapon fire",
+            "COMBAT & SYSTEM",
+            "Quick-fire",
+            "Look cursor / Message log"
           ]
         }
       }
@@ -180,6 +196,209 @@
       "expect": {
         "status": "halted",
         "screen": { "contains": ["Quit? y = yes, any other key = no"] }
+      }
+    },
+    {
+      "name": "MODE_LOOK help row",
+      "keys": "7",
+      "expect": {
+        "status": "halted",
+        "screen": { "contains": ["LOOK: move cursor  Shift+dir jump  Tab/]/[ robots  f/Enter target  Esc/; exit"] }
+      }
+    },
+    {
+      "name": "MODE_LOG help row",
+      "keys": "8",
+      "expect": {
+        "status": "halted",
+        "screen": { "contains": ["LOG: press any key to close", "MESSAGE LOG", "(no messages)", "Press any key to close"] }
+      }
+    },
+    {
+      "name": "MODE_TOGGLE help row and 1-3 weapon digits",
+      "keys": "9",
+      "expect": {
+        "status": "halted",
+        "screen": {
+          "contains": [
+            "WEAPONS: 1-3 toggle hold-fire on weapon slot   Esc cancel",
+            "1 Rivet Gun",
+            "2 Spark Prod",
+            "3 -"
+          ]
+        },
+        "bg": {
+          "lines": {
+            "8": "                                                                kC kkkkkkkkk    kkkkkkkk kk",
+            "9": "                                                                kC kkkkkkkkkk   kkkkkkkk kk",
+            "10": "                                                                kC k"
+          }
+        }
+      }
+    },
+    {
+      "name": "MODE_CLOSE help row",
+      "keys": "c",
+      "expect": {
+        "status": "halted",
+        "screen": { "contains": ["CLOSE: direction (hjkl/yubn/arrows) to close door   Esc cancel"] }
+      }
+    },
+    {
+      "name": "MODE_LOG overlay lists >5 ring messages oldest->newest in stored colors, skipping empty slots",
+      "keys": "M",
+      "expect": {
+        "status": "halted",
+        "maxStepsPerFrame": 120000,
+        "screen": {
+          "contains": [
+            "MESSAGE LOG",
+            "Press any key to close",
+            "LOG: press any key to close"
+          ],
+          "lines": {
+            "3": "║ Log entry 1 (good)                                           ║│Move 100  Sight 8  Kills 3",
+            "5": "║ Log entry 3 (warn)                                           ║│P Stub Legs    ████████ 20",
+            "8": "║ Log entry 6 (bad)                                            ║│W Rivet Gun    ████████ 12",
+            "10": "║ Log entry 8 (newest good)                                    ║│W -"
+          }
+        },
+        "colors": {
+          "lines": {
+            "3": "C GGGGGGGGGGGGGGGGGG                                           CKwwwwwwwwwwwwwwwwwwwwwwwwww",
+            "5": "C YYYYYYYYYYYYYYYYYY                                           CKC wwwwwwwww    GGGGGGGG ww",
+            "8": "C RRRRRRRRRRRRRRRRR                                            CKC wwwwwwwww    GGGGGGGG ww",
+            "10": "C GGGGGGGGGGGGGGGGGGGGGGGGG                                    CKK K"
+          }
+        }
+      }
+    },
+    {
+      "name": "MODE_LOOK panel inspects visible robot, floor item on known tile, known tiles, and unknown tile",
+      "keys": "L _5",
+      "expect": {
+        "status": "halted",
+        "maxStepsPerFrame": 120000,
+        "frames": [
+          {
+            "frame": 0,
+            "screen": { "contains": ["-- Look --", "Rifler", "██████░░░░ 9/14", "Hit 58%  Dist 5"] }
+          },
+          {
+            "frame": 1,
+            "screen": { "contains": ["-- Look --", "Hex Armor", "[U a2]  50/50", "Floor  Dist 0"] }
+          },
+          {
+            "frame": 2,
+            "screen": { "contains": ["-- Look --", "Closed door", "Remembered", "Dist 2"] }
+          },
+          {
+            "frame": 3,
+            "screen": { "contains": ["-- Look --", "Unexplored", "Dist 10"] }
+          },
+          {
+            "frame": 4,
+            "screen": { "contains": ["-- Look --", "Stairs up", "Dist 1"] }
+          },
+          {
+            "frame": 5,
+            "screen": { "contains": ["-- Look --", "Floor", "You (core)", "Dist 0"] }
+          }
+        ]
+      }
+    },
+    {
+      "name": "MODE_TOGGLE digits + held-weapon dimmed/[HOLD] marker + target hit chance ignores held weapons",
+      "keys": "H _",
+      "expect": {
+        "status": "halted",
+        "maxStepsPerFrame": 120000,
+        "frames": [
+          {
+            "frame": 0,
+            "screen": {
+              "contains": [
+                "1 Rivet Gun    ████████ 12 [HOLD]",
+                "2 Spark Prod   █████░░░ 11",
+                "3 -",
+                "Weapons held  Dist 5"
+              ],
+              "notContains": ["Hit 58%"]
+            },
+            "colors": {
+              "lines": {
+                "8": "                                                                Kk KKKKKKKKK    GGGGGGGG KK YYYYYY",
+                "21": "                                                                KYYYYYYYYYYYYYYYYYYYY"
+              }
+            },
+            "bg": {
+              "lines": {
+                "8": "                                                                kC kkkkkkkkk    kkkkkkkk kk kkkkkk",
+                "9": "                                                                kC kkkkkkkkkk   kkkkkkkk kk",
+                "10": "                                                                kC k"
+              }
+            }
+          },
+          {
+            "frame": 1,
+            "screen": {
+              "contains": [
+                "W Rivet Gun    ████████ 12 [HOLD]",
+                "W Pulse Rifle  ████████ 18",
+                "Hit 58%  Dist 5"
+              ]
+            },
+            "colors": {
+              "lines": {
+                "8": "                                                                KK KKKKKKKKK    GGGGGGGG KK YYYYYY"
+              }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "row 22 status line shows auto actions in A_LABEL and visible hostile count in A_WARN (excluding Tinker)",
+      "keys": "S _6",
+      "expect": {
+        "status": "halted",
+        "maxStepsPerFrame": 120000,
+        "frames": [
+          {
+            "frame": 0,
+            "screen": { "contains": ["Running... (any key stops)"] },
+            "colors": { "lines": { "22": "                                                                KCCCCCCCCCCCCCCCCCCCCCCCCCC" } }
+          },
+          {
+            "frame": 1,
+            "screen": { "contains": ["Resting... (any key stops)"] },
+            "colors": { "lines": { "22": "                                                                KCCCCCCCCCCCCCCCCCCCCCCCCCC" } }
+          },
+          {
+            "frame": 2,
+            "screen": { "contains": ["Traveling... (any key stops)"] },
+            "colors": { "lines": { "22": "                                                                KCCCCCCCCCCCCCCCCCCCCCCCCCCCC" } }
+          },
+          {
+            "frame": 3,
+            "screen": { "contains": ["Exploring... (any key stops)"] },
+            "colors": { "lines": { "22": "                                                                KCCCCCCCCCCCCCCCCCCCCCCCCCCCC" } }
+          },
+          {
+            "frame": 4,
+            "screen": { "contains": ["1 hostile in view"] },
+            "colors": { "lines": { "22": "                                                                KYYYYYYYYYYYYYYYYY" } }
+          },
+          {
+            "frame": 5,
+            "screen": { "contains": ["2 hostiles in view"] },
+            "colors": { "lines": { "22": "                                                                KYYYYYYYYYYYYYYYYYY" } }
+          },
+          {
+            "frame": 6,
+            "screen": { "notContains": ["hostile", "Running", "Resting", "Traveling", "Exploring"] }
+          }
+        ]
       }
     },
     {

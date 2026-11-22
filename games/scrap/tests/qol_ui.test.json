@@ -1,0 +1,242 @@
+{
+  "scenarios": [
+    {
+      "name": "help row and help overlay show the new QoL controls",
+      "clock": 1000,
+      "keys": "<enter> ? <esc>",
+      "expect": {
+        "status": "frames-complete",
+        "maxStepsPerFrame": 500000,
+        "frames": [
+          {
+            "frame": 1,
+            "screen": {
+              "contains": [
+                "SCRAPCORE - CONTROLS & GUIDE",
+                "Shift + dir",
+                "Rest to full",
+                "Auto-explore / Travel to stairs",
+                "Close open door / Climb stairs",
+                "Hold weapon fire",
+                "Quick-fire",
+                "Look cursor / Message log",
+                "HELP: press any key to close"
+              ]
+            }
+          },
+          {
+            "frame": 2,
+            "screen": {
+              "contains": [
+                "hjkl/yubn/arrows move",
+                "f/F fire",
+                "; look",
+                "m log",
+                "z rest",
+                "o explore"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "message log overlay displays history oldest->newest and closes on any key",
+      "clock": 1000,
+      "keys": "<enter> j*2 g m <esc>",
+      "expect": {
+        "status": "frames-complete",
+        "maxStepsPerFrame": 500000,
+        "frames": [
+          {
+            "frame": 4,
+            "screen": {
+              "contains": [
+                "MESSAGE LOG",
+                "Core online. Depth 10. Climb to the surface.",
+                "You see Spark Prod.",
+                "Picked up Spark Prod.",
+                "Press any key to close",
+                "LOG: press any key to close"
+              ]
+            }
+          },
+          {
+            "frame": 5,
+            "screen": {
+              "notContains": ["MESSAGE LOG"]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "look mode highlights cursor with A_LOOK_BG and describes player, item, wall, and unknown tiles",
+      "clock": 1000,
+      "keys": "<enter> ; j*2 h*2 k*4 <esc>",
+      "expect": {
+        "status": "frames-complete",
+        "maxStepsPerFrame": 500000,
+        "frames": [
+          {
+            "frame": 1,
+            "screen": {
+              "contains": [
+                "-- Look --",
+                "Floor",
+                "You (core)",
+                "Dist 0",
+                "LOOK: move cursor"
+              ]
+            },
+            "bg": { "contains": ["b"] }
+          },
+          {
+            "frame": 3,
+            "screen": {
+              "contains": [
+                "-- Look --",
+                "Spark Prod",
+                "[W 2-5 mel e0]",
+                "Floor  Dist 2"
+              ]
+            },
+            "bg": { "contains": ["b"] }
+          },
+          {
+            "frame": 5,
+            "screen": {
+              "contains": [
+                "-- Look --",
+                "Wall",
+                "Dist 2"
+              ]
+            }
+          },
+          {
+            "frame": 9,
+            "screen": {
+              "contains": [
+                "-- Look --",
+                "Unexplored"
+              ]
+            },
+            "bg": { "contains": ["b"] }
+          }
+        ]
+      }
+    },
+    {
+      "name": "hold-fire mode numbers weapons 1-3, marks held weapon [HOLD], and close mode shows direction prompt",
+      "clock": 1000,
+      "keys": "<enter> w 1 c <esc>",
+      "expect": {
+        "status": "frames-complete",
+        "maxStepsPerFrame": 500000,
+        "frames": [
+          {
+            "frame": 1,
+            "screen": {
+              "contains": [
+                "1 Rivet Gun",
+                "2 Spark Prod",
+                "3 -",
+                "WEAPONS: 1-3 toggle hold-fire on weapon slot   Esc cancel"
+              ]
+            },
+            "bg": {
+              "lines": {
+                "8": "                                                                kC kkkkkkkkk    kkkkkkkk kk",
+                "9": "                                                                kC kkkkkkkkkk   kkkkkkkk kk",
+                "10": "                                                                kC k"
+              }
+            }
+          },
+          {
+            "frame": 2,
+            "screen": {
+              "contains": [
+                "W Rivet Gun    ████████ 12 [HOLD]"
+              ]
+            },
+            "colors": {
+              "lines": {
+                "8": "                                                                KK KKKKKKKKK    GGGGGGGG KK YYYYYY"
+              }
+            }
+          },
+          {
+            "frame": 3,
+            "screen": {
+              "contains": [
+                "CLOSE: direction (hjkl/yubn/arrows) to close door   Esc cancel"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "status row shows Exploring... in A_LABEL during auto-explore",
+      "clock": 1000,
+      "keys": "<enter> o <esc>",
+      "expect": {
+        "status": "frames-complete",
+        "maxStepsPerFrame": 2000000,
+        "frames": [
+          {
+            "frame": 1,
+            "screen": {
+              "contains": ["Exploring... (any key stops)"]
+            },
+            "colors": {
+              "contains": ["KCCCCCCCCCCCCCCCCCCCCCCCCCCCC"]
+            }
+          },
+          {
+            "frame": 2,
+            "screen": {
+              "notContains": ["Exploring..."]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "live encounter shows visible hostiles on row 22, look cursor on robot, and held weapon ignored in target preview",
+      "clock": 1000,
+      "keys": "<enter> l*2 u k*4 y h*8 b j .*8 ; <tab> <esc> w 1 f",
+      "expect": {
+        "status": "frames-complete",
+        "maxStepsPerFrame": 2000000,
+        "frames": [
+          {
+            "frame": 28,
+            "screen": {
+              "contains": [
+                "-- Look --",
+                "Flit",
+                "Hit 67%  Dist 2",
+                "2 hostiles in view"
+              ]
+            },
+            "bg": { "contains": ["b"] }
+          },
+          {
+            "frame": 32,
+            "screen": {
+              "contains": [
+                "W Rivet Gun",
+                "[HOLD]",
+                "Flit",
+                "Weapons held  Dist 1",
+                "2 hostiles in view"
+              ],
+              "notContains": ["Hit 70%"]
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

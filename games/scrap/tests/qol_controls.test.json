@@ -1,0 +1,190 @@
+{
+  "scenarios": [
+    {
+      "name": "hold fire skips the Rivet Gun, then releasing it permits quick fire",
+      "clock": 1000,
+      "keys": "<enter> l*2 u k*4 y h*8 b j .*8 w 1 F w 1 F",
+      "expect": {
+        "status": "frames-complete",
+        "memory": { "st_wpn_off": 0, "st_mode": 0, "st_turn": 27, "st_time": 2700, "st_energy": 40 },
+        "frames": [
+          { "frame": 29, "screen": { "contains": ["Rivet Gun holds fire.", "Nothing can fire."], "notContains": ["Rivet Gun hits Flit"] } }
+        ],
+        "screen": { "contains": ["Rivet Gun ready.", "Rivet Gun hits Flit for 4."] }
+      }
+    },
+    {
+      "name": "an empty hold-fire slot and Esc leave the weapon mask and time alone",
+      "clock": 1000,
+      "keys": "<enter> w 3 w <esc>",
+      "expect": {
+        "memory": { "st_wpn_off": 0, "st_mode": 0, "st_turn": 0 },
+        "screen": { "contains": ["Slot is empty."] }
+      }
+    },
+    {
+      "name": "quick fire with no visible target stays on the map for no time",
+      "clock": 1000,
+      "keys": "<enter> F",
+      "expect": {
+        "memory": { "st_mode": 0, "st_target": -1, "st_turn": 0 },
+        "screen": { "contains": ["No targets in sight."] }
+      }
+    },
+    {
+      "name": "targeting remembers the selected Flit after firing",
+      "clock": 1000,
+      "keys": "<enter> l*2 u k*4 y h*8 b j .*8 f <tab> f f",
+      "expect": {
+        "memory": { "st_mode": 1, "st_target": 3, "st_turn": 27, "st_time": 2700 }
+      }
+    },
+    {
+      "name": "look starts on the player, with arrow movement and eight-tile vi movement",
+      "clock": 1000,
+      "keys": "<enter> ; <right> H",
+      "expect": {
+        "memory": { "st_mode": 7, "st_look_x": 7, "st_look_y": 20, "st_px": 14, "st_py": 20, "st_turn": 0 }
+      }
+    },
+    {
+      "name": "look clamps to the map edge, and semicolon exits",
+      "clock": 1000,
+      "keys": "<enter> ; Y*4 ;",
+      "expect": {
+        "memory": { "st_mode": 0, "st_look_x": 0, "st_look_y": 0, "st_turn": 0 }
+      }
+    },
+    {
+      "name": "look cycles visible robots and f targets the robot under the cursor",
+      "clock": 1000,
+      "keys": "<enter> l*2 u k*4 y h*8 b j .*8 ; <tab> [ ] f",
+      "expect": {
+        "memory": { "st_mode": 1, "st_look_x": 7, "st_look_y": 18, "st_target": 3, "st_turn": 26, "st_time": 2600 }
+      }
+    },
+    {
+      "name": "m opens the message log for no time",
+      "clock": 1000,
+      "keys": "<enter> m",
+      "expect": { "memory": { "st_mode": 8, "st_turn": 0 } }
+    },
+    {
+      "name": "a normal key, arrow and Esc each close the message log without taking an action",
+      "clock": 1000,
+      "keys": "<enter> m l m <right> m <esc>",
+      "expect": { "memory": { "st_mode": 0, "st_px": 14, "st_py": 20, "st_turn": 0 } }
+    },
+    {
+      "name": "close an open door with an arrow for 100 TU",
+      "clock": 1000,
+      "keys": "<enter> l*2 u k*4 y h c <right>",
+      "expect": {
+        "memory": { "st_mode": 0, "st_px": 15, "st_py": 14, "st_turn": 10, "st_time": 1000 },
+        "screen": { "contains": ["Door closed."] }
+      }
+    },
+    {
+      "name": "choosing a tile with no open door costs no time",
+      "clock": 1000,
+      "keys": "<enter> c k",
+      "expect": {
+        "memory": { "st_mode": 0, "st_turn": 0 },
+        "screen": { "contains": ["No open door there."] }
+      }
+    },
+    {
+      "name": "run stops at a blocking wall",
+      "clock": 1000,
+      "keys": "<enter> H _5",
+      "expect": {
+        "memory": { "st_px": 13, "st_py": 20, "st_auto": 0, "st_auto_steps": 1, "st_turn": 1 }
+      }
+    },
+    {
+      "name": "diagonal run stops after stepping onto a door",
+      "clock": 1000,
+      "keys": "<enter> l*2 u k*4 Y _5",
+      "expect": {
+        "memory": { "st_px": 16, "st_py": 14, "st_auto": 0, "st_auto_steps": 1, "st_turn": 8 }
+      }
+    },
+    {
+      "name": "run takes one step per frame and stops after stepping onto an item",
+      "clock": 1000,
+      "keys": "<enter> J _5",
+      "expect": {
+        "memory": { "st_px": 14, "st_py": 22, "st_auto": 0, "st_auto_steps": 2, "st_turn": 2 },
+        "frames": [
+          { "frame": 1, "screen": { "contains": ["Turn 1"], "notContains": ["You see Spark Prod."] } },
+          { "frame": 2, "screen": { "contains": ["Turn 2", "You see Spark Prod."] } }
+        ]
+      }
+    },
+    {
+      "name": "an arrow interrupts a run without moving the player",
+      "clock": 1000,
+      "keys": "<enter> J <right> _5",
+      "expect": {
+        "memory": { "st_px": 14, "st_py": 21, "st_auto": 0, "st_auto_steps": 1, "st_turn": 1 }
+      }
+    },
+    {
+      "name": "rest at full energy without repair posts a message and costs no time",
+      "clock": 1000,
+      "keys": "<enter> z",
+      "expect": {
+        "memory": { "st_auto": 0, "st_auto_steps": 0, "st_turn": 0, "st_energy": 40 },
+        "screen": { "contains": ["Already rested."] }
+      }
+    },
+    {
+      "name": "travel refuses an unknown stairs tile",
+      "clock": 1000,
+      "keys": "<enter> t",
+      "expect": {
+        "memory": { "st_auto": 0, "st_auto_steps": 0, "st_turn": 0 },
+        "screen": { "contains": ["Stairs unknown."] }
+      }
+    },
+    {
+      "name": "travel reaches the known stairs and stops on the same floor",
+      "clock": 8,
+      "keys": "<enter> u*3 k u*4 l n l*3 u l*4 n*6 j*2 n*4 j n l*5 u*3 t _12",
+      "expect": {
+        "status": "frames-complete",
+        "maxStepsPerFrame": 500000,
+        "memory": { "st_px": 54, "st_py": 19, "st_stairs_x": 54, "st_stairs_y": 19, "st_turn": 44, "st_depth": 10, "st_climb": 0, "st_auto": 0, "st_auto_steps": 4 }
+      }
+    },
+    {
+      "name": "explore makes progress and stops as soon as a hostile appears",
+      "clock": 1,
+      "keys": "<enter> o _30",
+      "expect": {
+        "status": "frames-complete",
+        "maxStepsPerFrame": 500000,
+        "memory": { "st_px": 50, "st_py": 19, "st_auto": 0, "st_auto_steps": 27, "st_turn": 27 },
+        "screen": { "contains": ["Flit spotted."] }
+      }
+    },
+    {
+      "name": "a new worker sighting message also interrupts exploration",
+      "clock": 1000,
+      "keys": "<enter> o _25",
+      "expect": {
+        "memory": { "st_px": 17, "st_py": 12, "st_auto": 0, "st_auto_steps": 12, "st_turn": 12 },
+        "screen": { "contains": ["Tinker spotted."] }
+      }
+    },
+    {
+      "name": "visible hostiles prevent all four automatic actions from starting",
+      "clock": 1000,
+      "keys": "<enter> l*2 u k*4 y h*8 b j .*8 H z t o",
+      "expect": {
+        "memory": { "st_px": 7, "st_py": 16, "st_auto": 0, "st_auto_steps": 0, "st_turn": 26 },
+        "screen": { "matches": ["(?:Enemies in view\\.[ \\t]*\\n[ \\t]*){3}Enemies in view\\."] }
+      }
+    }
+  ]
+}

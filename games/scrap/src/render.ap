@@ -9,7 +9,8 @@
 ;   items  on visible tiles: the part's P_CELL
 ;   enemies on visible tiles: ET_CELL of the type
 ;   player GL_PLAYER | A_PLAYER
-;   target in MODE_TARGET the st_target enemy's cell gets A_TARGET_BG
+;   target in MODE_TARGET the st_target enemy's cell gets A_TARGET_BG;
+;          in MODE_LOOK the (st_look_x, st_look_y) cell gets A_LOOK_BG
 ; All routines: args r0..r4, result r0, all other registers preserved.
 ;
 ;; ren_draw       ()                 -> -        redraw the whole viewport as above; draws into st_cells (the game display, 100x30); st_screen must be the bound display (budget ≤ 150K instructions)
@@ -178,11 +179,15 @@ ren_en_next:
         ld r2, ren_c_player
         str r2, r0, 0
 
-        ; ---- Layer 5: target highlight in MODE_TARGET ---------------
+        ; ---- Layer 5: target / look highlight -----------------------
 ren_target:
         ldr r0, r4, REN_ST_MODE
         cmp r0, MODE_TARGET
-        brnz ren_done
+        brz ren_tgt_go
+        cmp r0, MODE_LOOK
+        brz ren_look
+        br ren_done
+ren_tgt_go:
         ldr r1, r4, REN_ST_TARGET
         cmp r1, 0
         brn ren_done
@@ -206,10 +211,21 @@ ren_tgt_ok:
         bl ren_vis_addr
         cmp r0, 0
         brz ren_done
-        ldr r2, r0, 0
-        ld r3, ren_m_nobg
-        and r2, r2, r3
         mov r3, A_TARGET_BG>>8
+        br ren_hl_put
+
+ren_look:
+        ld r0, st_look_x
+        ld r1, st_look_y
+        mov r2, 0               ; allow any in-bounds cell (visible, remembered, unknown)
+        bl ren_vis_addr
+        cmp r0, 0
+        brz ren_done
+        mov r3, A_LOOK_BG>>8
+ren_hl_put:
+        ldr r2, r0, 0
+        ld r1, ren_m_nobg
+        and r2, r2, r1
         sll r3, 8
         or r2, r3
         str r2, r0, 0

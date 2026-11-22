@@ -119,6 +119,14 @@ drv_e_rifler:
         .word drv_s_rifler
         .word 'r'|FG_BRED
         .word 14
+        .word 100
+        .word 100
+        .word 2
+        .word 5
+        .word 6
+        .word 60
+        .word AI_RANGED
+        .zero 6
 drv_s_rifler:   .string "Rifler"
 drv_c_en_words: .word MAX_ENEMIES*ENEMY_SIZE
 
