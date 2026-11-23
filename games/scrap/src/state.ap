@@ -19,7 +19,7 @@
 ;; player     st_px st_py st_ply_next st_core_hp st_energy      W: player (pos/time), parts (hp/energy), combat
 ;; derived    st_move_cost st_regen st_energy_max st_sight st_acc_bonus st_evade st_repair_turns  W: prt_recalc only
 ;; game       st_game_state st_mode st_depth st_turn st_time st_kills st_target st_climb st_death_cause
-;; controls   st_auto st_auto_dx st_auto_dy st_auto_steps st_look_x st_look_y st_wpn_off  W: player
+;; controls   st_auto st_auto_dx st_auto_dy st_auto_steps st_look_x st_look_y st_wpn_off  W: player (st_wpn_off also parts, when a slot is emptied)
 ; =====================================================================
 
 ; ---- game / loop -------------------------------------------------------

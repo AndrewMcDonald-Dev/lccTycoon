@@ -210,7 +210,8 @@
       "keys": "<enter> w 1 l*2 u k*4 y h*8 b j .*3 j*2 .*65",
       "expect": {
         "memory": { "st_wpn_off": 0 },
-        "screen": { "matches": ["W -"], "notContains": ["[HOLD]"] }
+        "screen": { "notContains": ["[HOLD]"] },
+        "frames": [{ "frame": 72, "screen": { "contains": ["Rivet Gun", "[HOLD]"], "notContains": ["Rivet Gun destroyed!"] } }, { "frame": 73, "screen": { "contains": ["Rivet Gun destroyed!"], "notContains": ["[HOLD]"] } }]
       }
     },
     {
@@ -220,6 +221,15 @@
       "expect": {
         "memory": { "st_auto": 0 },
         "screen": { "matches": ["Nothing here to pick up\\.\\s*\\n\\s*Hostile in view\\."] }
+      }
+    },
+    {
+      "name": "F keeps firing at a chosen Tinker while a hostile Flit is in view",
+      "clock": 1,
+      "keys": "a o _*27 ; f f F",
+      "expect": {
+        "memory": { "st_target": -1, "st_mode": 0 },
+        "screen": { "matches": ["Rivet Gun hits Tinker for 4\\.\\s*\\n\\s*Rivet Gun hits Tinker for 4\\.\\s*\\n\\s*Tinker destroyed\\."], "contains": ["1 hostile in view"], "notContains": ["hits Flit"] }
       }
     }
   ]
