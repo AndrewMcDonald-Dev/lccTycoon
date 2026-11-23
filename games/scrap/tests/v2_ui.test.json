@@ -50,7 +50,7 @@
       "keys": "<enter> j*2 g k*2 l*2 u k*4 y h*8 b j .*12 R 1 .*51 _2",
       "expect": {
         "status": "frames-complete",
-        "screen": { "contains": ["CORE DESTROYED", "Parts: salvaged 1, lost 5, recycled 1"] },
+        "screen": { "contains": ["CORE DESTROYED", "Parts: picked up 1, lost 5, recycled 1"] },
         "memory": {
           "st_game_state": 2, "st_core_hp": 0,
           "st_stat_salvaged": 1, "st_stat_lost": 5, "st_stat_recycled": 1

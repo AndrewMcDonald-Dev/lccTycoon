@@ -91,7 +91,7 @@
     {
       "name": "winning displays all three part counters",
       "keys": "w",
-      "expect": { "screen": { "contains": ["SURFACE REACHED!", "Parts: salvaged 12, lost 5, recycled 3"] } }
+      "expect": { "screen": { "contains": ["SURFACE REACHED!", "Parts: picked up 12, lost 5, recycled 3"] } }
     }
   ]
 }

@@ -17,12 +17,13 @@
 ;;                   calls cbt_blast. Others: hit = cbt_hit_chance(ET_ACC, dist) - st_evade (>= HIT_MIN); damage rng_range(ET_DMIN..ET_DMAX) → prt_damage (-2 = fully absorbed by Barrier,
 ;;                   no Leech drain; else reports dealt = rolled - st_absorbed with armor reduction, mentions absorption; EN_LEECH drains min(LEECH_DRAIN, st_energy)); posts "<part> destroyed!"
 ;;                   if prt_damage destroyed a part, or "<name> misses." (A_DIM); on core death sets st_death_cause = enemy type.
-;; cbt_damage_enemy  r0=enemy index r1=damage   -> r0=1 destroyed, 0 still alive. On survival: alerts via act_alert. On destruction: message "<name> destroyed." (A_GOOD), st_kills++,
-;;                   clears st_target if matching. AI_SAPPER with EF_BLOWN clear sets EF_BLOWN, calls act_kill then cbt_blast (no drop). Others with non-empty ET_DROP roll
-;;                   min(100, ET_DROP_PCT + st_salvage)% to itm_place one random part at rng_range((st_salvage>0?SALVAGE_HP_MIN:DROP_HP_MIN)..100)% integrity, then act_kill.
+;; cbt_damage_enemy  r0=enemy index r1=damage   -> r0=1 destroyed, 0 still alive. On survival: alerts via act_alert (skipped for blast collateral from cbt_blast). On destruction:
+;;                   message "<name> destroyed." (A_GOOD), st_kills++ (skipped if EF_REINF), clears st_target if matching. AI_SAPPER with EF_BLOWN clear sets EF_BLOWN, calls act_kill
+;;                   then cbt_blast (no drop; still detonates if EF_REINF). Others without EF_REINF and with non-empty ET_DROP roll min(100, ET_DROP_PCT + st_salvage)% to itm_place one
+;;                   random part at rng_range((st_salvage>0?SALVAGE_HP_MIN:DROP_HP_MIN)..100)% integrity, then act_kill.
 ;; cbt_blast         r0=x r1=y r2=cause         -> -        blast at (x,y): message (A_BAD), st_alarm += ALARM_BLAST, player within BLAST_RADIUS takes rng_range(BLAST_DMIN..BLAST_DMAX)
 ;;                   via prt_damage (never misses; Barrier applies; core death sets st_death_cause = cause), every other living robot within BLAST_RADIUS takes BLAST_ROBOT via
-;;                   cbt_damage_enemy (reentrant for chain reactions).
+;;                   cbt_damage_enemy (reentrant for chain reactions; surviving robots are not alerted).
 ; ---------------------------------------------------------------------
 
 ; Offsets from st_game_state (see src/state.ap)
@@ -838,6 +839,10 @@ cbt_ea_out:
         ret
 
 ; ---- Sapper / area blast ----------------------------------------------------
+; Reentrant nesting depth > 0 while applying blast collateral via cbt_damage_enemy
+; so blast survivors do not get act_alert to the player's position.
+cbt_blast_depth: .word 0
+
 ; cbt_blast r0=x r1=y r2=cause -> -
 ; Reentrant (all state on stack) so Sapper chain reactions terminate cleanly.
 ; Locals relative to fp:
@@ -950,6 +955,9 @@ cbt_bl_pmsg:
 
         ; 4. Every living robot within BLAST_RADIUS takes BLAST_ROBOT via cbt_damage_enemy
 cbt_bl_robots:
+        ld r0, cbt_blast_depth
+        add r0, r0, 1
+        st r0, cbt_blast_depth
         mov r0, 0
         str r0, fp, -7
 cbt_bl_rlp:
@@ -979,6 +987,9 @@ cbt_bl_rnext:
         br cbt_bl_rlp
 
 cbt_bl_out:
+        ld r0, cbt_blast_depth
+        sub r0, r0, 1
+        st r0, cbt_blast_depth
         mov sp, fp
         pop fp
         pop lr
@@ -1047,8 +1058,12 @@ cbt_de_dmgok:
         sll r0, 8
         bl ui_msg_attr
 
-        ; Increment st_kills (saturating) and clear st_target if matching
+        ; Increment st_kills (saturating, skipped for EF_REINF) and clear st_target if matching
         lea r4, st_game_state
+        ldr r0, fp, -7          ; eflags
+        mov r1, EF_REINF
+        and r0, r0, r1
+        brnz cbt_de_kills_sat
         ldr r0, r4, CBT_ST_KILLS
         add r0, r0, 1
         brn cbt_de_kills_sat
@@ -1092,6 +1107,11 @@ cbt_de_sap_go:
         br cbt_de_done
 
 cbt_de_drop:
+        ; Reinforcement robots (EF_REINF) never drop parts
+        ldr r0, fp, -7          ; eflags
+        mov r1, EF_REINF
+        and r0, r0, r1
+        brnz cbt_de_kill
         ; Non-empty drop list required (empty list never drops even with st_salvage > 0)
         ldr r3, r4, ET_DROP
         cmp r3, 0
@@ -1184,6 +1204,9 @@ cbt_de_kill:
 
 cbt_de_survive:
         str r2, r3, E_HP
+        ld r0, cbt_blast_depth
+        cmp r0, 0
+        brnz cbt_de_alive
         ldr r0, fp, -1
         bl act_alert
 cbt_de_alive:

@@ -105,7 +105,7 @@ visible hostile robots (`N hostile(s) in view` in `A_WARN`), or blank. MODE_HELP
 key list box over the viewport; MODE_LOG draws a full 16-message history box over the
 viewport oldest→newest in each message's stored `st_msg_attr` color. On reaching the
 surface, the panel and win screen display `Surface` instead of `Depth 0`. Death and win
-screens include a parts summary line (`Parts: salvaged N, lost N, recycled N`) below the
+screens include a parts summary line (`Parts: picked up N, lost N, recycled N`) below the
 score.
 
 ## Controls
@@ -180,7 +180,7 @@ the robot types are `act_types` in actors.ap.
   ET_DHI, ET_DROP (address of `count, id, id, ...`), ET_DROP_PCT, ET_SIGHT, ET_WEIGHT.
 - **Enemies** `st_enemies` MAX_ENEMIES 24 × ENEMY_SIZE 16: E_TYPE (0 = free), E_X,
   E_Y, E_HP, E_NEXT (next-act time), E_STATE (ES_IDLE/HUNT/FLEE), E_TX, E_TY,
-  E_ALERT, E_FLAGS (EF_SEEN/EF_ARMED/EF_BLOWN/EF_STUNNED), 10-15 spare for actors. Written by actors. Combat writes
+  E_ALERT, E_FLAGS (EF_SEEN/EF_ARMED/EF_BLOWN/EF_STUNNED/EF_REINF/EF_ALARMED), 10-15 spare for actors. Written by actors. Combat writes
   E_HP and frees records through `act_kill`.
 - **Floor items** `st_items` MAX_ITEMS 32 × ITEM_SIZE 4: I_PART (0 = free), I_X, I_Y,
   I_HP. One item per tile. Written by items.
@@ -198,11 +198,12 @@ the robot types are `act_types` in actors.ap.
   slot i holds fire, weapon slots 3-5). Written by player (`st_wpn_off` bit cleared when
   a slot gets a new part or is emptied by remove) and, for `st_wpn_off`, by parts
   (clears the bit when that part is destroyed). Read by combat, ui, render.
-- **v2 state** (appended to `src/state.ap`): floor alarm `st_alarm`, `st_alarm_acc`,
-  `st_alarm_waves` (written by actors, reset per floor in `act_spawn_floor`); barrier
+- **v2 state** (appended to `src/state.ap`): floor alarm `st_alarm` (written by actors and
+  combat — `cbt_blast` adds `ALARM_BLAST`), `st_alarm_acc`, `st_alarm_waves` (written by
+  actors; all three reset per floor in `act_spawn_floor`); barrier
   & salvage `st_shield`, `st_salvage` (written by `prt_recalc`) and `st_absorbed`
   (last barrier absorption in `prt_damage`, written by parts); run summary counters
-  `st_stat_salvaged` (written by player), `st_stat_lost` and `st_stat_recycled`
+  `st_stat_salvaged` (pickup actions, written by player), `st_stat_lost` and `st_stat_recycled`
   (written by parts), all three zeroed in `main_new_game`.
 - **Messages** `st_msg_text` MSG_COUNT 16 × MSG_LEN 64 (copied, NUL-terminated, so a
   message can contain names and numbers), `st_msg_attr[16]`, `st_msg_head`. Written only
@@ -478,35 +479,46 @@ it. Spare parts now double as emergency repair material: carry, attach, or scrap
   up adjacent to the player without `EF_ARMED`, it sets `EF_ARMED`, posts
   `Sapper arms its charge!` (`A_WARN`), and spends `ET_ATK_TIME`. If already armed and
   adjacent, it detonates. An armed Sapper that loses adjacency keeps chasing and
-  detonates on its next turn adjacent to the player. The renderer highlights a visible
-  armed Sapper with `A_ARMED_BG` (preserving glyph and fg; target highlight wins in
-  `MODE_TARGET`).
+  detonates on its next turn adjacent to the player; while `EF_ARMED` is set, each step
+  costs `ET_ATK_TIME` (100 TU) instead of `ET_SPEED` (60 TU), so a player on 100-TU legs
+  who steps away gets a turn before it can close and detonate. The renderer highlights a
+  visible armed Sapper with `A_ARMED_BG` (`BG_MAGENTA`, preserving glyph and fg; target
+  highlight wins in `MODE_TARGET`).
 - **Blast (`cbt_blast r0=x r1=y r2=cause`):** posts `Sapper explodes!` (or `Explosion!`)
   in `A_BAD`, adds `ALARM_BLAST` to `st_alarm`, hits the player if within `BLAST_RADIUS`
   (Chebyshev) for `rng_range(BLAST_DMIN..BLAST_DMAX)` through `prt_damage` (always hits,
   ignores evade, Barrier applies, core death sets `st_death_cause = cause`), and deals
   `BLAST_ROBOT` damage via `cbt_damage_enemy` to every other living robot within
-  `BLAST_RADIUS`. Every robot destroyed by any blast counts as a kill and drops normally
-  (per its drop table; Sappers have no drops) — including a second Sapper caught in the
-  blast of an enemy Sapper that blew itself up next to the player. A Sapper destroyed by
-  player fire/melee or by another blast counts as a kill and then detonates on its tile;
-  the only exception is the Sapper that detonates itself next to the player, which is
-  removed with no kill and no drop. `EF_BLOWN` ensures each Sapper blasts at most once so
-  chain reactions always terminate.
+  `BLAST_RADIUS`. Robots surviving a blast are **not** alerted to the player's position
+  (only direct player hits call `act_alert`). Every non-`EF_REINF` robot destroyed by any
+  blast counts as a kill and drops normally (per its drop table; Sappers have no drops) —
+  including a second Sapper caught in the blast of an enemy Sapper that blew itself up
+  next to the player. A Sapper destroyed by player fire/melee or by another blast counts
+  as a kill (unless `EF_REINF`) and then detonates on its tile; the only exception is the
+  Sapper that detonates itself next to the player, which is removed with no kill and no
+  drop. `EF_BLOWN` ensures each Sapper blasts at most once so chain reactions always
+  terminate.
 
 ### Floor alarm and reinforcements
 
 - `act_spawn_floor` resets `st_alarm`, `st_alarm_acc`, and `st_alarm_waves` to 0.
 - `act_run` adds `ALARM_PER_TURN` per `TIME_TURN` of world time elapsed (accumulated in
-  `st_alarm_acc`). A Watcher spotting the player (`ES_IDLE → ES_HUNT`) adds
-  `ALARM_WATCHER`, and every blast adds `ALARM_BLAST`.
-- When `st_alarm ≥ ALARM_MAX`: logs `Floor alarm! Reinforcements incoming!` (`A_BAD`),
-  spawns up to `REINF_COUNT` depth-eligible hostile robots (by `ET_WEIGHT`, excluding
-  `AI_TURRET` and `AI_WORKER`) on random floor tiles ≥ `REINF_MIN_DIST` from the player
-  and outside FOV — already in `ES_HUNT` targeting the player with
-  `E_ALERT = ALERT_TURNS` — increments `st_alarm_waves`, and resets
-  `st_alarm = ALARM_MAX − REINF_AFTER`. If the enemy pool is full, no robots spawn but
-  the alarm still resets.
+  `st_alarm_acc`). The first time a Watcher sees the player (in sight + LOS) without
+  `EF_ALARMED`, it sets `EF_ALARMED` and adds `ALARM_WATCHER` to `st_alarm` (even if
+  `act_alert` already put it in `ES_HUNT`); re-sightings never add again. Every blast adds
+  `ALARM_BLAST` to `st_alarm` (from `combat.ap`).
+- When `st_alarm ≥ ALARM_MAX`: `act_alarm_wave` refreshes FOV (`fov_update`, so tiles
+  exposed by enemy-opened doors during the enemy phase are excluded) and the actors BFS
+  distance field, increments `st_alarm_waves`, resets `st_alarm = ALARM_MAX − REINF_AFTER`,
+  and spawns up to `REINF_COUNT` depth-eligible hostile robots (by `ET_WEIGHT`, excluding
+  `AI_TURRET` and `AI_WORKER`) on reachable floor tiles (finite BFS distance from the
+  player) ≥ `REINF_MIN_DIST` from the player and outside FOV — already in `ES_HUNT`
+  targeting the player with `E_ALERT = REINF_ALERT` and flagged `EF_REINF`. Destroying an
+  `EF_REINF` robot still posts `<Name> destroyed.` (and an `EF_REINF` Sapper still
+  detonates), but grants no `st_kills` credit and no part drop. `Floor alarm!
+  Reinforcements incoming!` (`A_BAD`) is posted only if at least one robot spawned (if the
+  pool is full or no qualifying tile exists, no message is posted, while `st_alarm_waves`
+  still increments and `st_alarm` still resets).
 - The panel shows a compact `Alarm` meter on the Loadout header row that shifts from
   `A_GOOD` to `A_WARN` past half and `A_BAD` after the first wave. Lingering, resting,
   and letting Watchers spot you now carry real risk.
@@ -514,6 +526,6 @@ it. Spare parts now double as emergency repair material: carry, attach, or scrap
 ### Run summary
 
 Death and win screens add a parts breakdown line below the score
-(`Parts: salvaged N, lost N, recycled N`), tracking pickups (`st_stat_salvaged`),
+(`Parts: picked up N, lost N, recycled N`), tracking pickup actions (`st_stat_salvaged`),
 destroyed attached parts (`st_stat_lost`), and recycled parts (`st_stat_recycled`).
 `main_new_game` zeroes all three counters.

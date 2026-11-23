@@ -153,6 +153,8 @@ drv_t1c_lp:
         ldr r0, r2, E_FLAGS
         and r0, r0, EF_ARMED
         st r0, drv_sap_chase_ar ; expect 2 (still armed)
+        ldr r0, r2, E_NEXT
+        st r0, drv_sap_chase_nx ; expect 200 (100 + ET_ATK_TIME 100)
 
         ; Turn 3: Player steps adjacent to (9, 10); place Scuttler (HP 12) at (11,10),
         ; Flit (HP 6) at (10,11), Bulwark (HP 40) far at (20,10). Set all other E_NEXT = 500.
@@ -494,6 +496,193 @@ drv_salv_next:
 
         mov r0, 0
         st r0, st_salvage
+
+        ; ============================================================
+        ; T7. Armed Sapper telegraph: step costs 100 TU so player on
+        ;     100-TU legs stepping away gets a turn before detonation
+        ; ============================================================
+        mov r0, 1
+        sleep r0
+        bl drv_make_open_room
+        bl drv_strip_loadout
+        bl act_clear
+        mov r0, 0
+        st r0, st_time
+        st r0, st_ply_next
+        st r0, st_alarm
+        st r0, st_alarm_acc
+        mov r0, 40
+        st r0, st_core_hp
+        mov r0, 10
+        st r0, st_px
+        st r0, st_py
+        mov r0, 8
+        st r0, st_sight
+        bl fov_reset
+        bl fov_update
+        mov r0, EN_SAPPER
+        mov r1, 11
+        mov r2, 10
+        bl act_spawn            ; slot 0
+        lea r2, st_enemies
+        mov r0, 0
+        str r0, r2, E_NEXT
+        ; Turn 1 (ply_next=100): Sapper arms -> E_NEXT=100
+        mov r0, 100
+        st r0, st_ply_next
+        bl act_run
+        ; Turn 2 (player steps west to (9,10) on 100-TU legs -> ply_next=200):
+        ; armed Sapper steps to (10,10) paying ET_ATK_TIME (100) -> E_NEXT=200 (no blast yet!)
+        mov r0, 9
+        st r0, st_px
+        bl fov_update
+        mov r0, 200
+        st r0, st_ply_next
+        bl act_run
+        lea r2, st_enemies
+        ldr r0, r2, E_TYPE
+        st r0, drv_tel_type     ; expect EN_SAPPER (9, still alive)
+        ldr r0, r2, E_X
+        st r0, drv_tel_x        ; expect 10
+        ldr r0, r2, E_NEXT
+        st r0, drv_tel_next     ; expect 200
+        ld r0, st_core_hp
+        st r0, drv_tel_hp       ; expect 40 (no blast)
+        ld r0, st_alarm
+        st r0, drv_tel_al       ; expect 2 (only 2 turns, no ALARM_BLAST)
+
+        ; ============================================================
+        ; T8. Blast survivor is NOT alerted to player (E_TX/E_TY unchanged);
+        ;     direct hit via cbt_damage_enemy still alerts
+        ; ============================================================
+        bl act_clear
+        mov r0, 5
+        st r0, st_px
+        st r0, st_py
+        mov r0, 40
+        st r0, st_core_hp
+        mov r0, EN_BULWARK
+        mov r1, 21
+        mov r2, 10
+        bl act_spawn            ; slot 0 (HP 40, ES_IDLE, E_TX=21, E_TY=10)
+        mov r0, 20
+        mov r1, 10
+        mov r2, EN_SAPPER
+        bl cbt_blast
+        lea r2, st_enemies
+        ldr r0, r2, E_HP
+        st r0, drv_bs_hp        ; expect 30
+        ldr r0, r2, E_STATE
+        st r0, drv_bs_st        ; expect 0 (ES_IDLE)
+        ldr r0, r2, E_TX
+        st r0, drv_bs_tx        ; expect 21 (NOT st_px=5)
+        ldr r0, r2, E_TY
+        st r0, drv_bs_ty        ; expect 10 (NOT st_py=5)
+        ldr r0, r2, E_ALERT
+        st r0, drv_bs_al        ; expect 0
+        ; Direct hit alerts normally
+        mov r0, 0
+        mov r1, 1
+        bl cbt_damage_enemy
+        lea r2, st_enemies
+        ldr r0, r2, E_STATE
+        st r0, drv_bs_d_st      ; expect 1 (ES_HUNT)
+        ldr r0, r2, E_TX
+        st r0, drv_bs_d_tx      ; expect 5
+        ldr r0, r2, E_TY
+        st r0, drv_bs_d_ty      ; expect 5
+
+        ; ============================================================
+        ; T9. EF_REINF kill: st_kills unchanged, no drop, message still
+        ;     says destroyed; EF_REINF Sapper still detonates
+        ; ============================================================
+        bl act_clear
+        bl itm_clear
+        mov r0, 5
+        st r0, st_kills
+        mov r0, 25
+        st r0, st_salvage       ; Tinker would normally drop 100%
+        mov r0, 5
+        st r0, st_px
+        st r0, st_py
+        mov r0, EN_TINKER
+        mov r1, 20
+        mov r2, 10
+        bl act_spawn            ; slot 0
+        lea r2, st_enemies
+        mov r0, EF_REINF
+        str r0, r2, E_FLAGS
+        mov r0, 0
+        mov r1, 20
+        bl cbt_damage_enemy
+        st r0, drv_rf_ret       ; expect 1
+        ld r0, st_kills
+        st r0, drv_rf_kills     ; expect 5 (unchanged)
+        mov r0, 20
+        mov r1, 10
+        bl itm_at
+        st r0, drv_rf_drop      ; expect -1 (no drop)
+        lea r0, drv_rf_msg
+        bl drv_copy_head_msg    ; expect "Tinker destroyed."
+        ; EF_REINF Sapper still detonates (damaging adjacent Bulwark), no kill credit
+        mov r0, EN_SAPPER
+        mov r1, 10
+        mov r2, 10
+        bl act_spawn            ; slot 0
+        lea r2, st_enemies
+        mov r0, EF_REINF
+        str r0, r2, E_FLAGS
+        mov r0, EN_BULWARK
+        mov r1, 11
+        mov r2, 10
+        bl act_spawn            ; slot 1 (HP 40)
+        mov r0, 0
+        mov r1, 10
+        bl cbt_damage_enemy
+        ld r0, st_kills
+        st r0, drv_rf_sk        ; expect 5 (unchanged)
+        lea r2, st_enemies
+        ldr r0, r2, ENEMY_SIZE+E_HP
+        st r0, drv_rf_sbul      ; expect 30 (EF_REINF Sapper detonated!)
+        mov r0, 0
+        st r0, st_salvage
+
+        ; ============================================================
+        ; T10. Self-detonating Sapper chaining into a 2nd Sapper -> st_kills == 1
+        ; ============================================================
+        bl act_clear
+        bl itm_clear
+        mov r0, 0
+        st r0, st_kills
+        st r0, st_alarm
+        mov r0, 40
+        st r0, st_core_hp
+        mov r0, 5
+        st r0, st_px
+        mov r0, 10
+        st r0, st_py
+        mov r0, EN_SAPPER
+        mov r1, 6
+        mov r2, 10
+        bl act_spawn            ; slot 0 (self-detonator)
+        lea r2, st_enemies
+        mov r0, EF_ARMED
+        str r0, r2, E_FLAGS
+        mov r0, EN_SAPPER
+        mov r1, 7
+        mov r2, 10
+        bl act_spawn            ; slot 1 (chained victim)
+        mov r0, 0
+        bl cbt_enemy_attack
+        lea r2, st_enemies
+        ldr r0, r2, E_TYPE
+        st r0, drv_sc_s0        ; expect 0
+        ldr r0, r2, ENEMY_SIZE+E_TYPE
+        st r0, drv_sc_s1        ; expect 0
+        ld r0, st_kills
+        st r0, drv_sc_kills     ; expect 1
+        ld r0, st_alarm
+        st r0, drv_sc_alarm     ; expect 50
         halt
 
 ; ---- Helpers --------------------------------------------------------
@@ -628,6 +817,7 @@ drv_sap_arm_msg:  .zero MSG_LEN
 drv_sap_arm_attr: .word 99
 drv_sap_chase_x:  .word 99
 drv_sap_chase_ar: .word 99
+drv_sap_chase_nx: .word 99
 drv_sap_freed:    .word 99
 drv_sap_scut_hp:  .word 99
 drv_sap_flit_st:  .word 99
@@ -665,6 +855,33 @@ drv_stun_msg3:   .zero MSG_LEN
 drv_salv_cnt:    .word 99
 drv_salv_hp_bad: .word 99
 drv_salv_sap:    .word 99
+
+drv_tel_type:    .word 99
+drv_tel_x:       .word 99
+drv_tel_next:    .word 99
+drv_tel_hp:      .word 99
+drv_tel_al:      .word 99
+
+drv_bs_hp:       .word 99
+drv_bs_st:       .word 99
+drv_bs_tx:       .word 99
+drv_bs_ty:       .word 99
+drv_bs_al:       .word 99
+drv_bs_d_st:     .word 99
+drv_bs_d_tx:     .word 99
+drv_bs_d_ty:     .word 99
+
+drv_rf_ret:      .word 99
+drv_rf_kills:    .word 99
+drv_rf_drop:     .word 99
+drv_rf_msg:      .zero MSG_LEN
+drv_rf_sk:       .word 99
+drv_rf_sbul:     .word 99
+
+drv_sc_s0:       .word 99
+drv_sc_s1:       .word 99
+drv_sc_kills:    .word 99
+drv_sc_alarm:    .word 99
 
         .include "../../src/state.ap"
         .include "../../src/rng.ap"

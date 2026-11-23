@@ -196,3 +196,9 @@ tests go red by design (PART_COUNT 26 changes loot rolls); fixed in WP12/WP13.
 - 2026-11-22 WP13b active (Sol): re-recording replays (`play`/`qa1`/`qa2`/`qol_*`) and v2 balance pass.
 - 2026-11-22 WP13c done (Neon): title screen updated for Leech `l`, Sapper `x`, and `R` recycle; DESIGN.md and WORKPLAN.md synced with v2.
 - 2026-11-22 QA (Sol) found the stun cap did not stop stun-lock → EF_STUNNED once-per-action rule (Opus); blast kill credit clarified.
+
+## WP14 — Council R1 simulation fixes (Neon)
+**Files:** src/actors.ap, src/combat.ap, src/ui.ap (`ui_se_salvaged` only), tests/unit/v2_sim_*, tests/v2_sim.test.json, tests/v2_ui.test.json, tests/unit/v2_ui_controls.test.json, DESIGN.md, WORKPLAN.md
+**Status:** done (Neon).
+**Log:**
+- 2026-11-22 done (Neon): `act_alarm_wave` refreshes FOV (`fov_update`) and BFS before spawn, spawns only reachable tiles with `E_ALERT = REINF_ALERT` and `EF_REINF` (no `st_kills`/drop; Sapper still detonates), and posts the alarm message only if ≥1 spawned; `cbt_blast` suppresses `act_alert` on surviving collateral via `cbt_blast_depth`; armed Sapper steps pay `ET_ATK_TIME`; Watcher alarm uses once-per-Watcher `EF_ALARMED`; `ui_se_salvaged` renamed to `"Parts: picked up "`; DESIGN.md/WORKPLAN.md synced.

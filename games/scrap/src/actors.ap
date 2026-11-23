@@ -16,13 +16,14 @@
 ;; act_at           r0=x r1=y           -> r0=index of the enemy on that tile, -1 none
 ;; act_run          ()                  -> -        recompute the distance field, then repeatedly let the enemy with the smallest E_NEXT < st_ply_next act (act_think; ties →
 ;;                   lower index) until none is left or st_game_state != GAME_PLAY; set st_time = st_ply_next; rebase at TIME_REBASE; while GAME_PLAY accumulate ALARM_PER_TURN per
-;;                   TIME_TURN elapsed (st_alarm_acc) and if st_alarm >= ALARM_MAX post an alarm (A_BAD), spawn up to REINF_COUNT hunting hostiles (no turrets/workers, >= REINF_MIN_DIST,
-;;                   not fov-visible), st_alarm_waves++, st_alarm = ALARM_MAX - REINF_AFTER
-;; act_think        r0=index            -> -        one action of that enemy, adds its cost (ET_SPEED for a step, ET_ATK_TIME for an attack, TIME_WAIT otherwise) to E_NEXT.
+;;                   TIME_TURN elapsed (st_alarm_acc) and if st_alarm >= ALARM_MAX refresh FOV+BFS, spawn up to REINF_COUNT reachable hunting hostiles (EF_REINF, E_ALERT=REINF_ALERT,
+;;                   no turrets/workers, >= REINF_MIN_DIST, not fov-visible), post alarm (A_BAD) if any spawned, st_alarm_waves++, st_alarm = ALARM_MAX - REINF_AFTER
+;; act_think        r0=index            -> -        one action of that enemy, adds its cost (ET_SPEED for a step, ET_ATK_TIME for an attack or armed Sapper step, TIME_WAIT otherwise) to E_NEXT.
 ;;                   Sight: dist <= ET_SIGHT and fov_los → ES_HUNT, E_TX/TY = player, E_ALERT = ALERT_TURNS, first sighting while fov_visible posts "<name> spotted."; Watcher sighting
-;;                   (ES_IDLE → ES_HUNT) adds ALARM_WATCHER to st_alarm. AI_MELEE: adjacent → attack, else chase. AI_SAPPER: hunts like melee (never flees); adjacent unarmed → set EF_ARMED,
-;;                   warning (A_WARN), spend ET_ATK_TIME; adjacent armed → detonate via cbt_enemy_attack. AI_RANGED: in range with LOS → attack; dist <= 2 → step away. AI_TURRET: never moves.
-;;                   AI_WORKER: never attacks, flees when it sees the player. hp < FLEE_PCT% → ES_FLEE (not turrets/sappers). Idle: random walk. Steps open T_DOOR.
+;;                   without EF_ALARMED sets EF_ALARMED and adds ALARM_WATCHER to st_alarm once. AI_MELEE: adjacent → attack, else chase. AI_SAPPER: hunts like melee (never flees);
+;;                   adjacent unarmed → set EF_ARMED, warning (A_WARN), spend ET_ATK_TIME; adjacent armed → detonate via cbt_enemy_attack; stepping while EF_ARMED spends ET_ATK_TIME.
+;;                   AI_RANGED: in range with LOS → attack; dist <= 2 → step away. AI_TURRET: never moves. AI_WORKER: never attacks, flees when it sees the player.
+;;                   hp < FLEE_PCT% → ES_FLEE (not turrets/sappers). Idle: random walk. Steps open T_DOOR.
 ;; act_type_info    r0=type             -> r0=address of the type record, 0 if invalid
 ;; act_name         r0=index            -> r0=name string of that enemy's type
 ;; act_kill         r0=index            -> -        free the record (combat calls it after drops)
@@ -1158,6 +1159,7 @@ act_aw_y:       .word 0
 act_aw_yend:    .word 0
 act_aw_chkx:    .word 0
 act_aw_chky:    .word 0
+act_aw_spawned: .word 0
 
 act_alarm_wave:
         push r0
@@ -1167,13 +1169,14 @@ act_alarm_wave:
         push r4
         push lr
 
-        ; Post alarm warning in A_BAD, bump wave count, reset alarm
-        lea r0, act_s_alarm
-        bl ui_msg
-        mov r0, A_BAD>>8
-        sll r0, 8
-        bl ui_msg_attr
+        ; Refresh FOV (enemy-opened doors may expose tiles) and BFS reachability field
+        bl fov_update
+        bl act_ensure_bfs
 
+        mov r0, 0
+        st r0, act_aw_spawned
+
+        ; Always bump wave count and reset alarm
         ld r0, st_alarm_waves
         add r0, r0, 1
         st r0, st_alarm_waves
@@ -1291,7 +1294,7 @@ act_aw_picked:
         bl act_spawn
         cmp r0, 0
         brn act_aw_done         ; pool full
-        ; Set ES_HUNT toward player position with ALERT_TURNS
+        ; Set ES_HUNT toward player position with REINF_ALERT and EF_REINF
         sll r0, ENEMY_SHIFT
         lea r4, st_enemies
         add r4, r4, r0
@@ -1301,11 +1304,30 @@ act_aw_picked:
         str r1, r4, E_TX
         ld r1, st_py
         str r1, r4, E_TY
-        mov r1, ALERT_TURNS
+        mov r1, REINF_ALERT
         str r1, r4, E_ALERT
+        ldr r1, r4, E_FLAGS
+        mov r2, EF_REINF
+        or r1, r2
+        str r1, r4, E_FLAGS
+        ld r1, act_aw_spawned
+        add r1, r1, 1
+        st r1, act_aw_spawned
         br act_aw_sp_lp
 
 act_aw_done:
+        ; Post alarm warning in A_BAD only if at least one reinforcement spawned
+        ld r0, act_aw_spawned
+        cmp r0, 0
+        brp act_aw_post
+        br act_aw_ret
+act_aw_post:
+        lea r0, act_s_alarm
+        bl ui_msg
+        mov r0, A_BAD>>8
+        sll r0, 8
+        bl ui_msg_attr
+act_aw_ret:
         pop lr
         pop r4
         pop r3
@@ -1465,10 +1487,15 @@ act_reinf_tile_ok:
         or r2, r0
         lea r3, st_map
         add r3, r3, r2
-        ldr r2, r3, 0
-        and r2, r2, T_KIND_MASK
-        cmp r2, T_FLOOR
+        ldr r3, r3, 0
+        and r3, r3, T_KIND_MASK
+        cmp r3, T_FLOOR
         brne act_rto_no
+        lea r3, act_dist
+        add r3, r3, r2
+        ldr r3, r3, 0
+        cmp r3, 0
+        brz act_rto_no
         ld r2, st_px
         ld r3, st_py
         bl dun_dist
@@ -1641,10 +1668,13 @@ act_th_seen_ok:
         brlt act_th_set_flee
         br act_th_set_hunt
 act_th_turret_sight:
-        ; Watcher sighting (ES_IDLE -> ES_HUNT) adds ALARM_WATCHER
-        ldr r0, r4, E_STATE
-        cmp r0, ES_IDLE
-        brne act_th_set_hunt
+        ; First Watcher sighting (lacks EF_ALARMED) adds ALARM_WATCHER once
+        ldr r0, r4, E_FLAGS
+        mov r1, EF_ALARMED
+        and r2, r0, r1
+        brnz act_th_set_hunt
+        or r0, r1
+        str r0, r4, E_FLAGS
         ld r0, st_alarm
         mov r1, ALARM_WATCHER
         add r0, r0, r1
@@ -1800,8 +1830,17 @@ act_th_idle:
         br act_th_apply_cost
 
 act_th_moved:
+        ld r4, act_th_eptr
+        ldr r0, r4, E_FLAGS
+        and r0, r0, EF_ARMED
+        brnz act_th_moved_arm
         ld r4, act_th_tptr
         ldr r0, r4, ET_SPEED
+        st r0, act_th_cost
+        br act_th_apply_cost
+act_th_moved_arm:
+        ld r4, act_th_tptr
+        ldr r0, r4, ET_ATK_TIME
         st r0, act_th_cost
         br act_th_apply_cost
 

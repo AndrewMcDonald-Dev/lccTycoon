@@ -356,7 +356,7 @@
 ; ---- floor alarm / reinforcements (W: actors) -----------------------------------
         .define ALARM_MAX       250     ; st_alarm at which a reinforcement wave arrives
         .define ALARM_PER_TURN  1       ; + per TIME_TURN of world time on the floor
-        .define ALARM_WATCHER   40      ; + when a Watcher spots the player (ES_IDLE -> ES_HUNT)
+        .define ALARM_WATCHER   40      ; + when a Watcher spots the player (once per Watcher, EF_ALARMED)
         .define ALARM_BLAST     25      ; + per Sapper blast
         .define REINF_COUNT     2       ; hostile robots per wave (pool permitting)
         .define REINF_AFTER     150     ; after a wave st_alarm drops to ALARM_MAX - REINF_AFTER
