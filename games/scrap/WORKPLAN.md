@@ -195,3 +195,4 @@ tests go red by design (PART_COUNT 26 changes loot rolls); fixed in WP12/WP13.
 - 2026-11-22 WP13a done (Neon): wording pass (`Barrier Field` → `Barrier Grid`).
 - 2026-11-22 WP13b active (Sol): re-recording replays (`play`/`qa1`/`qa2`/`qol_*`) and v2 balance pass.
 - 2026-11-22 WP13c done (Neon): title screen updated for Leech `l`, Sapper `x`, and `R` recycle; DESIGN.md and WORKPLAN.md synced with v2.
+- 2026-11-22 QA (Sol) found the stun cap did not stop stun-lock → EF_STUNNED once-per-action rule (Opus); blast kill credit clarified.

@@ -180,7 +180,7 @@ the robot types are `act_types` in actors.ap.
   ET_DHI, ET_DROP (address of `count, id, id, ...`), ET_DROP_PCT, ET_SIGHT, ET_WEIGHT.
 - **Enemies** `st_enemies` MAX_ENEMIES 24 × ENEMY_SIZE 16: E_TYPE (0 = free), E_X,
   E_Y, E_HP, E_NEXT (next-act time), E_STATE (ES_IDLE/HUNT/FLEE), E_TX, E_TY,
-  E_ALERT, E_FLAGS (EF_SEEN/EF_ARMED/EF_BLOWN), 10-15 spare for actors. Written by actors. Combat writes
+  E_ALERT, E_FLAGS (EF_SEEN/EF_ARMED/EF_BLOWN/EF_STUNNED), 10-15 spare for actors. Written by actors. Combat writes
   E_HP and frees records through `act_kill`.
 - **Floor items** `st_items` MAX_ITEMS 32 × ITEM_SIZE 4: I_PART (0 = free), I_X, I_Y,
   I_HP. One item per tile. Written by items.
@@ -240,7 +240,7 @@ Color by tier: white, bright cyan, bright magenta. Names are ≤ 12 chars.
 | 21 | Optic Mast | utility sensor | 1 | 8 | 1 | +3 sight |
 | 22 | Patch Drone | utility repair | 2 | 10 | 1 | 1 integrity every 3 turns |
 | 23 | Aim Gyro | utility target | 2 | 10 | 1 | +15% accuracy |
-| 24 | Jolt Caster | weapon | 2 | 14 | 3 | 1-3, range 5, energy 3, acc 75, stun (`WFX_STUN`) |
+| 24 | Jolt Caster | weapon | 2 | 14 | 3 | 1-3, range 5, energy 3, acc 75, stun (`WFX_STUN`, once per action) |
 | 25 | Barrier Grid | utility shield | 2 | 12 | 1 | absorbs up to 3/hit (`SHIELD_COST` 2 energy/pt) |
 | 26 | Salvage Rig | utility salvage | 1 | 10 | 1 | +25% drop chance; drops at 75-100% integrity |
 
@@ -427,15 +427,17 @@ Constants live in `src/defs.ap` (`ALARM_*`, `BLAST_*`, `UT_SHIELD`, `UT_SALVAGE`
 
 | id | Name | Kind | Tier | HP | Cover | Stats |
 |---|---|---|---|---|---|---|
-| 24 | Jolt Caster | weapon | 2 | 14 | 3 | 1-3, range 5, energy 3, acc 75, P_W_FX = WFX_STUN |
+| 24 | Jolt Caster | weapon | 2 | 14 | 3 | 1-3, range 5, energy 3, acc 75, P_W_FX = WFX_STUN (once per action) |
 | 25 | Barrier Grid | utility shield | 2 | 12 | 1 | absorbs up to 3 damage per hit, SHIELD_COST 2 energy per point |
 | 26 | Salvage Rig | utility salvage | 1 | 10 | 1 | +25% robot drop chance; drops at 75–100% integrity |
 
 All three names fit `PART_NAME_MAX` (12 chars).
 
-- **Stun (`WFX_STUN`):** a player weapon hit that leaves the robot alive delays its
-  `E_NEXT` by `STUN_TU`, unless `E_NEXT ≥ st_time + 2×STUN_TU` already (preventing
-  stun-lock). The hit message appends `Stunned!`.
+- **Stun (`WFX_STUN`):** a player weapon hit that leaves the robot alive stuns it
+  (`E_NEXT += STUN_TU`) only if it is not already stunned; it is then flagged
+  `EF_STUNNED` until its next action (`act_think` clears the flag), so a robot acts at
+  least once between stuns (no stun-lock). When stunned, the hit message appends
+  `Stunned!`.
 - **Barrier (`UT_SHIELD`):** `prt_recalc` sets `st_shield` to the best attached
   `P_U_VALUE` (0 if none). `prt_damage` first absorbs
   `a = min(damage, st_shield, st_energy / SHIELD_COST)` points, spends
@@ -484,11 +486,13 @@ it. Spare parts now double as emergency repair material: carry, attach, or scrap
   (Chebyshev) for `rng_range(BLAST_DMIN..BLAST_DMAX)` through `prt_damage` (always hits,
   ignores evade, Barrier applies, core death sets `st_death_cause = cause`), and deals
   `BLAST_ROBOT` damage via `cbt_damage_enemy` to every other living robot within
-  `BLAST_RADIUS` (kills and drops resolve normally). Any Sapper destroyed by gunfire,
-  melee, or another blast detonates on its tile. `EF_BLOWN` ensures each Sapper blasts
-  at most once so chain reactions always terminate. A Sapper drops nothing; it counts as
-  a kill when destroyed by the player (or a player-triggered chain), not when it
-  detonates itself next to the player.
+  `BLAST_RADIUS`. Every robot destroyed by any blast counts as a kill and drops normally
+  (per its drop table; Sappers have no drops) — including a second Sapper caught in the
+  blast of an enemy Sapper that blew itself up next to the player. A Sapper destroyed by
+  player fire/melee or by another blast counts as a kill and then detonates on its tile;
+  the only exception is the Sapper that detonates itself next to the player, which is
+  removed with no kill and no drop. `EF_BLOWN` ensures each Sapper blasts at most once so
+  chain reactions always terminate.
 
 ### Floor alarm and reinforcements
 

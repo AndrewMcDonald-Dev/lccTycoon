@@ -147,47 +147,59 @@
     {
       "name": "scripted run (clock 5): after losing both legs, attaching salvaged Grip Treads restores propulsion",
       "clock": 5,
-      "keys": "<enter> k u k*5 u*3 k u l*3 u l*3 n l*12 n l*2 F*2 l F*6 l*2 F*7 l*3 n g e1 j b j*5 n*2 g e1 b j F n*4 l u k*3 u l*7 F*5 l*2 n <lt> l*3 n g e2 j h k*3 y k u l*4 F*2 l n*4 l*4 g e2 l*17 F*4 e1 n*4 g e3 b*2 g e3 l*2 u*2 l*8 F*2 l*8 F*3 l*2 F l*2 n <lt> n*2 j*6 b h y*2 k*13 y h*6 b*2 j*4 b h b h*5 F*7 h*5 b h y k F*4 j k*2 y h*3 y*2 h*5 y k*2 y b j*10 b h b*3 y k*6 F*6 k y*3 <lt> k u*2 F*4 h F*14 e3 h j n j k j h F*6 k h j h k u F*4 k*13 h j*2 h k*2 u k h j h j*3 h k*3 u h*2 j*15 n h*6 g e4 l*8 u k h j l u l n h b j h*2 u h j y u*3 k*6 F*3 k*5 h j*2 h k*2 u j*3 n j*8 n l*3 F*2 l*15 u k*3 u l*7 F*3 l*12 n l*2 n <lt> j b h j*4 b h*3 F*7 h*2 F*2 h*2 F y*3 k*4 u*4 y*3 h*11 y k*3 F k y*2 <lt> k*4 y u l*8 F*3 l F l*6 n*3 j*7 n l*2 F*5 l*2 F*19 l*6 F*3 l F*3 l*2 u F*6 l*3 u*5 k*2 u l*3 u l*2 F*3 l*4 <lt> h*3 y h*3 y*4 h*9 y h*2 F*2 h*2 F*6 b j*6 b*3 h*4 F*2 h*3 <lt> k*3 u*3 k*8 y h*9 y h*4 j*6 F*8 e1 e2 h*8 F*2 l*2 e4 l*2 g e4 h*5 F*9 h*2 F*14 h*5 b <lt> h*2 y*2 h*4 j b h*4 b*3 h*5 F*4 h j b h*3 k*2 y h*2 y*4 h F*9 k*2 F*15 k*2 y F*4 f]f F*4 h e2 F y*2 h*2 e3 R3 R1 e4",
+      "keys": "<enter> k u k*5 u*3 k u l*3 u l*3 n l*12 n l*3 n*3 j*5 n*2 g .*41 e1 h",
       "tail": 0,
       "expect": {
         "status": "frames-complete",
         "maxStepsPerFrame": 500000,
         "memory": {
-          "st_depth": 2,
-          "st_slots": [
-            5,
-            15,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            12,
-            2,
-            0,
-            0,
-            19,
-            15,
-            19,
-            12
-          ],
-          "st_move_cost": 170
+          "st_game_state": 1,
+          "st_depth": 10,
+          "st_slots": 5,
+          "st_move_cost": 170,
+          "st_px": 40,
+          "st_py": 15
         },
         "screen": {
           "contains": [
-            "Attached Grip Treads."
+            "Move 170"
           ]
         },
         "frames": [
           {
-            "frame": 942,
+            "frame": 47,
             "screen": {
               "contains": [
+                "Picked up Grip Treads."
+              ]
+            }
+          },
+          {
+            "frame": 61,
+            "screen": {
+              "contains": [
+                "Stub Legs destroyed!",
+                "Move 130"
+              ]
+            }
+          },
+          {
+            "frame": 88,
+            "screen": {
+              "contains": [
+                "Stub Legs destroyed!",
                 "Move 250"
               ],
               "matches": [
                 "│P -\\s*\\n.*│P -"
+              ]
+            }
+          },
+          {
+            "frame": 89,
+            "screen": {
+              "contains": [
+                "Attached Grip Treads."
               ]
             }
           }

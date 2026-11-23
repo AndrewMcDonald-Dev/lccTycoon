@@ -9,8 +9,8 @@
 ;; cbt_hit_chance    r0=accuracy% r1=distance   -> r0=accuracy - HIT_DIST_PEN×(distance-1), clamped HIT_MIN..HIT_MAX
 ;; cbt_player_fire   r0=enemy index             -> r0=number of weapons fired (>0), -1 if unheld in-range ranged weapon(s) lacked energy, 0 otherwise (target not visible, no usable ranged
 ;;                   or out of range; caller spends no time). Checks fov_visible(E_X, E_Y), then fires every unheld ranged weapon slot (P_W_MELEE 0) in slot order: spend P_W_ENERGY,
-;;                   roll hit (P_W_ACC + st_acc_bonus), damage rng_range(DMIN..DMAX) via cbt_damage_enemy; P_W_FX == WFX_STUN on a surviving robot adds STUN_TU to E_NEXT unless already
-;;                   >= st_time + 2*STUN_TU; message per shot; stops once the target is destroyed.
+;;                   roll hit (P_W_ACC + st_acc_bonus), damage rng_range(DMIN..DMAX) via cbt_damage_enemy; P_W_FX == WFX_STUN on a surviving robot without EF_STUNNED sets EF_STUNNED
+;;                   and adds STUN_TU to E_NEXT (act_think clears EF_STUNNED); message per shot; stops once the target is destroyed.
 ;; cbt_player_melee  r0=enemy index             -> -        bump attack with every unheld melee weapon slot (each spends P_W_ENERGY if it can, else is skipped; WFX_STUN applies on hit);
 ;;                   with none usable, a core ram RAM_DMIN..RAM_DMAX at RAM_ACC. Messages.
 ;; cbt_enemy_attack  r0=enemy index             -> -        that enemy attacks the player. AI_SAPPER: if not EF_BLOWN, sets EF_BLOWN, clears st_target if matching, act_kill (no kill/drop),
@@ -161,7 +161,8 @@ cbt_roll_weapon:
         bl cbt_damage_enemy     ; r0 = 1 destroyed, 0 alive
         cmp r0, 0
         brnz cbt_rw_ret
-        ; Surviving hit: check WFX_STUN (delays E_NEXT by STUN_TU unless >= st_time + 2*STUN_TU)
+        ; Surviving hit: WFX_STUN delays E_NEXT by STUN_TU, once per robot action
+        ; (EF_STUNNED, cleared by act_think) so repeated shots can't stun-lock
         ldr r1, r4, P_W_FX
         cmp r1, WFX_STUN
         brne cbt_rw_ret0
@@ -169,14 +170,13 @@ cbt_roll_weapon:
         bl cbt_enemy_ptr
         cmp r0, 0
         brz cbt_rw_ret0
+        ldr r1, r0, E_FLAGS
+        mov r2, EF_STUNNED
+        and r3, r1, r2
+        brnz cbt_rw_ret0
+        or r1, r2
+        str r1, r0, E_FLAGS
         ldr r1, r0, E_NEXT
-        ld r3, st_time
-        mov r2, 2*STUN_TU
-        add r3, r3, r2          ; r3 = st_time + 2*STUN_TU
-        cmp r1, r3
-        brlt cbt_rw_stun
-        br cbt_rw_ret0
-cbt_rw_stun:
         mov r2, STUN_TU
         add r1, r1, r2
         str r1, r0, E_NEXT

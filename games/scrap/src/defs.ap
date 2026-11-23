@@ -218,8 +218,8 @@
         .define UT_SALVAGE      6       ; P_U_VALUE = + drop chance % on destroyed robots
 ; weapon on-hit effects (P_W_FX)
         .define WFX_NONE        0
-        .define WFX_STUN        1       ; a hit that leaves the robot alive delays its E_NEXT by STUN_TU
-        .define STUN_TU         100     ; delay per stun; no stun if E_NEXT >= st_time + 2*STUN_TU already
+        .define WFX_STUN        1       ; a hit that leaves the robot alive delays its E_NEXT by STUN_TU (once per robot action)
+        .define STUN_TU         100     ; delay per stun; at most one stun per robot action (EF_STUNNED)
 ; part ids (catalog order; DESIGN.md "Part catalog")
         .define PT_STUB_LEGS    1
         .define PT_STRUT_LEGS   2
@@ -334,6 +334,7 @@
         .define EF_SEEN         1       ; player has seen it (one "spotted" message)
         .define EF_ARMED        2       ; Sapper: armed, detonates on its next action next to the player
         .define EF_BLOWN        4       ; Sapper: its blast already went off (never twice)
+        .define EF_STUNNED      8       ; stunned since its last action: no further stun until it acts (act_think clears)
         .define ALERT_TURNS     12      ; E_ALERT on sighting
         .define FLEE_PCT        25      ; hp below this % of max → ES_FLEE (not turrets)
         .define SPAWN_BASE      4       ; enemies per floor = SPAWN_BASE + (11-depth)/2 (+ 1 worker)

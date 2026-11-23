@@ -392,17 +392,26 @@ drv_sap_dmg_st:
         lea r0, drv_stun_msg1
         bl drv_copy_head_msg
 
-        ; Hit 2: E_NEXT 600 -> 700 (< 700), message says "Stunned!"
+        ; Hit 2 before the robot acts: EF_STUNNED blocks a second stun -> stays 600
         bl drv_fire_until_hit
         lea r2, st_enemies
         ldr r0, r2, E_NEXT
-        st r0, drv_stun_n2      ; expect 700
+        st r0, drv_stun_n2      ; expect 600
+        lea r0, drv_stun_msg2
+        bl drv_copy_head_msg
 
-        ; Hit 3: E_NEXT 700 >= st_time + 2*STUN_TU (700) -> stays 700 (no stun-lock!)
+        ; The robot acts (act_think clears EF_STUNNED), then hit 3 stuns again: +STUN_TU
+        mov r0, 0
+        bl act_think
+        lea r2, st_enemies
+        ldr r0, r2, E_NEXT
+        st r0, drv_stun_n3a
         bl drv_fire_until_hit
         lea r2, st_enemies
         ldr r0, r2, E_NEXT
-        st r0, drv_stun_n3      ; expect 700
+        ld r1, drv_stun_n3a
+        sub r0, r0, r1
+        st r0, drv_stun_n3      ; expect STUN_TU (100)
         lea r0, drv_stun_msg3
         bl drv_copy_head_msg
 
@@ -648,6 +657,8 @@ drv_bln_de_bul:  .word 99
 drv_stun_n1:     .word 99
 drv_stun_n2:     .word 99
 drv_stun_n3:     .word 99
+drv_stun_n3a:    .word 99
+drv_stun_msg2:   .zero MSG_LEN
 drv_stun_msg1:   .zero MSG_LEN
 drv_stun_msg3:   .zero MSG_LEN
 
