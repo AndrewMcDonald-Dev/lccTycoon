@@ -128,7 +128,8 @@ Every key can be written in the harness key script (`tools/lib/keys.js`): letter
 | `F` | map | quick-fire at once at the last / nearest visible target |
 | `<tab>` or `]` / `[` | target | next / previous visible robot |
 | `f` or `<enter>` | target | fire every active (non-held) ranged weapon that reaches and has energy |
-| `;` | map → look | enter look mode with cursor at player (`st_look_x/y`) |
+| `<esc>` | target | cancel targeting back to map mode and restore previous target (`st_target`) |
+| `;` | map → look | enter look mode (`st_look_x/y`): starts on current target if still visible, else nearest visible robot, else player |
 | `hjkl/yubn/arrows` (`Shift+vi-key` ×8) | look | move look cursor (Shift jumps 8 tiles) |
 | `<tab>` or `]` / `[` | look | jump look cursor between visible robots |
 | `f` or `<enter>` | look | target the visible robot under the cursor (enters target mode) |
@@ -187,7 +188,9 @@ the robot types are `act_types` in actors.ap.
   or -1), `st_climb`, `st_death_cause` (EN_*), `st_seed`, `st_frame`.
 - **QoL controls** `st_auto` (AUTO_NONE/RUN/REST/TRAVEL/EXPLORE), `st_auto_dx/dy`,
   `st_auto_steps`, `st_look_x/y` (MODE_LOOK cursor), `st_wpn_off` (bit i set = loadout
-  slot i holds fire, weapon slots 3-5). Written by player; read by combat, ui, render.
+  slot i holds fire, weapon slots 3-5). Written by player (`st_wpn_off` bit cleared when
+  a slot gets a new part or is emptied by remove) and, for `st_wpn_off`, by parts
+  (clears the bit when that part is destroyed). Read by combat, ui, render.
 - **Messages** `st_msg_text` MSG_COUNT 16 × MSG_LEN 64 (copied, NUL-terminated, so a
   message can contain names and numbers), `st_msg_attr[16]`, `st_msg_head`. Written only
   by `ui_msg*`.
@@ -331,7 +334,7 @@ player action (private to actors, 1536 words + queue).
 | map + fov 2 × 1536 | 3072 |
 | actors distance field + BFS queue (private) | 3072 |
 | enemies 24×16, items 32×4, slots/inv 24, rooms 48 | ~590 |
-| messages 8×64 + 9 | ~521 |
+| messages 16×64 + 17 | ~1041 |
 | other state | ~60 |
 | part catalog 23×16 + names, robot types 7×16 + names + drop lists | ~800 |
 | code (estimate) | 12–18K |
@@ -391,6 +394,5 @@ ranges gave only two values per game. `rng_range` takes the full 16-bit state
 
 - Whether the core alone (no weapons) should get a free weak ranged zap. For now the
   answer is no: a weaponless core can only ram.
-- Whether doors need closing: no close command in v1.
 - Balance (spawn counts, drop rates, energy costs) is WP10's job once the game is
   playable.
