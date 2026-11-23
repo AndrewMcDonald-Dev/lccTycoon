@@ -15,7 +15,7 @@
           "drv_init_core": 40,
           "drv_init_free": 3,
           "drv_info_0": 0,
-          "drv_info_24": 0,
+          "drv_info_past_end": 0,
           "drv_kind_0": 0,
           "drv_kind_lance": 3,
           "drv_sk_neg": 0,

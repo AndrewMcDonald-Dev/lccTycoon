@@ -17,8 +17,8 @@ from any existing game.
 | No file I/O | No save games (permadeath fits the genre anyway) |
 | Single assembly unit | Modules via `.include`, per-module label prefixes, far references handled by the build |
 
-Verdict: viable. Procedural floors, FOV with memory, a time-unit scheduler, ~23 parts and
-7 robot types fit well inside the budget. Out of reach for v1: heat, hacking, factions,
+Verdict: viable. Procedural floors, FOV with memory, a time-unit scheduler, 26 parts and
+9 robot types fit well inside the budget. Out of reach for v1: heat, hacking, factions,
 allies, saving. Estimate 5–8K lines of assembly, 11 work packages + QA, 5 waves.
 
 ## Pitch
@@ -35,10 +35,10 @@ to fight and when to sneak past, and which part to swap in.
 
 - In: title screen; procedurally generated floors (rooms + corridors, doors, stairs),
   10 depths; FOV radius ~8 with remembered tiles; time-unit scheduler (propulsion sets
-  your speed); 8 slots (2 propulsion, 1 power, 3 weapon, 2 utility) + 4 inventory; 23
+  your speed); 8 slots (2 propulsion, 1 power, 3 weapon, 2 utility) + 4 inventory; 26
   parts in 3 tiers; energy (power regen, weapons cost energy); ranged fire mode with
-  target cycling, bump melee; damage spread over parts and the core; 7 robot types with
-  simple AI (wander, hunt, keep distance, turret, flee); drops; message log; death and
+  target cycling, bump melee; damage spread over parts and the core; 9 robot types with
+  simple AI (wander, hunt, keep distance, turret, flee, sapper); drops; message log; death and
   win screens with score; help overlay.
 - Out (v1): save/load, heat, hacking, factions, allies, part mass/carry limits, item
   stacking, more than one item per tile, sound beyond optional beeps.
@@ -51,8 +51,8 @@ cols 0-63                                                         cols 64-99
 | VIEWPORT rows 0-23 = the whole 64x24 floor (tile x,y = cell y,x)| 0  SCRAPCORE  Depth 10  Turn 123   |
 |                                                                | 1  Core   ██████████ 40/40         |
 |   #########                                                    | 2  Energy ██████░░░░ 12/20         |
-|   #·····@·+········                                            | 3  Move 100  Sight 8  Kills 3      |
-|   #··/····#                         (unknown = blank,          | 4  -- Loadout --                   |
+|   #·····@·+········                                            | 3  Move 100  Sight 8  Score Kills 3|
+|   #··/····#                         (unknown = blank,          | 4  -- Loadout --  Alarm ░░░░░░░░░░ |
 |   #···r···#                          remembered = A_MEMORY,    | 5  P Stub Legs    ████████ 20      |
 |   ####+####                          visible = palette)        | 6  P Stub Legs    ████████ 20      |
 |                                                                | 7  E Cell Pack    ███████░ 13      |
@@ -77,13 +77,16 @@ cols 0-63                                                         cols 64-99
 ```
 
 Region rectangles are defines: `VIEW_*`, `PANEL_*`, `MSG_ROW/MSG_ROWS`, `HELP_ROW`, and the
-panel rows `PR_*`. Loadout rows: kind letter at panel col 1 (`P` propulsion, `E` power, `W`
-weapon, `U` utility), name at col 3 (≤ 12 chars), integrity bar (width 8) at col 16,
+panel rows `PR_*`. Row 4 (`PR_LOAD_HDR`) shows a compact 10-cell `Alarm` meter at the right
+of `-- Loadout --` (`A_GOOD` up to half `ALARM_MAX`, `A_WARN` past half, `A_BAD` after the
+first reinforcement wave). Loadout rows: kind letter at panel col 1 (`P` propulsion, `E`
+power, `W` weapon, `U` utility), name at col 3 (≤ 12 chars), integrity bar (width 8) at col 16,
 number at col 25. Weapons whose `st_wpn_off` bit is set are dimmed (`A_DIM`) and tagged
 `[HOLD]` (`A_WARN`) at col 28 in every mode. Carried rows show digit `1`-`4`, kind letter,
-name, compact key stat (weapon damage/range/energy per shot, e.g. `4-7 r8 e4` or
-`2-5 mel e0`, propulsion move cost, power regen, utility effect), and `hp/max` at panel
-col 30; `Here:` shows the floor part name with `[<kind> <stat>]`. In MODE_EQUIP/DROP the
+name, compact key stat (weapon damage/range/energy per shot, e.g. `4-7 r8 e4`, `2-5 mel e0`,
+or `1-3 r5 e3 S` for stun; propulsion move cost; power regen; utility effect incl. `abs N`
+and `drop +N%`), and `hp/max` at panel
+col 30; `Here:` shows the floor part name with `[<kind> <stat>]`. In MODE_EQUIP/DROP/RECYCLE the
 inventory rows show their digit highlighted `A_SELECT`; in MODE_REMOVE the loadout rows
 show digits 1-8; in MODE_TOGGLE the weapon rows (slots 3-5) show digits 1-3 highlighted
 `A_SELECT`. Target row 21 shows `Hit NN%  Dist N` for the best active (non-held) in-range
@@ -101,7 +104,9 @@ is a status line showing the active auto-action (`Running...` / `Resting...` /
 visible hostile robots (`N hostile(s) in view` in `A_WARN`), or blank. MODE_HELP draws a
 key list box over the viewport; MODE_LOG draws a full 16-message history box over the
 viewport oldest→newest in each message's stored `st_msg_attr` color. On reaching the
-surface, the panel and win screen display `Surface` instead of `Depth 0`.
+surface, the panel and win screen display `Surface` instead of `Depth 0`. Death and win
+screens include a parts summary line (`Parts: picked up N, lost N, recycled N`) below the
+score.
 
 ## Controls
 
@@ -123,6 +128,7 @@ Every key can be written in the harness key script (`tools/lib/keys.js`): letter
 | `e` then `1`-`4` | map → equip | attach that inventory part (swaps if its slots are full) |
 | `r` then `1`-`8` | map → remove | detach that slot into the inventory |
 | `x` then `1`-`4` | map → drop | drop that inventory part on the floor |
+| `R` then `1`-`4` | map → recycle | scrap that carried part to restore core integrity (`TIME_RECYCLE`) |
 | `w` then `1`-`3` | map → toggle | toggle hold-fire (`st_wpn_off`) on weapon slot 3-5 (held weapons do not fire or swing) |
 | `f` | map → target | targeting: reuses current target if still visible, else nearest visible hostile (Tinkers only if no hostiles visible) |
 | `F` | map | quick-fire at once at the last / nearest visible target |
@@ -164,26 +170,27 @@ the robot types are `act_types` in actors.ap.
 - **Loadout** `st_slots` NUM_SLOTS 8 × SLOT_SIZE 2: S_PART (id, 0 = empty), S_HP
   (integrity). Slots 0-1 propulsion, 2 power, 3-5 weapon, 6-7 utility. **Inventory**
   `st_inv` NUM_INV 4 × 2, same layout. Written only by parts.
-- **Part catalog** (static, parts.ap) PART_COUNT 23 × PART_SIZE 16: P_KIND, P_NAME
+- **Part catalog** (static, parts.ap) PART_COUNT 26 × PART_SIZE 16: P_KIND, P_NAME
   (string address), P_CELL (glyph|fg), P_MAXHP, P_TIER, P_COVER, then kind stats in
-  P_S0..P_S5. Weapon: P_W_DMIN, P_W_DMAX, P_W_RANGE, P_W_ENERGY, P_W_ACC, P_W_MELEE.
-  Propulsion: P_M_COST, P_M_EVADE, P_M_TYPE. Power: P_E_REGEN, P_E_CAP. Utility:
-  P_U_TYPE, P_U_VALUE.
-- **Robot types** (static, actors.ap) ETYPE_COUNT 7 × ETYPE_SIZE 16: ET_NAME, ET_CELL,
+  P_S0..P_S5 plus P_W_FX. Weapon: P_W_DMIN, P_W_DMAX, P_W_RANGE, P_W_ENERGY, P_W_ACC,
+  P_W_MELEE, P_W_FX (`WFX_*`). Propulsion: P_M_COST, P_M_EVADE, P_M_TYPE. Power:
+  P_E_REGEN, P_E_CAP. Utility: P_U_TYPE, P_U_VALUE.
+- **Robot types** (static, actors.ap) ETYPE_COUNT 9 × ETYPE_SIZE 16: ET_NAME, ET_CELL,
   ET_HP, ET_SPEED, ET_ATK_TIME, ET_DMIN, ET_DMAX, ET_RANGE, ET_ACC, ET_AI, ET_DLO,
   ET_DHI, ET_DROP (address of `count, id, id, ...`), ET_DROP_PCT, ET_SIGHT, ET_WEIGHT.
 - **Enemies** `st_enemies` MAX_ENEMIES 24 × ENEMY_SIZE 16: E_TYPE (0 = free), E_X,
   E_Y, E_HP, E_NEXT (next-act time), E_STATE (ES_IDLE/HUNT/FLEE), E_TX, E_TY,
-  E_ALERT, E_FLAGS (EF_SEEN), 10-15 spare for actors. Written by actors. Combat writes
+  E_ALERT, E_FLAGS (EF_SEEN/EF_ARMED/EF_BLOWN/EF_STUNNED/EF_REINF/EF_ALARMED), 10-15 spare for actors. Written by actors. Combat writes
   E_HP and frees records through `act_kill`.
 - **Floor items** `st_items` MAX_ITEMS 32 × ITEM_SIZE 4: I_PART (0 = free), I_X, I_Y,
   I_HP. One item per tile. Written by items.
 - **Player** `st_px/st_py`, `st_ply_next` (TU), `st_core_hp` (0..CORE_MAX 40),
   `st_energy` (0..st_energy_max), regen/repair accumulators.
 - **Derived stats** (written only by `prt_recalc`): `st_move_cost`, `st_regen`,
-  `st_energy_max`, `st_sight`, `st_acc_bonus`, `st_evade`, `st_repair_turns`.
-- **Game** `st_game_state` (GAME_TITLE/PLAY/DEAD/WON), `st_mode` (MODE_MAP..MODE_CLOSE,
-  incl. MODE_LOOK/LOG/TOGGLE/CLOSE), `st_depth` (10..1), `st_depth_best`, `st_turn`
+  `st_energy_max`, `st_sight`, `st_acc_bonus`, `st_evade`, `st_repair_turns`, plus
+  v2 `st_shield` and `st_salvage`.
+- **Game** `st_game_state` (GAME_TITLE/PLAY/DEAD/WON), `st_mode` (MODE_MAP..MODE_RECYCLE,
+  incl. MODE_LOOK/LOG/TOGGLE/CLOSE/RECYCLE), `st_depth` (10..1), `st_depth_best`, `st_turn`
   (player actions), `st_time` (scheduler clock, TU), `st_kills`, `st_target` (enemy index
   or -1), `st_climb`, `st_death_cause` (EN_*), `st_seed`, `st_frame`.
 - **QoL controls** `st_auto` (AUTO_NONE/RUN/REST/TRAVEL/EXPLORE), `st_auto_dx/dy`,
@@ -191,6 +198,13 @@ the robot types are `act_types` in actors.ap.
   slot i holds fire, weapon slots 3-5). Written by player (`st_wpn_off` bit cleared when
   a slot gets a new part or is emptied by remove) and, for `st_wpn_off`, by parts
   (clears the bit when that part is destroyed). Read by combat, ui, render.
+- **v2 state** (appended to `src/state.ap`): floor alarm `st_alarm` (written by actors and
+  combat — `cbt_blast` adds `ALARM_BLAST`), `st_alarm_acc`, `st_alarm_waves` (written by
+  actors; all three reset per floor in `act_spawn_floor`); barrier
+  & salvage `st_shield`, `st_salvage` (written by `prt_recalc`) and `st_absorbed`
+  (last barrier absorption in `prt_damage`, written by parts); run summary counters
+  `st_stat_salvaged` (pickup actions, written by player), `st_stat_lost` and `st_stat_recycled`
+  (written by parts), all three zeroed in `main_new_game`.
 - **Messages** `st_msg_text` MSG_COUNT 16 × MSG_LEN 64 (copied, NUL-terminated, so a
   message can contain names and numbers), `st_msg_attr[16]`, `st_msg_head`. Written only
   by `ui_msg*`.
@@ -227,8 +241,12 @@ Color by tier: white, bright cyan, bright magenta. Names are ≤ 12 chars.
 | 21 | Optic Mast | utility sensor | 1 | 8 | 1 | +3 sight |
 | 22 | Patch Drone | utility repair | 2 | 10 | 1 | 1 integrity every 3 turns |
 | 23 | Aim Gyro | utility target | 2 | 10 | 1 | +15% accuracy |
+| 24 | Jolt Caster | weapon | 2 | 14 | 3 | 1-3, range 5, energy 3, acc 75, stun (`WFX_STUN`, once per action) |
+| 25 | Barrier Grid | utility shield | 2 | 12 | 1 | absorbs up to 3/hit (`SHIELD_COST` 2 energy/pt) |
+| 26 | Salvage Rig | utility salvage | 1 | 10 | 1 | +25% drop chance; drops at 75-100% integrity |
 
-Starting loadout: 2× Stub Legs, Cell Pack, Rivet Gun, Spark Prod. That gives move 100,
+See "v2 features" below for stun, barrier absorption, and salvage drop rules. Starting
+loadout: 2× Stub Legs, Cell Pack, Rivet Gun, Spark Prod. That gives move 100,
 energy 40, regen 3. Five slots filled, so the core-hit chance is 6 + 3×6 = 24%.
 
 ## Enemy table
@@ -244,8 +262,11 @@ Depth range: a type spawns on depths ET_DHI down to ET_DLO (10 = deepest, start)
 | 5 | Bulwark | `B` bright white | 40 | 150 | 120 | 4-8 | 1 | 70 | melee | 6-1 | 6 | 70 | 5, 6, 20, 18, 16 |
 | 6 | Stalker | `k` bright magenta | 22 | 60 | 80 | 4-8 | 7 | 70 | ranged | 4-1 | 10 | 60 | 8, 17, 11, 4, 22 |
 | 7 | Tinker | `t` green | 8 | 80 | — | — | 0 | — | worker | 10-1 | 6 | 80 | 19, 21, 22, 23, 9 |
+| 8 | Leech | `l` bright green | 10 | 70 | 100 | 1-3 | 1 | 70 | melee | 9-3 | 7 | 60 | 9, 10, 25 |
+| 9 | Sapper | `x` bright yellow | 8 | 60 | 100 | 4-8 (blast) | 1 | — | sapper | 8-1 | 8 | 0 | (none) |
 
-Per floor: SPAWN_BASE 4 + (11 − depth)/2 hostile robots (types eligible for the depth,
+See "v2 features" below for Leech energy drain, Sapper arm/blast behavior, and floor alarm
+reinforcements. Per floor: SPAWN_BASE 4 + (11 − depth)/2 hostile robots (types eligible for the depth,
 weighted by ET_WEIGHT), plus one Tinker. None spawn in the start room or within
 SPAWN_SAFE 6 tiles of the player.
 
@@ -256,7 +277,7 @@ SPAWN_SAFE 6 tiles of the player.
 - A player action adds its cost to `st_ply_next` (`ply_spend`). Costs:
   - move = `st_move_cost`
   - melee TIME_MELEE 100, fire TIME_FIRE 100, wait 100, pick up 100, stairs 100 (climbing a floor reinforces the core by +10 HP, capped at CORE_MAX)
-  - attach/detach TIME_SWAP 150, drop 50
+  - attach/detach TIME_SWAP 150, recycle TIME_RECYCLE 150, drop 50
   - menus, targeting, help and blocked moves cost nothing
 - Move cost is the average P_M_COST of the attached propulsion parts, +LIMP_EXTRA 30
   with only one, and CRAWL_COST 250 with none.
@@ -283,8 +304,10 @@ player action (private to actors, 1536 words + queue).
 - **Losing the player:** a hunting enemy that can't see the player walks greedily toward
   E_TX/E_TY; if that step is blocked it waits. It uses the player-seeded distance field
   (BFS) only while it sees the player or when E_TX/E_TY equals the player's position,
-  so it never tracks the player through walls. E_ALERT counts down, and at 0 it goes
-  back to ES_IDLE.
+  so normal robots never track the player through walls. Reinforcement-wave robots
+  (`EF_REINF`) are the exception: while hunting (`E_ALERT > 0`), the floor alarm refreshes
+  their `E_TX/E_TY` to the player's position each action so they keep pathing via BFS
+  until their alert expires. E_ALERT counts down, and at 0 it goes back to ES_IDLE.
 - **Hit by the player:** a robot that survives player damage is alerted (`act_alert`):
   E_TX/E_TY = player, E_ALERT = ALERT_TURNS, ES_IDLE → ES_HUNT (AI_WORKER → ES_FLEE),
   so sniping from beyond ET_SIGHT wakes it.
@@ -336,7 +359,7 @@ player action (private to actors, 1536 words + queue).
 | enemies 24×16, items 32×4, slots/inv 24, rooms 48 | ~590 |
 | messages 16×64 + 17 | ~1041 |
 | other state | ~60 |
-| part catalog 23×16 + names, robot types 7×16 + names + drop lists | ~800 |
+| part catalog 26×16 + names, robot types 9×16 + names + drop lists | ~920 |
 | code (estimate) | 12–18K |
 | **total estimate / budget.words** | **~24–30K / 40000** |
 
@@ -356,13 +379,13 @@ preserved.
 | src/rng.ap | rng_ | architect | uniform random ranges from the RNG's high bits | rng_range | lcc-simulation |
 | src/dungeon.ap | dun_ | WP1 | generator, tiles, walkable/opaque, random floor, distance | dun_generate dun_get dun_set dun_walkable dun_opaque dun_random_floor dun_room_of dun_dist | lcc-simulation |
 | src/fov.ap | fov_ | WP2 | visibility + memory, line of sight | fov_reset fov_update fov_visible fov_known fov_los | lcc-simulation |
-| src/parts.ap | prt_ | WP3 | catalog, slots, inventory, derived stats, energy, repair, damage spread | prt_init prt_recalc prt_info prt_name prt_kind prt_slot_kind prt_attach prt_detach prt_inv_add prt_inv_clear prt_damage prt_tick prt_spend_energy prt_random_part prt_free_slots | lcc-simulation |
+| src/parts.ap | prt_ | WP3 | catalog, slots, inventory, derived stats, energy, repair, damage spread | prt_init prt_recalc prt_info prt_name prt_kind prt_slot_kind prt_attach prt_detach prt_inv_add prt_inv_clear prt_recycle prt_damage prt_tick prt_spend_energy prt_random_part prt_free_slots | lcc-simulation |
 | src/ui.ap | ui_ | WP4 | panel, bars, messages, help row, menus, help overlay, title/end screens | ui_init ui_title ui_draw ui_end_screen ui_msg ui_msg_add ui_msg_addn ui_msg_attr ui_bar ui_score | lcc-text-graphics |
 | src/render.ap | ren_ | WP5 | map viewport layers | ren_draw ren_tile_cell | lcc-text-graphics |
 | src/items.ap | itm_ | WP6 | floor item pool, per-floor loot | itm_clear itm_place itm_at itm_remove itm_spawn_floor | lcc-simulation |
 | src/actors.ap | act_ | WP7 | robot types, pool, spawning, scheduler, AI, target cycling | act_init act_clear act_spawn_floor act_spawn act_at act_run act_think act_type_info act_name act_kill act_alert act_next_visible | lcc-simulation |
-| src/combat.ap | cbt_ | WP8 | hit chance, fire, melee, enemy attacks, destruction, drops | cbt_hit_chance cbt_player_fire cbt_player_melee cbt_enemy_attack cbt_damage_enemy | lcc-simulation |
-| src/player.ap | ply_ | WP9 | input modes, player actions | ply_init ply_handle ply_key ply_move ply_spend ply_pickup ply_equip ply_remove ply_drop ply_target ply_fire ply_stairs | lcc-game-dev |
+| src/combat.ap | cbt_ | WP8 | hit chance, fire, melee, enemy attacks, destruction, drops | cbt_hit_chance cbt_player_fire cbt_player_melee cbt_enemy_attack cbt_damage_enemy cbt_blast | lcc-simulation |
+| src/player.ap | ply_ | WP9 | input modes, player actions | ply_init ply_handle ply_key ply_move ply_spend ply_pickup ply_equip ply_remove ply_drop ply_recycle ply_target ply_fire ply_stairs | lcc-game-dev |
 
 Dependency direction (who calls whom): main → everything. player → dungeon, items,
 parts, actors, combat, ui. actors → dungeon, fov, combat, ui. combat → parts, items,
@@ -396,3 +419,118 @@ ranges gave only two values per game. `rng_range` takes the full 16-bit state
   answer is no: a weaponless core can only ram.
 - Balance (spawn counts, drop rates, energy costs) is WP10's job once the game is
   playable.
+
+## v2 features (WP11–WP13)
+
+Constants live in `src/defs.ap` (`ALARM_*`, `BLAST_*`, `UT_SHIELD`, `UT_SALVAGE`,
+`WFX_*`, `RECYCLE_*`, `MODE_RECYCLE`); state cells are appended at the end of
+`src/state.ap`.
+
+### New parts (catalog ids 24–26, `prt_catalog`)
+
+| id | Name | Kind | Tier | HP | Cover | Stats |
+|---|---|---|---|---|---|---|
+| 24 | Jolt Caster | weapon | 2 | 14 | 3 | 1-3, range 5, energy 3, acc 75, P_W_FX = WFX_STUN (once per action) |
+| 25 | Barrier Grid | utility shield | 2 | 12 | 1 | absorbs up to 3 damage per hit, SHIELD_COST 2 energy per point |
+| 26 | Salvage Rig | utility salvage | 1 | 10 | 1 | +25% robot drop chance; drops at 75–100% integrity |
+
+All three names fit `PART_NAME_MAX` (12 chars).
+
+- **Stun (`WFX_STUN`):** a player weapon hit that leaves the robot alive stuns it
+  (`E_NEXT += STUN_TU`) only if it is not already stunned; it is then flagged
+  `EF_STUNNED` until its next action (`act_think` clears the flag), so a robot acts at
+  least once between stuns (no stun-lock). When stunned, the hit message appends
+  `Stunned!`.
+- **Barrier (`UT_SHIELD`):** `prt_recalc` sets `st_shield` to the best attached
+  `P_U_VALUE` (0 if none). `prt_damage` first absorbs
+  `a = min(damage, st_shield, st_energy / SHIELD_COST)` points, spends
+  `a × SHIELD_COST` energy, and stores `a` in `st_absorbed` (0 when nothing was
+  absorbed). Any remaining damage applies as usual. If the hit is fully absorbed,
+  `prt_damage` returns **-2** (no part or core hit). Combat reports the damage dealt
+  (`rolled − st_absorbed`) plus the absorbed amount (`(N absorbed)`), or
+  `<Robot> hits. Barrier absorbs N.` / `Barrier absorbs blast (N).` on full absorption.
+- **Salvage (`UT_SALVAGE`):** `prt_recalc` sets `st_salvage` to the best attached
+  `P_U_VALUE`. When a robot with a non-empty drop list is destroyed, its drop chance
+  becomes `ET_DROP_PCT + st_salvage` (capped at 100) and, when `st_salvage > 0`, the
+  dropped part rolls `rng_range(SALVAGE_HP_MIN..100)%` integrity instead of
+  `DROP_HP_MIN..100`.
+- **Panel / Here / Look stat text:** Jolt Caster appends `S` to its weapon stats
+  (`1-3 r5 e3 S`), Barrier Grid shows `abs 3`, and Salvage Rig shows `drop +25%`.
+
+### Recycling (`R`, `MODE_RECYCLE`)
+
+Pressing `R` then `1`-`4` breaks down a carried inventory part to restore core integrity:
+`heal = 1 + (RECYCLE_BASE + RECYCLE_TIER × tier) × hp / maxhp`, capped at `CORE_MAX`.
+Costs `TIME_RECYCLE`, increments `st_stat_recycled`, and logs
+`Recycled <Part>. Core +<N>.`. An empty slot (`No carried part there.`) or a full core
+(`Core integrity is full.`) spends no time and keeps the part. `Esc` cancels. Inventory
+digits highlight in `A_SELECT` like `MODE_EQUIP`/`MODE_DROP`; the help bar
+(`RECYCLE: 1-4 scrap carried part for core HP   Esc cancel`) and `?` overlay both list
+it. Spare parts now double as emergency repair material: carry, attach, or scrap.
+
+### New robots (`act_types` ids 8–9)
+
+| id | Name | Glyph | HP | Step TU | Atk TU | Damage | Range | Acc | AI | Depths | Sight | Drop % | Drops | Weight |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 8 | Leech | `l` bright green | 10 | 70 | 100 | 1-3 | 1 | 70 | melee | 9-3 | 7 | 60 | 9, 10, 25 | like Scuttler |
+| 9 | Sapper | `x` bright yellow | 8 | 60 | 100 | BLAST | 1 | — | sapper | 8-1 | 8 | 0 | (none) | a bit below Rifler |
+
+- **Leech:** each damaging hit also drains `min(LEECH_DRAIN, st_energy)` energy and
+  reports `(-N energy)` in the hit message. Full Barrier absorption blocks the drain.
+- **Sapper (`AI_SAPPER`):** hunts like `AI_MELEE` and never flees. When its turn comes
+  up adjacent to the player without `EF_ARMED`, it sets `EF_ARMED`, posts
+  `Sapper arms its charge!` (`A_WARN`), and spends `ET_ATK_TIME`. If already armed and
+  adjacent, it detonates. An armed Sapper that loses adjacency keeps chasing and
+  detonates on its next turn adjacent to the player; while `EF_ARMED` is set, each step
+  costs `ET_ATK_TIME` (100 TU) instead of `ET_SPEED` (60 TU), so a player on 100-TU legs
+  who steps away gets a turn before it can close and detonate. The renderer highlights a
+  visible armed Sapper with `A_ARMED_BG` (`BG_MAGENTA`, preserving glyph and fg; target
+  highlight wins in `MODE_TARGET`).
+- **Blast (`cbt_blast r0=x r1=y r2=cause`):** posts `Sapper explodes!` (or `Explosion!`)
+  in `A_BAD`, adds `ALARM_BLAST` to `st_alarm`, hits the player if within `BLAST_RADIUS`
+  (Chebyshev) for `rng_range(BLAST_DMIN..BLAST_DMAX)` through `prt_damage` (always hits,
+  ignores evade, Barrier applies, core death sets `st_death_cause = cause`), and deals
+  `BLAST_ROBOT` damage via `cbt_damage_enemy` to every other living robot within
+  `BLAST_RADIUS`. Robots surviving a blast are **not** alerted to the player's position
+  (only direct player hits call `act_alert`). Every non-`EF_REINF` robot destroyed by any
+  blast counts as a kill and drops normally (per its drop table; Sappers have no drops) —
+  including a second Sapper caught in the blast of an enemy Sapper that blew itself up
+  next to the player. A Sapper destroyed by player fire/melee or by another blast counts
+  as a kill (unless `EF_REINF`) and then detonates on its tile; the only exception is the
+  Sapper that detonates itself next to the player, which is removed with no kill and no
+  drop. `EF_BLOWN` ensures each Sapper blasts at most once so chain reactions always
+  terminate.
+
+### Floor alarm and reinforcements
+
+- `act_spawn_floor` resets `st_alarm`, `st_alarm_acc`, and `st_alarm_waves` to 0.
+- `act_run` adds `ALARM_PER_TURN` per `TIME_TURN` of world time elapsed (accumulated in
+  `st_alarm_acc`). The first time a Watcher sees the player (in sight + LOS) without
+  `EF_ALARMED`, it sets `EF_ALARMED` and adds `ALARM_WATCHER` to `st_alarm` (even if
+  `act_alert` already put it in `ES_HUNT`); re-sightings never add again. Every blast adds
+  `ALARM_BLAST` to `st_alarm` (from `combat.ap`).
+- When `st_alarm ≥ ALARM_MAX`: `act_alarm_wave` refreshes FOV (`fov_update`, so tiles
+  exposed by enemy-opened doors during the enemy phase are excluded) and the actors BFS
+  distance field, increments `st_alarm_waves`, resets `st_alarm = ALARM_MAX − REINF_AFTER`,
+  and spawns up to `REINF_COUNT` depth-eligible hostile robots (by `ET_WEIGHT`, excluding
+  `AI_TURRET` and `AI_WORKER`) on reachable floor tiles (finite BFS distance from the
+  player) ≥ `REINF_MIN_DIST` from the player and outside FOV — already in `ES_HUNT`
+  targeting the player with `E_ALERT = REINF_ALERT` and flagged `EF_REINF`. While an
+  `EF_REINF` robot stays in `ES_HUNT` (`E_ALERT > 0`), the floor alarm keeps its
+  `E_TX/E_TY` updated to the player's position each action so it continues pathing via BFS
+  even if the player moves out of sight (normal robots keep the no-omniscience rule).
+  Destroying an `EF_REINF` robot still posts `<Name> destroyed.` (and an `EF_REINF` Sapper still
+  detonates), but grants no `st_kills` credit and no part drop. `Floor alarm!
+  Reinforcements incoming!` (`A_BAD`) is posted only if at least one robot spawned (if the
+  pool is full or no qualifying tile exists, no message is posted, while `st_alarm_waves`
+  still increments and `st_alarm` still resets).
+- The panel shows a compact `Alarm` meter on the Loadout header row that shifts from
+  `A_GOOD` to `A_WARN` past half and `A_BAD` after the first wave. Lingering, resting,
+  and letting Watchers spot you now carry real risk.
+
+### Run summary
+
+Death and win screens add a parts breakdown line below the score
+(`Parts: picked up N, lost N, recycled N`), tracking pickup actions (`st_stat_salvaged`),
+destroyed attached parts (`st_stat_lost`), and recycled parts (`st_stat_recycled`).
+`main_new_game` zeroes all three counters.

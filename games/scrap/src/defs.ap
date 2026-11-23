@@ -127,6 +127,7 @@
         .define TIME_DROP       50      ; 'x'
         .define TIME_STAIRS     100     ; '<'
         .define TIME_CLOSE      100     ; 'c' close a door
+        .define TIME_RECYCLE    150     ; 'R' recycle an inventory part
         .define TIME_REBASE     16384   ; act_run subtracts this from all times when st_time reaches it
 ; player movement cost by propulsion (P_M_COST in the catalog); no propulsion:
         .define CRAWL_COST      250     ; core dragging itself
@@ -168,7 +169,7 @@
         .define PK_UTIL         4
 ; catalog record (static table prt_catalog in parts.ap), id 1..PART_COUNT
         .define PART_NONE       0
-        .define PART_COUNT      23
+        .define PART_COUNT      26
         .define PART_SIZE       16
         .define PART_SHIFT      4
         .define P_KIND          0       ; PK_*
@@ -183,6 +184,7 @@
         .define P_S3            9
         .define P_S4            10
         .define P_S5            11
+        .define P_W_FX          12      ; weapon only: WFX_* on-hit effect (0 = none)
 ; weapon stats
         .define P_W_DMIN        6
         .define P_W_DMAX        7
@@ -212,6 +214,12 @@
         .define UT_SENSOR       2
         .define UT_REPAIR       3
         .define UT_TARGET       4
+        .define UT_SHIELD       5       ; P_U_VALUE = max damage absorbed per hit, SHIELD_COST energy per point
+        .define UT_SALVAGE      6       ; P_U_VALUE = + drop chance % on destroyed robots
+; weapon on-hit effects (P_W_FX)
+        .define WFX_NONE        0
+        .define WFX_STUN        1       ; a hit that leaves the robot alive delays its E_NEXT by STUN_TU (once per robot action)
+        .define STUN_TU         100     ; delay per stun; at most one stun per robot action (EF_STUNNED)
 ; part ids (catalog order; DESIGN.md "Part catalog")
         .define PT_STUB_LEGS    1
         .define PT_STRUT_LEGS   2
@@ -236,6 +244,14 @@
         .define PT_OPTIC_MAST   21
         .define PT_PATCH_DRONE  22
         .define PT_AIM_GYRO     23
+        .define PT_JOLT_CASTER  24      ; weapon, tier 2, stuns on hit
+        .define PT_BARRIER      25      ; utility shield, tier 2
+        .define PT_SALVAGE_RIG  26      ; utility salvage, tier 1
+; barrier / salvage / recycling
+        .define SHIELD_COST     2       ; energy per damage point a barrier absorbs
+        .define SALVAGE_HP_MIN  75      ; with a salvage part, drops have rng_range(75..100)% integrity
+        .define RECYCLE_BASE    2       ; recycling heals the core by 1 + (RECYCLE_BASE + RECYCLE_TIER*tier)*hp/maxhp
+        .define RECYCLE_TIER    4       ;   (full-integrity tier 1/2/3 part: +7/+11/+15)
 ; tiers by depth: depth >= TIER2_DEPTH+1 → tier 1 only, etc.
         .define TIER2_DEPTH     7       ; depth 7..4 allows tier <= 2
         .define TIER3_DEPTH     3       ; depth 3..1 allows tier <= 3
@@ -260,7 +276,7 @@
         .define LOOT_MAX        5
 
 ; ---- enemies: type table (static act_types in actors.ap) + st_enemies pool ---
-        .define ETYPE_COUNT     7
+        .define ETYPE_COUNT     9
         .define ETYPE_SIZE      16
         .define ETYPE_SHIFT     4
         .define ET_NAME         0       ; address of name string
@@ -288,11 +304,14 @@
         .define EN_BULWARK      5       ; 'B' slow tank, heavy melee
         .define EN_STALKER      6       ; 'k' fast ranged hunter (depths 4..1)
         .define EN_TINKER       7       ; 't' non-hostile worker, flees, drops utility parts
+        .define EN_LEECH        8       ; 'l' melee, each hit also drains LEECH_DRAIN energy
+        .define EN_SAPPER       9       ; 'x' arms next to the player, then detonates; also blows up when destroyed
 ; AI kinds
         .define AI_MELEE        1
         .define AI_RANGED       2
         .define AI_TURRET       3
         .define AI_WORKER       4
+        .define AI_SAPPER       5       ; hunts like melee; adjacent: arm (EF_ARMED), then detonate
 ; enemy instance record
         .define MAX_ENEMIES     24
         .define ENEMY_SIZE      16
@@ -313,6 +332,11 @@
         .define ES_HUNT         1       ; chase / attack toward E_TX,E_TY
         .define ES_FLEE         2       ; move away from the player
         .define EF_SEEN         1       ; player has seen it (one "spotted" message)
+        .define EF_ARMED        2       ; Sapper: armed, detonates on its next action next to the player
+        .define EF_BLOWN        4       ; Sapper: its blast already went off (never twice)
+        .define EF_STUNNED      8       ; stunned since its last action: no further stun until it acts (act_think clears)
+        .define EF_REINF        16      ; reinforcement-wave robot: destroying it gives no kill credit and no drop
+        .define EF_ALARMED      32      ; Watcher: already raised ALARM_WATCHER (once per Watcher)
         .define ALERT_TURNS     12      ; E_ALERT on sighting
         .define FLEE_PCT        25      ; hp below this % of max → ES_FLEE (not turrets)
         .define SPAWN_BASE      4       ; enemies per floor = SPAWN_BASE + (11-depth)/2 (+ 1 worker)
@@ -323,6 +347,21 @@
         .define HIT_MAX         95
         .define HIT_DIST_PEN    3       ; -% per tile of distance beyond 1
         .define DROP_HP_MIN     50      ; dropped part integrity = rand(DROP_HP_MIN..100)% of max
+        .define LEECH_DRAIN     5       ; energy a Leech hit drains (up to st_energy)
+        .define BLAST_RADIUS    1       ; Chebyshev radius of a Sapper blast
+        .define BLAST_DMIN      4       ; blast damage to the player (one prt_damage hit, never misses)
+        .define BLAST_DMAX      8
+        .define BLAST_ROBOT     10      ; blast damage to each other robot in the radius
+
+; ---- floor alarm / reinforcements (W: actors, combat) -----------------------------------
+        .define ALARM_MAX       250     ; st_alarm at which a reinforcement wave arrives
+        .define ALARM_PER_TURN  1       ; + per TIME_TURN of world time on the floor
+        .define ALARM_WATCHER   40      ; + when a Watcher spots the player (once per Watcher, EF_ALARMED)
+        .define ALARM_BLAST     25      ; + per Sapper blast
+        .define REINF_COUNT     2       ; hostile robots per wave (pool permitting)
+        .define REINF_AFTER     150     ; after a wave st_alarm drops to ALARM_MAX - REINF_AFTER
+        .define REINF_MIN_DIST  12      ; wave robots spawn at least this far from the player, out of view
+        .define REINF_ALERT     60      ; E_ALERT of a wave robot (long enough to cross the floor)
 
 ; ---- score -----------------------------------------------------------------------
         .define SCORE_DEPTH     100     ; per depth climbed above 10
@@ -350,7 +389,8 @@
         .define MODE_LOG        8       ; 'm': message history overlay, any key closes
         .define MODE_TOGGLE     9       ; 'w': pick weapon 1-3 (slots 3-5) to hold / release fire
         .define MODE_CLOSE      10      ; 'c': pick a direction to close an adjacent open door
-        .define MODE_LAST       10      ; highest MODE_* (table bounds)
+        .define MODE_RECYCLE    11      ; 'R': pick inventory 1-4 to recycle into core integrity
+        .define MODE_LAST       11      ; highest MODE_* (table bounds)
 ; st_auto: multi-turn automatic action in progress (W: player). One step per frame;
 ; any key, a visible hostile robot or a new message stops it.
         .define AUTO_NONE       0
@@ -404,6 +444,7 @@
         .define KEY_TRAVEL      't'
         .define KEY_EXPLORE     'o'
         .define KEY_QFIRE       'F'     ; fire at once at the last / nearest target
+        .define KEY_RECYCLE     'R'     ; recycle an inventory part
         .define KEY_SHIFT       32      ; run keys = vi-key - KEY_SHIFT (H J K L Y U B N)
         .define KEY_ESC         27
         .define KEY_CSI         91      ; '[' right after ESC: arrow sequence
@@ -429,6 +470,7 @@
         .define A_MEMORY        FG_BLUE         ; remembered (known, not visible) tiles, any kind
         .define A_LOOK_BG       BG_BLUE         ; bg of the look cursor cell in MODE_LOOK
         .define A_TARGET_BG     BG_RED          ; bg of the targeted enemy in MODE_TARGET
+        .define A_ARMED_BG      BG_MAGENTA      ; bg of an armed Sapper (EF_ARMED) on a visible tile (contrasts its bright-yellow 'x')
         .define A_TEXT          FG_WHITE
         .define A_DIM           FG_GRAY
         .define A_TITLE         FG_BYELLOW

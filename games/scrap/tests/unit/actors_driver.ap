@@ -19,11 +19,11 @@ drv_main:
         mov r0, 0
         bl act_type_info
         st r0, drv_ti_0         ; expect 0
-        mov r0, 8
+        mov r0, ETYPE_COUNT+1
         bl act_type_info
-        st r0, drv_ti_8         ; expect 0
+        st r0, drv_ti_oob       ; expect 0 (10 out of range for ETYPE_COUNT=9)
 
-        ; Spot-check all 7 enemy type records against DESIGN.md
+        ; Spot-check all 9 enemy type records against DESIGN.md
         mov r0, EN_FLIT
         bl act_type_info
         ldr r1, r0, ET_HP
@@ -83,6 +83,42 @@ drv_main:
         st r1, drv_tnk_ai       ; AI_WORKER (4)
         ldr r1, r0, ET_DROP_PCT
         st r1, drv_tnk_dpct     ; 80
+
+        mov r0, EN_LEECH
+        bl act_type_info
+        ldr r1, r0, ET_HP
+        st r1, drv_lch_hp       ; 10
+        ldr r1, r0, ET_SPEED
+        st r1, drv_lch_spd      ; 70
+        ldr r1, r0, ET_DLO
+        st r1, drv_lch_dlo      ; 3
+        ldr r1, r0, ET_DHI
+        st r1, drv_lch_dhi      ; 9
+        ldr r1, r0, ET_DROP_PCT
+        st r1, drv_lch_dpct     ; 60
+        ldr r1, r0, ET_DROP
+        ldr r2, r1, 0           ; drop count = 3
+        st r2, drv_lch_dcnt
+        ldr r2, r1, 3           ; 3rd drop = PT_BARRIER (25)
+        st r2, drv_lch_d2
+
+        mov r0, EN_SAPPER
+        bl act_type_info
+        ldr r1, r0, ET_HP
+        st r1, drv_sap_hp       ; 8
+        ldr r1, r0, ET_SPEED
+        st r1, drv_sap_spd      ; 60
+        ldr r1, r0, ET_AI
+        st r1, drv_sap_ai       ; AI_SAPPER (5)
+        ldr r1, r0, ET_DLO
+        st r1, drv_sap_dlo      ; 1
+        ldr r1, r0, ET_DHI
+        st r1, drv_sap_dhi      ; 8
+        ldr r1, r0, ET_DROP_PCT
+        st r1, drv_sap_dpct     ; 0
+        ldr r1, r0, ET_DROP
+        ldr r2, r1, 0           ; drop count = 0
+        st r2, drv_sap_dcnt
 
         ; Fill all 24 slots, check 25th returns -1, kill slot 5, reuse slot 5
         bl act_clear
@@ -1205,6 +1241,8 @@ ui_msg:
 
 ui_msg_add:
         ret
+ui_msg_attr:
+        ret
 
 ; ---- Constants & results --------------------------------------------
 drv_k_mapsize:      .word MAP_SIZE
@@ -1223,7 +1261,21 @@ drv_msg_cnt:        .word 0
 
 ; Recorded test outputs
 drv_ti_0:           .word 99
-drv_ti_8:           .word 99
+drv_ti_oob:         .word 99
+drv_lch_hp:         .word 99
+drv_lch_spd:        .word 99
+drv_lch_dlo:        .word 99
+drv_lch_dhi:        .word 99
+drv_lch_dpct:       .word 99
+drv_lch_dcnt:       .word 99
+drv_lch_d2:         .word 99
+drv_sap_hp:         .word 99
+drv_sap_spd:        .word 99
+drv_sap_ai:         .word 99
+drv_sap_dlo:        .word 99
+drv_sap_dhi:        .word 99
+drv_sap_dpct:       .word 99
+drv_sap_dcnt:       .word 99
 drv_flit_hp:        .word 99
 drv_flit_spd:       .word 99
 drv_flit_atk:       .word 99

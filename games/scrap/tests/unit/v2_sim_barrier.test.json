@@ -1,0 +1,31 @@
+{
+  "game": "v2_sim_barrier_driver.ap",
+  "scenarios": [
+    {
+      "name": "Barrier -2 full absorb (blocks Leech drain, blast) and partial st_absorbed reporting",
+      "clock": 1000,
+      "frames": 5,
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_b1_hp": 40,
+          "drv_b1_e_ok": 1,
+          "drv_b1_msg": "Leech hits. Barrier absorbs 1.",
+          "drv_b2_energy": 13,
+          "drv_b2_abs": 1,
+          "drv_b2_msg": "Leech hits core for 1 (1 absorbed, -5 energy).",
+          "drv_b3_abs": 3,
+          "drv_b3_energy": 14,
+          "drv_b3_dmg_ok": 1,
+          "drv_b3_msg": "Bulwark hits core for 2 (3 absorbed).",
+          "drv_b4_hp": 40,
+          "drv_b4_msg": "Barrier absorbs blast (4).",
+          "drv_b5_abs": 3,
+          "drv_b5_energy": 34,
+          "drv_b5_dmg_ok": 1,
+          "drv_b5_msg": "Blast hits core for 4 (3 absorbed)."
+        }
+      }
+    }
+  ]
+}

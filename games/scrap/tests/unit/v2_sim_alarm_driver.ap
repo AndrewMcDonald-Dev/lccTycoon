@@ -1,0 +1,969 @@
+; Unit driver for WP11 v2 floor alarm & reinforcement waves:
+; - reset in act_spawn_floor
+; - ALARM_PER_TURN per TIME_TURN accumulation in st_alarm_acc
+; - +ALARM_WATCHER on Watcher sighting (ES_IDLE -> ES_HUNT, once)
+; - wave spawn on real floor (count, no turret/worker, depth-eligible,
+;   >= REINF_MIN_DIST, not fov-visible, ES_HUNT, st_alarm_waves++, alarm reset,
+;   A_BAD alarm message)
+; - pool-full wave (no crash, still bumps waves and resets alarm)
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        mov r0, 222
+        srand r0
+        bl ui_init
+        bl act_init
+        mov r0, GAME_PLAY
+        st r0, st_game_state
+
+        ; ============================================================
+        ; T1. act_spawn_floor resets st_alarm, st_alarm_acc, st_alarm_waves
+        ; ============================================================
+        mov r0, 6
+        st r0, st_depth
+        bl dun_generate
+        bl act_clear
+        mov r0, 123
+        st r0, st_alarm
+        mov r0, 77
+        st r0, st_alarm_acc
+        mov r0, 4
+        st r0, st_alarm_waves
+        mov r0, 6
+        bl act_spawn_floor
+        ld r0, st_alarm
+        st r0, drv_rst_al       ; expect 0
+        ld r0, st_alarm_acc
+        st r0, drv_rst_acc      ; expect 0
+        ld r0, st_alarm_waves
+        st r0, drv_rst_wv       ; expect 0
+
+        ; ============================================================
+        ; T2. Alarm accumulation in act_run (st_alarm_acc + ALARM_PER_TURN)
+        ; ============================================================
+        bl act_clear
+        mov r0, 0
+        st r0, st_time
+        st r0, st_ply_next
+        st r0, st_alarm
+        st r0, st_alarm_acc
+        ; +60 TU -> alarm 0, acc 60
+        mov r0, 60
+        st r0, st_ply_next
+        bl act_run
+        ld r0, st_alarm
+        st r0, drv_acc_al1      ; expect 0
+        ld r0, st_alarm_acc
+        st r0, drv_acc_r1       ; expect 60
+        ; +60 TU (total 120) -> alarm 1, acc 20
+        mov r0, 120
+        st r0, st_ply_next
+        bl act_run
+        ld r0, st_alarm
+        st r0, drv_acc_al2      ; expect 1
+        ld r0, st_alarm_acc
+        st r0, drv_acc_r2       ; expect 20
+        ; +250 TU (370) -> acc 270 -> +2 alarm (3), rem 70
+        ld r0, drv_k_370
+        st r0, st_ply_next
+        bl act_run
+        ld r0, st_alarm
+        st r0, drv_acc_al3      ; expect 3
+        ld r0, st_alarm_acc
+        st r0, drv_acc_r3       ; expect 70
+
+        ; ============================================================
+        ; T3. Watcher sighting bonus (+ALARM_WATCHER once on ES_IDLE->ES_HUNT)
+        ; ============================================================
+        mov r0, 1
+        sleep r0
+        bl drv_make_open_room
+        bl act_clear
+        mov r0, 0
+        st r0, st_time
+        st r0, st_ply_next
+        st r0, st_alarm
+        st r0, st_alarm_acc
+        mov r0, 10
+        st r0, st_px
+        st r0, st_py
+        mov r0, 8
+        st r0, st_sight
+        bl fov_reset
+        bl fov_update
+        mov r0, EN_WATCHER
+        mov r1, 14
+        mov r2, 10
+        bl act_spawn            ; slot 0 (ES_IDLE)
+        lea r2, st_enemies
+        mov r0, 0
+        str r0, r2, E_NEXT
+        ; Turn 1: Watcher spots player -> +ALARM_WATCHER (40) + 1 turn = 41
+        mov r0, 100
+        st r0, st_ply_next
+        bl act_run
+        ld r0, st_alarm
+        st r0, drv_wat_al1      ; expect 41
+        ; Turn 2: Watcher already ES_HUNT -> +0 Watcher bonus + 1 turn = 42
+        mov r0, 200
+        st r0, st_ply_next
+        bl act_run
+        ld r0, st_alarm
+        st r0, drv_wat_al2      ; expect 42
+
+        ; T3b. Watcher alerted by hit (act_alert -> ES_HUNT) BEFORE sighting still
+        ;      adds ALARM_WATCHER once on first sighting; losing LOS & re-sighting adds 0
+        bl act_clear
+        mov r0, 0
+        st r0, st_time
+        st r0, st_ply_next
+        st r0, st_alarm
+        st r0, st_alarm_acc
+        mov r0, EN_WATCHER
+        mov r1, 14
+        mov r2, 10
+        bl act_spawn            ; slot 0 (ES_IDLE, flags=0)
+        lea r2, st_enemies
+        mov r0, 0
+        str r0, r2, E_NEXT
+        mov r0, 0
+        bl act_alert            ; puts Watcher in ES_HUNT without EF_ALARMED
+        ldr r0, r2, E_STATE
+        st r0, drv_w2_pre_st    ; expect 1 (ES_HUNT)
+        mov r0, 100
+        st r0, st_ply_next
+        bl act_run              ; first sighting -> +40 + 1 = 41, sets EF_ALARMED
+        ld r0, st_alarm
+        st r0, drv_w2_al1       ; expect 41
+        lea r2, st_enemies
+        ldr r0, r2, E_FLAGS
+        mov r1, EF_ALARMED
+        and r0, r0, r1
+        st r0, drv_w2_fl1       ; expect 32 (EF_ALARMED)
+        ; Block LOS with wall at (12,10) and wait ALERT_TURNS (12) turns -> ES_IDLE
+        mov r0, 12
+        mov r1, 10
+        mov r2, T_WALL
+        bl dun_set
+        bl fov_update
+        mov r3, ALERT_TURNS
+drv_w2_wait_lp:
+        ld r0, st_ply_next
+        mov r1, 100
+        add r0, r0, r1
+        st r0, st_ply_next
+        bl act_run
+        sub r3, r3, 1
+        brp drv_w2_wait_lp
+        lea r2, st_enemies
+        ldr r0, r2, E_STATE
+        st r0, drv_w2_idle_st   ; expect 0 (ES_IDLE)
+        ld r0, st_alarm
+        st r0, drv_w2_al_idle   ; expect 53 (41 + 12)
+        ; Remove wall -> Watcher re-sights player -> ES_HUNT, but +0 Watcher bonus (+1 turn = 54)
+        mov r0, 12
+        mov r1, 10
+        mov r2, T_FLOOR
+        bl dun_set
+        bl fov_update
+        ld r0, st_ply_next
+        mov r1, 100
+        add r0, r0, r1
+        st r0, st_ply_next
+        bl act_run
+        lea r2, st_enemies
+        ldr r0, r2, E_STATE
+        st r0, drv_w2_res_st    ; expect 1 (ES_HUNT)
+        ld r0, st_alarm
+        st r0, drv_w2_al2       ; expect 54 (53 + 1, no second Watcher bonus)
+
+        ; ============================================================
+        ; T4. Reinforcement wave on real generated floor (depth 5)
+        ; ============================================================
+        mov r0, 1
+        sleep r0
+        mov r0, 5
+        st r0, st_depth
+        bl dun_generate
+        bl act_clear
+        mov r0, 8
+        st r0, st_sight
+        bl fov_reset
+        bl fov_update
+        mov r0, 0
+        st r0, st_time
+        st r0, st_alarm_acc
+        st r0, st_alarm_waves
+        mov r0, ALARM_MAX-1
+        st r0, st_alarm         ; 249 -> +1 turn hits ALARM_MAX (250)!
+        mov r0, 100
+        st r0, st_ply_next
+        bl act_run
+
+        ld r0, st_alarm_waves
+        st r0, drv_wv_waves     ; expect 1
+        ld r0, st_alarm
+        st r0, drv_wv_reset     ; expect 100 (ALARM_MAX - REINF_AFTER)
+        lea r0, drv_wv_msg
+        bl drv_copy_head_msg
+        bl drv_head_attr
+        st r0, drv_wv_attr      ; expect A_BAD (2304)
+
+        ; Validate every spawned reinforcement robot
+        mov r0, 0
+        st r0, drv_wv_cnt
+        st r0, drv_wv_bad_ai
+        st r0, drv_wv_bad_dep
+        st r0, drv_wv_bad_dst
+        st r0, drv_wv_bad_vis
+        st r0, drv_wv_bad_hnt
+        st r0, drv_wv_bad_rch
+        mov r3, 0
+drv_wv_lp:
+        mov r0, r3
+        sll r0, ENEMY_SHIFT
+        lea r4, st_enemies
+        add r4, r4, r0
+        ldr r0, r4, E_TYPE
+        cmp r0, EN_NONE
+        brz drv_wv_next
+        ld r1, drv_wv_cnt
+        add r1, r1, 1
+        st r1, drv_wv_cnt
+
+        ; Check AI != AI_TURRET, != AI_WORKER and depth 5 eligible
+        bl act_type_info
+        ldr r1, r0, ET_AI
+        cmp r1, AI_TURRET
+        bre drv_wv_ai_b
+        cmp r1, AI_WORKER
+        brne drv_wv_dep_c
+drv_wv_ai_b:
+        ld r1, drv_wv_bad_ai
+        add r1, r1, 1
+        st r1, drv_wv_bad_ai
+drv_wv_dep_c:
+        ldr r1, r0, ET_DLO
+        cmp r1, 5
+        brgt drv_wv_dep_b
+        ldr r1, r0, ET_DHI
+        cmp r1, 5
+        brlt drv_wv_dep_b
+        br drv_wv_dst_c
+drv_wv_dep_b:
+        ld r1, drv_wv_bad_dep
+        add r1, r1, 1
+        st r1, drv_wv_bad_dep
+
+drv_wv_dst_c:
+        ldr r0, r4, E_X
+        ldr r1, r4, E_Y
+        ld r2, st_px
+        ld r3, st_py
+        push r3
+        bl dun_dist
+        pop r3
+        ; Oops: restore loop counter r3 from drv_wv_i instead!
+        cmp r0, REINF_MIN_DIST
+        brlt drv_wv_dst_b
+        br drv_wv_vis_c
+drv_wv_dst_b:
+        ld r1, drv_wv_bad_dst
+        add r1, r1, 1
+        st r1, drv_wv_bad_dst
+drv_wv_vis_c:
+        ldr r0, r4, E_X
+        ldr r1, r4, E_Y
+        bl fov_visible
+        cmp r0, 0
+        brz drv_wv_hnt_c
+        ld r1, drv_wv_bad_vis
+        add r1, r1, 1
+        st r1, drv_wv_bad_vis
+drv_wv_hnt_c:
+        ldr r0, r4, E_STATE
+        cmp r0, ES_HUNT
+        brne drv_wv_hnt_b
+        ldr r0, r4, E_TX
+        ld r1, st_px
+        cmp r0, r1
+        brne drv_wv_hnt_b
+        ldr r0, r4, E_TY
+        ld r1, st_py
+        cmp r0, r1
+        brne drv_wv_hnt_b
+        ldr r0, r4, E_ALERT
+        mov r1, REINF_ALERT
+        cmp r0, r1
+        brne drv_wv_hnt_b
+        ldr r0, r4, E_FLAGS
+        mov r1, EF_REINF
+        and r0, r0, r1
+        brnz drv_wv_rch_c
+drv_wv_hnt_b:
+        ld r1, drv_wv_bad_hnt
+        add r1, r1, 1
+        st r1, drv_wv_bad_hnt
+drv_wv_rch_c:
+        ldr r0, r4, E_Y
+        sll r0, MAP_SHIFT
+        ldr r1, r4, E_X
+        or r0, r1
+        lea r2, act_dist
+        add r2, r2, r0
+        ldr r0, r2, 0
+        cmp r0, 0
+        brp drv_wv_next
+        ld r1, drv_wv_bad_rch
+        add r1, r1, 1
+        st r1, drv_wv_bad_rch
+drv_wv_next:
+        ld r0, drv_wv_i
+        add r0, r0, 1
+        st r0, drv_wv_i
+        mov r3, r0
+        mov r1, MAX_ENEMIES
+        cmp r3, r1
+        brlt drv_wv_lp
+
+        ; ============================================================
+        ; T5. Pool-full wave: no spawn, no crash, still resets & waves++
+        ; ============================================================
+        bl act_clear
+        mov r3, 0
+drv_pf_fill:
+        mov r0, EN_TINKER
+        mov r1, r3
+        mov r2, 1
+        bl act_spawn
+        add r3, r3, 1
+        mov r0, MAX_ENEMIES
+        cmp r3, r0
+        brlt drv_pf_fill
+
+        ; Set all E_NEXT = 500 so nobody acts
+        lea r2, st_enemies
+        ld r0, drv_k_500
+        mov r3, MAX_ENEMIES
+drv_pf_nx:
+        str r0, r2, E_NEXT
+        add r2, r2, 8
+        add r2, r2, 8
+        sub r3, r3, 1
+        brp drv_pf_nx
+
+        mov r0, 0
+        st r0, st_time
+        st r0, st_ply_next
+        mov r0, ALARM_MAX
+        st r0, st_alarm
+        bl act_run
+
+        ; Count living enemies (still 24), waves == 2, alarm == 100
+        mov r0, 0
+        lea r2, st_enemies
+        mov r3, MAX_ENEMIES
+drv_pf_cnt_lp:
+        ldr r1, r2, E_TYPE
+        cmp r1, EN_NONE
+        brz drv_pf_cnt_n
+        add r0, r0, 1
+drv_pf_cnt_n:
+        add r2, r2, 8
+        add r2, r2, 8
+        sub r3, r3, 1
+        brp drv_pf_cnt_lp
+        st r0, drv_pf_cnt       ; expect 24
+        ld r0, st_alarm_waves
+        st r0, drv_pf_waves     ; expect 2
+        ld r0, st_alarm
+        st r0, drv_pf_alarm     ; expect 100
+
+        ; ============================================================
+        ; T6. Wave spawns ONLY on reachable tiles (walled-off pocket skipped)
+        ; ============================================================
+        mov r0, 1
+        sleep r0
+        bl drv_fill_walls
+        mov r0, 0
+        st r0, st_room_count
+        bl act_clear
+        ; Carve reachable corridor (5,10)..(17,10): only (17,10) is dist >= 12
+        mov r3, 5
+drv_t6_c:
+        mov r0, r3
+        mov r1, 10
+        mov r2, T_FLOOR
+        bl dun_set
+        add r3, r3, 1
+        mov r0, 18
+        cmp r3, r0
+        brlt drv_t6_c
+        ; Carve walled-off unreachable pocket x=30..40, y=10
+        mov r3, 30
+drv_t6_p:
+        mov r0, r3
+        mov r1, 10
+        mov r2, T_FLOOR
+        bl dun_set
+        add r3, r3, 1
+        mov r0, 41
+        cmp r3, r0
+        brlt drv_t6_p
+        mov r0, 5
+        st r0, st_px
+        mov r0, 10
+        st r0, st_py
+        mov r0, 8
+        st r0, st_sight
+        mov r0, 5
+        st r0, st_depth
+        bl fov_reset
+        bl fov_update
+        mov r0, 0
+        st r0, st_time
+        st r0, st_ply_next
+        st r0, st_alarm_acc
+        st r0, st_alarm_waves
+        mov r0, ALARM_MAX
+        st r0, st_alarm
+        bl act_run
+        ; Expect exactly 1 robot spawned, at (17,10) (never in pocket 30..40)
+        bl drv_count_enemies
+        st r0, drv_rch_cnt      ; expect 1
+        lea r2, st_enemies
+        ldr r0, r2, E_X
+        st r0, drv_rch_x        ; expect 17
+        ldr r0, r2, E_Y
+        st r0, drv_rch_y        ; expect 10
+        ldr r0, r2, E_ALERT
+        st r0, drv_rch_al       ; expect REINF_ALERT (60)
+        ldr r0, r2, E_FLAGS
+        mov r1, EF_REINF
+        and r0, r0, r1
+        st r0, drv_rch_fl       ; expect EF_REINF (16)
+
+        ; ============================================================
+        ; T7. Enemy opens door during enemy phase -> wave refreshes FOV
+        ;     so spawned robot is NOT on a newly visible tile
+        ; ============================================================
+        mov r0, 1
+        sleep r0
+        bl drv_fill_walls
+        mov r0, 0
+        st r0, st_room_count
+        bl act_clear
+        ; Carve corridor (5,10)..(20,10); closed door at (8,10)
+        mov r3, 5
+drv_t7_c:
+        mov r0, r3
+        mov r1, 10
+        mov r2, T_FLOOR
+        bl dun_set
+        add r3, r3, 1
+        mov r0, 21
+        cmp r3, r0
+        brlt drv_t7_c
+        mov r0, 8
+        mov r1, 10
+        mov r2, T_DOOR
+        bl dun_set
+        mov r0, 5
+        st r0, st_px
+        mov r0, 10
+        st r0, st_py
+        mov r0, 14              ; SIGHT_MAX: once door opens, (17..19,10) are visible, only (20,10) is not
+        st r0, st_sight
+        mov r0, 5
+        st r0, st_depth
+        bl fov_reset
+        bl fov_update
+        mov r0, 17
+        mov r1, 10
+        bl fov_visible
+        st r0, drv_dr_pre_vis   ; expect 0 (door closed before act_run)
+        ; Spawn Scuttler (slot 0) at (9,10) hunting player -> steps onto (8,10) opening door
+        mov r0, EN_SCUTTLER
+        mov r1, 9
+        mov r2, 10
+        bl act_spawn
+        lea r2, st_enemies
+        mov r0, ES_HUNT
+        str r0, r2, E_STATE
+        mov r0, 5
+        str r0, r2, E_TX
+        mov r0, 10
+        str r0, r2, E_TY
+        mov r0, ALERT_TURNS
+        str r0, r2, E_ALERT
+        mov r0, 0
+        str r0, r2, E_NEXT
+        st r0, st_time
+        st r0, st_alarm_acc
+        st r0, st_alarm_waves
+        mov r0, ALARM_MAX-1
+        st r0, st_alarm
+        mov r0, 100
+        st r0, st_ply_next
+        bl act_run
+        ; Verify door opened and (17,10) became visible
+        mov r0, 8
+        mov r1, 10
+        bl dun_get
+        st r0, drv_dr_tile      ; expect T_DOOR_OPEN (4)
+        mov r0, 17
+        mov r1, 10
+        bl fov_visible
+        st r0, drv_dr_post_vis  ; expect 1
+        ; Verify only 1 reinforcement spawned (slot 1), at (20,10), and not visible
+        bl drv_count_enemies
+        st r0, drv_dr_total     ; expect 2 (slot 0 Scuttler + slot 1 reinf)
+        lea r2, st_enemies
+        add r2, r2, 8
+        add r2, r2, 8
+        ldr r0, r2, E_X
+        st r0, drv_dr_rx        ; expect 20
+        ldr r1, r2, E_Y
+        st r1, drv_dr_ry        ; expect 10
+        bl fov_visible
+        st r0, drv_dr_rvis      ; expect 0 (not visible!)
+
+        ; ============================================================
+        ; T8. Empty wave (tiny floor, st_room_count 0): 0 spawned,
+        ;     waves+1, alarm = ALARM_MAX-REINF_AFTER, no "incoming" msg
+        ; ============================================================
+        mov r0, 1
+        sleep r0
+        bl drv_fill_walls
+        mov r0, 0
+        st r0, st_room_count
+        bl act_clear
+        ; Tiny 3x3 floor at (4..6, 4..6)
+        mov r1, 4
+drv_t8_y:
+        mov r0, 4
+drv_t8_x:
+        mov r2, T_FLOOR
+        bl dun_set
+        add r0, r0, 1
+        cmp r0, 7
+        brlt drv_t8_x
+        add r1, r1, 1
+        cmp r1, 7
+        brlt drv_t8_y
+        mov r0, 5
+        st r0, st_px
+        st r0, st_py
+        mov r0, 8
+        st r0, st_sight
+        mov r0, 5
+        st r0, st_depth
+        bl fov_reset
+        bl fov_update
+        lea r0, drv_s_sentinel
+        bl ui_msg
+        mov r0, 0
+        st r0, st_time
+        st r0, st_ply_next
+        st r0, st_alarm_acc
+        st r0, st_alarm_waves
+        mov r0, ALARM_MAX
+        st r0, st_alarm
+        bl act_run
+        bl drv_count_enemies
+        st r0, drv_ew_cnt       ; expect 0
+        ld r0, st_alarm_waves
+        st r0, drv_ew_waves     ; expect 1
+        ld r0, st_alarm
+        st r0, drv_ew_alarm     ; expect 100
+        lea r0, drv_ew_msg
+        bl drv_copy_head_msg    ; expect "Sentinel" (no alarm msg posted)
+
+        ; ============================================================
+        ; T9. EF_REINF wave robot tracks player around wall via BFS
+        ;     after player steps 1 tile (does not get stranded)
+        ; ============================================================
+        mov r0, 1
+        sleep r0
+        bl drv_make_detour_map
+        bl act_clear
+        mov r0, 0
+        st r0, drv_cbt_calls
+        mov r0, 5
+        st r0, st_px
+        mov r0, 10
+        st r0, st_py
+        mov r0, 8
+        st r0, st_sight
+        mov r0, 5
+        st r0, st_depth
+        bl fov_reset
+        bl fov_update
+        mov r0, 0
+        st r0, st_time
+        st r0, st_ply_next
+        st r0, st_alarm_acc
+        st r0, st_alarm_waves
+        mov r0, ALARM_MAX
+        st r0, st_alarm
+        bl act_run              ; spawns 2 EF_REINF robots in far room (x=17..20,y=8..12)
+        ; Player steps 1 tile east to (6,10) so E_TX/E_TY != player
+        mov r0, 6
+        st r0, st_px
+        bl fov_update
+        ; Wait up to 45 turns: wave robot must path around wall via north corridor and attack
+        mov r3, 45
+drv_t9_lp:
+        mov r0, 0
+        st r0, st_alarm         ; suppress further waves
+        ld r0, st_ply_next
+        mov r1, 100
+        add r0, r0, r1
+        st r0, st_ply_next
+        bl act_run
+        ld r0, drv_cbt_calls
+        cmp r0, 0
+        brp drv_t9_hit
+        sub r3, r3, 1
+        brp drv_t9_lp
+drv_t9_hit:
+        ld r0, drv_cbt_calls
+        mov r1, 0
+        cmp r0, 0
+        brp drv_t9_hit_ok
+        br drv_t9_store
+drv_t9_hit_ok:
+        mov r1, 1
+drv_t9_store:
+        st r1, drv_tr_hit       ; expect 1 (wave robot reached & attacked player!)
+        lea r2, st_enemies
+        ldr r0, r2, E_TX
+        st r0, drv_tr_tx        ; expect 6 (updated to player's new x)
+        ldr r0, r2, E_TY
+        st r0, drv_tr_ty        ; expect 10
+
+        ; ============================================================
+        ; T10. Normal (non-EF_REINF) hunting robot does NOT track player
+        ;      through walls when player steps away from E_TX/E_TY
+        ; ============================================================
+        bl act_clear
+        mov r0, 0
+        st r0, drv_cbt_calls
+        st r0, st_time
+        st r0, st_ply_next
+        st r0, st_alarm
+        st r0, st_alarm_acc
+        mov r0, 6
+        st r0, st_px
+        mov r0, 10
+        st r0, st_py
+        bl fov_update
+        mov r0, EN_SCUTTLER
+        mov r1, 17
+        mov r2, 10
+        bl act_spawn            ; slot 0 (normal robot, no EF_REINF)
+        lea r2, st_enemies
+        mov r0, ES_HUNT
+        str r0, r2, E_STATE
+        mov r0, 5
+        str r0, r2, E_TX        ; old player position before 1-tile step
+        mov r0, 10
+        str r0, r2, E_TY
+        mov r0, ALERT_TURNS
+        str r0, r2, E_ALERT
+        mov r0, 0
+        str r0, r2, E_NEXT
+        mov r3, 15
+drv_t10_lp:
+        ld r0, st_ply_next
+        mov r1, 100
+        add r0, r0, r1
+        st r0, st_ply_next
+        bl act_run
+        sub r3, r3, 1
+        brp drv_t10_lp
+        lea r2, st_enemies
+        ldr r0, r2, E_TX
+        st r0, drv_nt_tx        ; expect 5 (never updated to 6)
+        ldr r0, r2, E_TY
+        st r0, drv_nt_ty        ; expect 10
+        ldr r0, r2, E_STATE
+        st r0, drv_nt_state     ; expect 0 (ES_IDLE after alert expired)
+        ld r0, drv_cbt_calls
+        st r0, drv_nt_cbt       ; expect 0 (never reached/attacked player)
+        halt
+
+; ---- Helpers --------------------------------------------------------
+drv_fill_walls:
+        push r0
+        push r1
+        push r2
+        lea r0, st_map
+        ld r1, drv_k_mapsize
+        mov r2, T_WALL
+drv_fw_lp:
+        str r2, r0, 0
+        add r0, r0, 1
+        sub r1, r1, 1
+        brp drv_fw_lp
+        ld r0, st_map_ver
+        add r0, r0, 1
+        st r0, st_map_ver
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+drv_count_enemies:
+        push r1
+        push r2
+        push r3
+        mov r0, 0
+        lea r2, st_enemies
+        mov r3, MAX_ENEMIES
+drv_ce_lp:
+        ldr r1, r2, E_TYPE
+        cmp r1, EN_NONE
+        brz drv_ce_n
+        add r0, r0, 1
+drv_ce_n:
+        add r2, r2, 8
+        add r2, r2, 8
+        sub r3, r3, 1
+        brp drv_ce_lp
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+drv_make_open_room:
+        push r0
+        push r1
+        push r2
+        push r3
+        push lr
+        lea r0, st_map
+        ld r1, drv_k_mapsize
+        mov r2, T_WALL
+drv_mor_w:
+        str r2, r0, 0
+        add r0, r0, 1
+        sub r1, r1, 1
+        brp drv_mor_w
+        mov r1, 1
+drv_mor_y:
+        mov r0, 1
+drv_mor_x:
+        mov r2, T_FLOOR
+        bl dun_set
+        add r0, r0, 1
+        mov r3, MAP_W-1
+        cmp r0, r3
+        brlt drv_mor_x
+        add r1, r1, 1
+        mov r3, MAP_H-1
+        cmp r1, r3
+        brlt drv_mor_y
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+drv_copy_head_msg:
+        push r0
+        push r1
+        push r2
+        push r3
+        ld r1, st_msg_head
+        and r1, r1, MSG_COUNT-1
+        sll r1, MSG_SHIFT
+        lea r2, st_msg_text
+        add r2, r2, r1
+drv_chm_lp:
+        ldr r3, r2, 0
+        str r3, r0, 0
+        cmp r3, 0
+        brz drv_chm_done
+        add r2, r2, 1
+        add r0, r0, 1
+        br drv_chm_lp
+drv_chm_done:
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+drv_head_attr:
+        push r1
+        ld r0, st_msg_head
+        and r0, r0, MSG_COUNT-1
+        lea r1, st_msg_attr
+        add r1, r1, r0
+        ldr r0, r1, 0
+        pop r1
+        ret
+
+; Two rooms (x=4..8,y=8..12) and (x=17..20,y=8..12) separated by a solid wall,
+; linked only by a north detour corridor (x=5,y=4..7)-(x=5..19,y=4)-(x=19,y=5..7).
+drv_make_detour_map:
+        push r0
+        push r1
+        push r2
+        push r3
+        push lr
+        bl drv_fill_walls
+        mov r0, 0
+        st r0, st_room_count
+        ; Player room: x=4..8, y=8..12
+        mov r1, 8
+drv_mdm_ry1:
+        mov r0, 4
+drv_mdm_rx1:
+        mov r2, T_FLOOR
+        bl dun_set
+        add r0, r0, 1
+        cmp r0, 9
+        brlt drv_mdm_rx1
+        add r1, r1, 1
+        cmp r1, 13
+        brlt drv_mdm_ry1
+        ; Far room: x=17..20, y=8..12
+        mov r1, 8
+drv_mdm_ry2:
+        mov r0, 17
+drv_mdm_rx2:
+        mov r2, T_FLOOR
+        bl dun_set
+        add r0, r0, 1
+        mov r3, 21
+        cmp r0, r3
+        brlt drv_mdm_rx2
+        add r1, r1, 1
+        cmp r1, 13
+        brlt drv_mdm_ry2
+        ; West shaft: x=5, y=4..7
+        mov r1, 4
+drv_mdm_ws:
+        mov r0, 5
+        mov r2, T_FLOOR
+        bl dun_set
+        add r1, r1, 1
+        cmp r1, 8
+        brlt drv_mdm_ws
+        ; Top corridor: x=5..19, y=4
+        mov r0, 5
+drv_mdm_tc:
+        mov r1, 4
+        mov r2, T_FLOOR
+        bl dun_set
+        add r0, r0, 1
+        mov r3, 20
+        cmp r0, r3
+        brlt drv_mdm_tc
+        ; East shaft: x=19, y=5..7
+        mov r1, 5
+drv_mdm_es:
+        mov r0, 19
+        mov r2, T_FLOOR
+        bl dun_set
+        add r1, r1, 1
+        cmp r1, 8
+        brlt drv_mdm_es
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; Stub cbt_* so Watcher sighting test doesn't damage player and ui.ap links
+cbt_enemy_attack:
+        push r0
+        ld r0, drv_cbt_calls
+        add r0, r0, 1
+        st r0, drv_cbt_calls
+        pop r0
+        ret
+cbt_hit_chance:
+        mov r0, 70
+        ret
+
+drv_k_mapsize:  .word MAP_SIZE
+drv_k_370:      .word 370
+drv_k_500:      .word 500
+drv_wv_i:       .word 0
+
+drv_rst_al:     .word 99
+drv_rst_acc:    .word 99
+drv_rst_wv:     .word 99
+drv_acc_al1:    .word 99
+drv_acc_r1:     .word 99
+drv_acc_al2:    .word 99
+drv_acc_r2:     .word 99
+drv_acc_al3:    .word 99
+drv_acc_r3:     .word 99
+drv_wat_al1:    .word 99
+drv_wat_al2:    .word 99
+drv_wv_waves:   .word 99
+drv_wv_reset:   .word 99
+drv_wv_msg:     .zero MSG_LEN
+drv_wv_attr:    .word 99
+drv_wv_cnt:     .word 99
+drv_wv_bad_ai:  .word 99
+drv_wv_bad_dep: .word 99
+drv_wv_bad_dst: .word 99
+drv_wv_bad_vis: .word 99
+drv_wv_bad_hnt: .word 99
+drv_wv_bad_rch: .word 99
+drv_pf_cnt:     .word 99
+drv_pf_waves:   .word 99
+drv_pf_alarm:   .word 99
+drv_w2_pre_st:  .word 99
+drv_w2_al1:     .word 99
+drv_w2_fl1:     .word 99
+drv_w2_idle_st: .word 99
+drv_w2_al_idle: .word 99
+drv_w2_res_st:  .word 99
+drv_w2_al2:     .word 99
+drv_rch_cnt:    .word 99
+drv_rch_x:      .word 99
+drv_rch_y:      .word 99
+drv_rch_al:     .word 99
+drv_rch_fl:     .word 99
+drv_dr_pre_vis: .word 99
+drv_dr_tile:    .word 99
+drv_dr_post_vis: .word 99
+drv_dr_total:   .word 99
+drv_dr_rx:      .word 99
+drv_dr_ry:      .word 99
+drv_dr_rvis:    .word 99
+drv_ew_cnt:     .word 99
+drv_ew_waves:   .word 99
+drv_ew_alarm:   .word 99
+drv_ew_msg:     .zero MSG_LEN
+drv_s_sentinel: .string "Sentinel"
+drv_cbt_calls:  .word 0
+drv_tr_hit:     .word 99
+drv_tr_tx:      .word 99
+drv_tr_ty:      .word 99
+drv_nt_tx:      .word 99
+drv_nt_ty:      .word 99
+drv_nt_state:   .word 99
+drv_nt_cbt:     .word 99
+
+        .include "../../src/state.ap"
+        .include "../../src/rng.ap"
+        .include "../../src/dungeon.ap"
+        .include "../../src/fov.ap"
+        .include "../../src/parts.ap"
+        .include "../../src/items.ap"
+        .include "../../src/actors.ap"
+        .include "../../src/ui.ap"
+        .include "video.ap"
+        .include "util.ap"

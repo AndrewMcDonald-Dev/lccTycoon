@@ -1,0 +1,86 @@
+; Visible armed Sapper, visible unarmed Sapper, flagged non-Sapper and hidden Sapper.
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        lea r0, st_screen
+        bl video_bind
+        lea r4, st_fov
+        mov r0, FOV_VISIBLE|FOV_KNOWN
+        str r0, r4, 1
+        str r0, r4, 2
+        str r0, r4, 3
+        mov r0, FOV_KNOWN
+        str r0, r4, 4
+        lea r4, st_enemies
+        mov r0, EN_SAPPER
+        mov r1, 1
+        mov r2, EF_ARMED
+        bl drv_enemy
+        mov r1, 2
+        mov r2, 0
+        bl drv_enemy
+        mov r0, EN_RIFLER
+        mov r1, 3
+        mov r2, EF_ARMED
+        bl drv_enemy
+        mov r0, EN_SAPPER
+        mov r1, 4
+        bl drv_enemy
+
+        bl ren_draw
+        bl video_present
+        mov r0, 0
+        mov r1, 1
+        bl video_get
+        st r0, drv_armed_cell
+        mov r0, FRAME_MS
+        sleep r0
+
+        mov r0, MODE_TARGET
+        st r0, st_mode
+        mov r0, 0
+        st r0, st_target
+        bl ren_draw
+        bl video_present
+        mov r0, FRAME_MS
+        sleep r0
+        halt
+
+; r0=type r1=x r2=flags r4=next enemy slot; advances r4.
+drv_enemy:
+        str r0, r4, E_TYPE
+        str r1, r4, E_X
+        str r2, r4, E_FLAGS
+        mov r3, 8
+        str r3, r4, E_HP
+        mov r3, ENEMY_SIZE
+        add r4, r4, r3
+        ret
+
+prt_info:
+        mov r0, 0
+        ret
+
+act_type_info:
+        cmp r0, EN_SAPPER
+        brz drv_type_sapper
+        lea r0, drv_type_rifler
+        ret
+drv_type_sapper:
+        lea r0, drv_sapper
+        ret
+
+drv_sapper:
+        .word 0
+        .word 'x'|FG_BYELLOW
+drv_type_rifler:
+        .word 0
+        .word 'r'|FG_BRED
+drv_armed_cell: .word 0
+
+        .include "../../src/state.ap"
+        .include "../../src/render.ap"
+        .include "video.ap"

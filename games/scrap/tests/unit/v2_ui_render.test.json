@@ -1,0 +1,16 @@
+{
+  "game": "v2_ui_render_driver.ap",
+  "scenarios": [
+    {
+      "name": "armed Sapper gains a magenta background and targeting overrides it with red",
+      "keys": "_ _",
+      "expect": {
+        "status": "halted",
+        "memory": { "drv_armed_cell": 23416 },
+        "screen": { "lines": { "0": "@xxr" } },
+        "colors": { "lines": { "0": "WYYR" } },
+        "bg": { "lines": { "0": "krkk" } }
+      }
+    }
+  ]
+}

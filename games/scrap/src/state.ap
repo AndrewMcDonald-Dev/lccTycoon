@@ -20,6 +20,9 @@
 ;; derived    st_move_cost st_regen st_energy_max st_sight st_acc_bonus st_evade st_repair_turns  W: prt_recalc only
 ;; game       st_game_state st_mode st_depth st_turn st_time st_kills st_target st_climb st_death_cause
 ;; controls   st_auto st_auto_dx st_auto_dy st_auto_steps st_look_x st_look_y st_wpn_off  W: player (st_wpn_off also parts, when a slot is emptied)
+;; alarm      st_alarm st_alarm_acc st_alarm_waves                W: actors (reset per floor in act_spawn_floor), combat (cbt_blast adds ALARM_BLAST to st_alarm)
+;; v2 derived st_shield st_salvage (prt_recalc), st_absorbed (prt_damage)  W: parts
+;; run stats  st_stat_salvaged (player) st_stat_lost st_stat_recycled (parts); reset in main_new_game
 ; =====================================================================
 
 ; ---- game / loop -------------------------------------------------------
@@ -40,8 +43,8 @@ st_seed:        .word 0             ; RNG seed used for this game (millis) — W
 st_px:          .word 0             ; player tile x 0..MAP_W-1 — W: dungeon (floor start), player (moves)
 st_py:          .word 0             ; player tile y 0..MAP_H-1
 st_ply_next:    .word 0             ; player's next-act time (TU); player acts when <= every E_NEXT — W: player (+cost), actors (rebase)
-st_core_hp:     .word CORE_MAX      ; core integrity 0..CORE_MAX; 0 = dead — W: parts (prt_damage, repair)
-st_energy:      .word CORE_ECAP     ; 0..st_energy_max — W: parts (regen, prt_spend_energy)
+st_core_hp:     .word CORE_MAX      ; core integrity 0..CORE_MAX; 0 = dead — W: parts (prt_damage, repair, prt_recycle)
+st_energy:      .word CORE_ECAP     ; 0..st_energy_max — W: parts (regen, prt_spend_energy, barrier), combat (Leech drain)
 st_regen_acc:   .word 0             ; TU accumulated toward the next TIME_TURN of regen/repair — W: parts
 st_repair_acc:  .word 0             ; turns counted toward the next self-repair point — W: parts
 
@@ -90,3 +93,14 @@ st_auto_steps:  .word 0             ; steps taken by the current automatic actio
 st_look_x:      .word 0             ; MODE_LOOK cursor tile — W: player
 st_look_y:      .word 0
 st_wpn_off:     .word 0             ; bit i set = loadout slot i holds fire (weapon slots 3-5) — W: player, parts (slot emptied); read: combat, ui
+
+; ---- v2 features (appended: modules address older cells by fixed offsets) ----
+st_alarm:       .word 0             ; floor alarm 0..ALARM_MAX; reset per floor by act_spawn_floor — W: actors, combat (cbt_blast)
+st_alarm_acc:   .word 0             ; TU accumulated toward the next ALARM_PER_TURN — W: actors
+st_alarm_waves: .word 0             ; reinforcement waves on this floor — W: actors
+st_shield:      .word 0             ; best attached UT_SHIELD P_U_VALUE (max absorbed per hit), 0 none — W: prt_recalc
+st_salvage:     .word 0             ; best attached UT_SALVAGE P_U_VALUE (+drop %), 0 none — W: prt_recalc
+st_absorbed:    .word 0             ; damage the barrier absorbed in the last prt_damage call — W: parts
+st_stat_salvaged: .word 0           ; parts picked up this game — W: player (reset: main_new_game)
+st_stat_lost:   .word 0             ; attached parts destroyed this game — W: parts (reset: main_new_game)
+st_stat_recycled: .word 0           ; parts recycled this game — W: parts (reset: main_new_game)

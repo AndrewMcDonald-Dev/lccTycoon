@@ -54,8 +54,8 @@
               "contains": [
                 "MESSAGE LOG",
                 "Core online. Depth 10. Climb to the surface.",
-                "You see Spark Prod.",
-                "Picked up Spark Prod.",
+                "You see Rivet Gun.",
+                "Picked up Rivet Gun.",
                 "Press any key to close",
                 "LOG: press any key to close"
               ]
@@ -96,8 +96,8 @@
             "screen": {
               "contains": [
                 "-- Look --",
-                "Spark Prod",
-                "[W 2-5 mel e0]",
+                "Rivet Gun",
+                "[W 2-4 r7 e2]",
                 "Floor  Dist 2"
               ]
             },

@@ -1,0 +1,72 @@
+{
+  "scenarios": [
+    {
+      "name": "Salvage Rig appears in Here, Look and carried rows and the floor alarm changes through its first wave",
+      "clock": 41,
+      "keys": "<enter> u n ; <esc> g R 1 ? <esc> .*247",
+      "frames": 257,
+      "expect": {
+        "status": "frames-complete",
+        "screen": { "contains": ["Alarm ████░░░░░░", "1 U Salvage Rig  drop +25%   9/10"] },
+        "colors": { "matches": ["^.{83}R{10}K{6}$"] },
+        "memory": {
+          "st_alarm": 100, "st_alarm_waves": 1,
+          "st_stat_salvaged": 1, "st_stat_recycled": 0,
+          "st_inv": [26, 9, 0, 0, 0, 0, 0, 0]
+        },
+        "frames": [
+          {
+            "frame": 3,
+            "screen": { "contains": ["Here: Salvage Rig [U drop +25%]", "[U drop +25%]  9/10"] }
+          },
+          {
+            "frame": 6,
+            "screen": { "contains": ["RECYCLE: 1-4 scrap carried part for core HP   Esc cancel"] }
+          },
+          {
+            "frame": 7,
+            "screen": { "contains": ["Core integrity is full."] }
+          },
+          {
+            "frame": 8,
+            "screen": { "contains": ["R 1-4              Recycle carried part for core HP"] }
+          },
+          {
+            "frame": 131,
+            "screen": { "contains": ["Alarm █████░░░░░"] },
+            "colors": { "matches": ["^.{83}G{11}K{5}$"] }
+          },
+          {
+            "frame": 132,
+            "screen": { "contains": ["Alarm █████░░░░░"] },
+            "colors": { "matches": ["^.{83}Y{11}K{5}$"] }
+          }
+        ]
+      }
+    },
+    {
+      "name": "picking up and recycling a part updates the death-screen run summary",
+      "clock": 1000,
+      "keys": "<enter> j*2 g k*2 l*2 u k*4 y h*8 b j .*12 R 1 .*51 _2",
+      "expect": {
+        "status": "frames-complete",
+        "screen": { "contains": ["CORE DESTROYED", "Parts: picked up 1, lost 5, recycled 1"] },
+        "memory": {
+          "st_game_state": 2, "st_core_hp": 0,
+          "st_stat_salvaged": 1, "st_stat_lost": 5, "st_stat_recycled": 1
+        },
+        "frames": [
+          {
+            "frame": 36,
+            "screen": { "contains": ["RECYCLE: 1-4 scrap carried part for core HP   Esc cancel"] },
+            "colors": { "matches": ["^.{64}Kk C wwwwwwwww"] }
+          },
+          {
+            "frame": 37,
+            "screen": { "contains": ["Recycled Rivet Gun. Core +1."] }
+          }
+        ]
+      }
+    }
+  ]
+}

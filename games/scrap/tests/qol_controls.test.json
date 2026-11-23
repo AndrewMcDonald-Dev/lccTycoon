@@ -116,8 +116,8 @@
       "expect": {
         "memory": { "st_px": 14, "st_py": 22, "st_auto": 0, "st_auto_steps": 2, "st_turn": 2 },
         "frames": [
-          { "frame": 1, "screen": { "contains": ["Turn 1"], "notContains": ["You see Spark Prod."] } },
-          { "frame": 2, "screen": { "contains": ["Turn 2", "You see Spark Prod."] } }
+          { "frame": 1, "screen": { "contains": ["Turn 1"], "notContains": ["You see Rivet Gun."] } },
+          { "frame": 2, "screen": { "contains": ["Turn 2", "You see Rivet Gun."] } }
         ]
       }
     },

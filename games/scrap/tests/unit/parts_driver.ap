@@ -32,9 +32,9 @@ drv_main:
         mov r0, 0
         bl prt_info
         st r0, drv_info_0
-        mov r0, 24
+        mov r0, PART_COUNT+1
         bl prt_info
-        st r0, drv_info_24
+        st r0, drv_info_past_end
         mov r0, 0
         bl prt_kind
         st r0, drv_kind_0
@@ -55,7 +55,7 @@ drv_main:
         ldr r0, r0, 0
         st r0, drv_name_none_ch ; '-' = 45
 
-        ; verify all 23 catalog entries: valid info, name len <= PART_NAME_MAX
+        ; Verify every catalog entry and its name length (<= PART_NAME_MAX).
         mov r1, 1
         mov r2, 1               ; drv_cat_ok = 1
 drv_cat_lp:
@@ -798,7 +798,7 @@ drv_init_energy:    .word 99
 drv_init_core:      .word 99
 drv_init_free:      .word 99
 drv_info_0:         .word 99
-drv_info_24:        .word 99
+drv_info_past_end:  .word 99
 drv_kind_0:         .word 99
 drv_kind_lance:     .word 99
 drv_sk_neg:         .word 99

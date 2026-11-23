@@ -173,3 +173,33 @@ death screen with the right cause and score, performance under the frame budget 
 enemies, `check` green.
 
 - 2026-11-22 QA-2: qa1 replays re-recorded after the RNG fix; tests/qa2.test.json = recorded autoplayer win on clock 32 (989 turns, score 2430, no memory pokes) + play-again after win. 60-seed bot sweep after the fixes: deaths spread over depths 8..1, 1 win. check 295/295.
+
+## WP11a — Arch: v2 interface
+**Status:** done (Opus). defs/state/catalog rows 24-26/main counter reset; DESIGN.md "v2
+features". RNG-dependent replays (play/qa1/qa2/qol) and the actors/parts catalog unit
+tests go red by design (PART_COUNT 26 changes loot rolls); fixed in WP12/WP13.
+
+## WP11 — v2 simulation (Neon): Leech, Sapper + blasts, stun, salvage drops, alarm + reinforcements
+**Files:** src/actors.ap, src/combat.ap, tests/unit/actors*, tests/unit/combat*, tests/unit/v2_sim_*, tests/v2_sim.test.json
+**Status:** done (Neon).
+**Log:** 2026-11-22 done (Neon): Leech drain, Sapper arm/detonate + chain blasts, weapon stun, salvage drops, floor alarm + reinforcements in actors/combat; actors/combat + v2_sim_* tests passing.
+
+## WP12 — v2 parts/player/UI (Sol): barrier, salvage/shield recalc, recycling, render armed Sapper, alarm meter, part stats, run summary
+**Files:** src/parts.ap, src/player.ap, src/ui.ap, src/render.ap, tests/unit/parts*, player*, render*, ui*, tests/unit/v2_ui_*, tests/v2_ui.test.json
+**Status:** done (Sol).
+**Log:** 2026-11-22 done (Sol): Barrier Grid absorption, shield/salvage recalc, `R` recycling, armed Sapper highlight, alarm meter, v2 part stats, run summary in parts/player/ui/render; 33.6K/40K words, v2_ui_* tests passing.
+
+## WP13 — Wording pass (Neon) + replay re-record + QA (Sol)
+**Status:** done (WP13a-e).
+**Log:**
+- 2026-11-22 WP13a done (Neon): wording pass (`Barrier Field` → `Barrier Grid`).
+- 2026-11-22 WP13b done (Sol): re-recorded replays (`play`/`qa1`/`qa2`/`qol_*`) and v2 balance pass.
+- 2026-11-22 WP13c done (Neon): title screen updated for Leech `l`, Sapper `x`, and `R` recycle; DESIGN.md and WORKPLAN.md synced with v2.
+- 2026-11-22 QA (Sol) found the stun cap did not stop stun-lock → EF_STUNNED once-per-action rule (Opus); blast kill credit clarified.
+
+## WP14 — Council R1 simulation fixes (Neon)
+**Files:** src/actors.ap, src/combat.ap, src/ui.ap (`ui_se_salvaged` only), tests/unit/v2_sim_*, tests/v2_sim.test.json, tests/v2_ui.test.json, tests/unit/v2_ui_controls.test.json, DESIGN.md, WORKPLAN.md
+**Status:** done (Neon).
+**Log:**
+- 2026-11-22 done (Neon): `act_alarm_wave` refreshes FOV (`fov_update`) and BFS before spawn, spawns only reachable tiles with `E_ALERT = REINF_ALERT` and `EF_REINF` (no `st_kills`/drop; Sapper still detonates), and posts the alarm message only if ≥1 spawned; `cbt_blast` suppresses `act_alert` on surviving collateral via `cbt_blast_depth`; armed Sapper steps pay `ET_ATK_TIME`; Watcher alarm uses once-per-Watcher `EF_ALARMED`; `ui_se_salvaged` renamed to `"Parts: picked up "`; DESIGN.md/WORKPLAN.md synced.
+- 2026-11-22 WP16 (Neon, finished by Opus): council R2 — EF_REINF wave robots track the player while alerted (BFS), early exit when the pool is full, help overlay spacing, "Score Kills" labels, stun-across-rebase / 24-Sapper chain / prt_damage(0) / recycle over-max / barrier+armor tests; DESIGN scope and module table synced.

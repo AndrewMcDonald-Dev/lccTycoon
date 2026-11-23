@@ -3,7 +3,7 @@
 ; viewport: right panel (PANEL_*, rows PR_* in defs.ap), message log
 ; (MSG_ROW..MSG_ROW+MSG_ROWS-1, oldest at top, newest at the bottom),
 ; help row (HELP_ROW, text per st_mode), menu hints inside the panel
-; (MODE_EQUIP/MODE_DROP number the inventory rows 1-4, MODE_REMOVE numbers
+; (MODE_EQUIP/MODE_DROP/MODE_RECYCLE highlight inventory digits 1-4, MODE_REMOVE numbers
 ; the loadout rows 1-8, MODE_TOGGLE numbers weapon rows 1-3, highlighted
 ; A_SELECT; held weapons in st_wpn_off are dimmed and tagged [HOLD]),
 ; row 22 status line (auto action or visible hostile count), MODE_LOOK
@@ -20,11 +20,11 @@
 ;;                   draws into st_cells (the game display, 100x30); st_screen must be the bound display
 ;; ui_draw        ()                -> -       draw panel (title + depth/Surface + turn, core and energy bars via ui_bar, move cost/sight/kills, 8 loadout rows "<kind letter> <name>
 ;;                   <bar>" with [HOLD] for held weapons, 4 inventory rows "<digit> <kind> <name> <stat> <hp>/<max>", target or MODE_LOOK cursor inspection,
-;;                   row 22 status line for st_auto / visible hostiles, item under player "Here: <name> [<kind> <stat>]"), message rows, help row;
+;;                   floor alarm meter, row 22 status line for st_auto / visible hostiles, item under player "Here: <name> [<kind> <stat>]"), message rows, help row;
 ;;                   menu highlights and MODE_HELP/MODE_LOG overlays by st_mode; MODE_QUIT help row reads "Quit? y = yes, any other key = no";
 ;;                   draws into st_cells (the game display, 100x30); st_screen must be the bound display
 ;; ui_end_screen  ()                -> r0=1 play again, 0 quit   death (cause = st_death_cause type name, depth) or win screen ("Surface" for depth 0) with st_kills, st_turn, st_depth_best and
-;;                   ui_score; drains pending input, ignores keys for END_GRACE_FRAMES (10) frames, then waits for a key (Q quits, any other key plays again);
+;;                   ui_score and parts salvaged/lost/recycled; drains pending input, ignores keys for END_GRACE_FRAMES (10) frames, then waits for a key (Q quits, any other key plays again);
 ;;                   draws into st_cells (the game display, 100x30); st_screen must be the bound display
 ;; ui_msg         r0=str            -> -       start a new message: copy the string (truncated to MSG_LEN-1) into the next ring slot, attr A_MSG, make it st_msg_head
 ;; ui_msg_add     r0=str            -> -       append a string to the newest message (truncated)
@@ -58,6 +58,7 @@
         .define UI_MSG_TEXT_OFF     1+MSG_COUNT
 ; Panel row 22: auto-action / visible hostiles status line
         .define UI_PR_STATUS        22
+        .define UI_PART_NAME_W      PART_NAME_MAX
 
 ; =====================================================================
 ; Message ring: ui_init, ui_msg, ui_msg_add, ui_msg_addn, ui_msg_attr
@@ -404,6 +405,7 @@ ui_draw_div:
         ; Static panel headers (SCRAPCORE, Core, Energy, Move, -- Loadout/Carried/Target --)
         lea r4, ui_panel_hdrs
         bl ui_draw_ptbl
+        bl ui_draw_alarm
 
         ; 2. Row PR_TITLE (0): Depth N / Surface, Turn N
         ldr r4, fp, -2          ; st_game_state
@@ -475,7 +477,7 @@ ui_draw_turn:
         ldr r2, r4, UI_ST_ENERGY_MAX
         bl ui_put_num
 
-        ; 5. Row PR_STATS (3): append cost, "  Sight ", sight, "  Kills ", kills
+        ; 5. Row PR_STATS (3): append cost, "  Sight ", sight, "  Score Kills ", kills
         ldr r0, fp, -1
         mov r1, 200
         add r0, r0, r1
@@ -553,6 +555,45 @@ ui_draw_done:
         pop r2
         pop r1
         pop r0
+        ret
+
+; ---- compact alarm meter at the right of the Loadout header ----------
+; Private: clobbers r0-r4 (its one caller in ui_draw reloads them from its frame).
+ui_draw_alarm:
+        push lr
+        mov r0, PR_LOAD_HDR
+        mov r1, PANEL_COL+19
+        bl ui_cell_addr
+        ld r1, st_alarm
+        mov r3, A_BAD>>8
+        ld r2, st_alarm_waves
+        cmp r2, 0
+        brnz ui_da_draw
+        mov r3, A_WARN>>8
+        mov r2, ALARM_MAX/2
+        cmp r1, r2
+        brgt ui_da_draw
+        mov r3, A_GOOD>>8
+ui_da_draw:
+        sll r3, 8
+        lea r2, ui_s_alarm
+        bl ui_put_str
+        mov r2, ALARM_MAX
+        cmp r1, r2
+        brlt ui_da_scale
+        mov r1, r2
+ui_da_scale:
+        mov r4, BAR_W
+        mul r1, r4
+        div r1, r2
+        mov r4, G_BLOCK
+        or r4, r3
+        bl ui_fill_run
+        mov r2, BAR_W
+        sub r1, r2, r1
+        ld r4, ui_c_alarm_empty
+        bl ui_fill_run
+        pop lr
         ret
 
 ; ---- draw 8 loadout rows (r0=&st_cells[PR_LOAD*100+64], r1=st_game_state)
@@ -658,7 +699,7 @@ ui_dl_puttag:
         cmp r0, 0
         brz ui_dl_fallback
         mov r4, r0              ; r4 = catalog rec
-        ; name at row_ptr + 3 (clipped to PART_NAME_MAX); dimmed if held
+        ; name at row_ptr + 3; dimmed if held
         ldr r0, fp, -1
         add r0, r0, 3
         ldr r2, r4, P_NAME
@@ -672,21 +713,26 @@ ui_dl_n_dim:
 ui_dl_n_sh:
         sll r3, 8
         push r4
-        mov r4, PART_NAME_MAX
+        mov r4, UI_PART_NAME_W
         bl ui_put_str_n
         pop r4
-        ; bar (width 8) at row_ptr + 16
-        ldr r0, fp, -1
-        add r0, r0, 15
-        add r0, r0, 1           ; +16
+        ; Bar at row_ptr + 16, or one cell farther for a 13-char name
+        ldr r1, fp, -1
+        add r1, r1, 15
+        add r1, r1, 1
+        cmp r0, r1
+        brlt ui_dl_bar
+        add r1, r1, 1
+ui_dl_bar:
+        mov r0, r1
         ldr r2, fp, -5          ; hp
         push r3
         ldr r3, r4, P_MAXHP
         mov r4, 8
         bl ui_bar_ptr
         pop r3                  ; A_TEXT or A_DIM
-        ; hp number at row_ptr + 25
-        add r0, r0, 9           ; +25
+        ; hp number after the bar
+        add r0, r0, 9
         bl ui_put_num
         ; held weapon marker at row_ptr + 28
         ldr r2, fp, -7
@@ -709,7 +755,7 @@ ui_dl_fallback:
         add r0, r0, 3
         mov r3, A_DIM>>8
         sll r3, 8
-        mov r4, PART_NAME_MAX
+        mov r4, UI_PART_NAME_W
         bl ui_put_str_n
         br ui_dl_next
 
@@ -766,6 +812,8 @@ ui_draw_inv:
         brz ui_di_mset
         cmp r1, MODE_DROP
         brz ui_di_mset
+        cmp r1, MODE_RECYCLE
+        brz ui_di_mset
         mov r0, 0
 ui_di_mset:
         str r0, fp, -4
@@ -819,12 +867,17 @@ ui_di_sh:
         mov r3, A_TEXT>>8
         sll r3, 8
         push r4
-        mov r4, PART_NAME_MAX
+        mov r4, UI_PART_NAME_W
         bl ui_put_str_n
         pop r4
-        ldr r0, fp, -1
-        mov r1, 18
-        add r0, r0, r1
+        ldr r1, fp, -1
+        mov r2, 18
+        add r1, r1, r2
+        cmp r0, r1
+        brlt ui_di_stat
+        add r1, r1, 1           ; leave a gap after a 13-char name
+ui_di_stat:
+        mov r0, r1
         mov r2, r4
         mov r3, A_DIM>>8
         sll r3, 8
@@ -854,7 +907,7 @@ ui_di_fallback:
         add r0, r0, 3
         mov r3, A_DIM>>8
         sll r3, 8
-        mov r4, PART_NAME_MAX
+        mov r4, UI_PART_NAME_W
         bl ui_put_str_n
         br ui_di_next
 
@@ -931,17 +984,30 @@ ui_put_part_stat:
         cmp r1, UT_REPAIR
         brz ui_dps_urep
         cmp r1, UT_TARGET
+        brz ui_dps_target
+        cmp r1, UT_SHIELD
+        brz ui_dps_shield
+        cmp r1, UT_SALVAGE
         brnz ui_dps_done
-        mov r1, '+'
-        or r1, r3
-        str r1, r0, 0
-        add r0, r0, 1
+        lea r2, ui_s_drop_bonus
+        bl ui_put_str
+        br ui_dps_pct
+ui_dps_target:
+        lea r2, ui_s_plus
+        bl ui_put_str
+ui_dps_pct:
         ldr r2, r4, P_U_VALUE
         bl ui_put_num
         mov r1, '%'
         or r1, r3
         str r1, r0, 0
         add r0, r0, 1
+        br ui_dps_done
+ui_dps_shield:
+        lea r2, ui_s_absorb
+        bl ui_put_str
+        ldr r2, r4, P_U_VALUE
+        bl ui_put_num
         br ui_dps_done
 ui_dps_uarm:
         mov r1, 'a'
@@ -1007,6 +1073,11 @@ ui_dps_weng:
         bl ui_put_pstr
         ldr r2, r4, P_W_ENERGY
         bl ui_put_num
+        ldr r2, r4, P_W_FX
+        cmp r2, WFX_STUN
+        brnz ui_dps_done
+        lea r2, ui_s_stun
+        bl ui_put_str
 ui_dps_done:
         pop lr
         pop r4
@@ -1820,7 +1891,13 @@ ui_dhr_ok:
         lea r2, ui_help_tbl
         add r2, r2, r1
         ldr r2, r2, 0
+        cmp r1, MODE_RECYCLE    ; new help text is stored unpacked
+        brz ui_dhr_recycle
         bl ui_put_pstr
+        br ui_dhr_done
+ui_dhr_recycle:
+        bl ui_put_str
+ui_dhr_done:
         pop lr
         pop r4
         pop r3
@@ -1837,9 +1914,9 @@ ui_draw_help_overlay:
         push r3
         push r4
         push lr
-        mov r0, 1
+        mov r0, 0
         mov r1, 3
-        mov r2, 22
+        mov r2, 24
         mov r3, 58
         mov r4, G_SPACE
         bl ui_fast_fill
@@ -2164,6 +2241,24 @@ ui_end_kills:
         sll r3, 8
         bl ui_put_num
 
+        mov r0, 19
+        mov r1, 28
+        bl ui_cell_addr
+        mov r3, A_TEXT>>8
+        sll r3, 8
+        lea r2, ui_se_salvaged
+        bl ui_put_str
+        ld r2, st_stat_salvaged
+        bl ui_put_num
+        lea r2, ui_se_lost
+        bl ui_put_str
+        ld r2, st_stat_lost
+        bl ui_put_num
+        lea r2, ui_se_recycled
+        bl ui_put_str
+        ld r2, st_stat_recycled
+        bl ui_put_num
+
         bl video_present
 ui_end_drain:
         nbain r0
@@ -2370,7 +2465,7 @@ ui_ps_d0:
         ret
 
 ; ui_put_str_n (r0=dst_ptr, r2=str, r3=attr, r4=maxlen -> r0=next_dst_ptr)
-; 4x unrolled for maxlen >= 4 (PART_NAME_MAX=12 takes 3 fast iterations, 0 tail).
+; 4x unrolled for maxlen >= 4.
 ui_put_str_n:
         push r1
         push r2
@@ -2838,6 +2933,7 @@ ui_help_tbl:
         .word ui_s_help_log
         .word ui_s_help_toggle
         .word ui_s_help_close
+        .word ui_s_help_recycle
 
 ui_auto_strs:
         .word ui_sa_run
@@ -2881,39 +2977,42 @@ ui_panel_hdrs:
 
 ; Help overlay table: (row*SCR_COLS + col, attr, pstr)
 ui_help_lines:
-        .word 1*SCR_COLS+17
+        .word 0*SCR_COLS+17
         .word A_TITLE
         .word ui_sh_title
-        .word 2*SCR_COLS+5
+        .word 1*SCR_COLS+5
         .word A_LABEL
         .word ui_sh_l1
-        .word 3*SCR_COLS+5
+        .word 2*SCR_COLS+5
         .word A_TEXT
         .word ui_sh_l2
-        .word 4*SCR_COLS+5
+        .word 3*SCR_COLS+5
         .word A_TEXT
         .word ui_sh_l3
-        .word 5*SCR_COLS+5
+        .word 4*SCR_COLS+5
         .word A_TEXT
         .word ui_sh_l4
-        .word 6*SCR_COLS+5
+        .word 5*SCR_COLS+5
         .word A_TEXT
         .word ui_sh_l5
-        .word 7*SCR_COLS+5
+        .word 6*SCR_COLS+5
         .word A_TEXT
         .word ui_sh_l5b
-        .word 9*SCR_COLS+5
+        .word 8*SCR_COLS+5
         .word A_LABEL
         .word ui_sh_l6
-        .word 10*SCR_COLS+5
+        .word 9*SCR_COLS+5
         .word A_TEXT
         .word ui_sh_l7
-        .word 11*SCR_COLS+5
+        .word 10*SCR_COLS+5
         .word A_TEXT
         .word ui_sh_l8
-        .word 12*SCR_COLS+5
+        .word 11*SCR_COLS+5
         .word A_TEXT
         .word ui_sh_l9
+        .word 12*SCR_COLS+5
+        .word A_TEXT
+        .word ui_sh_recycle
         .word 14*SCR_COLS+5
         .word A_LABEL
         .word ui_sh_l11
@@ -2929,13 +3028,13 @@ ui_help_lines:
         .word 18*SCR_COLS+5
         .word A_TEXT
         .word ui_sh_l14b
-        .word 19*SCR_COLS+5
-        .word A_DIM
-        .word ui_sh_l15
         .word 20*SCR_COLS+5
         .word A_DIM
-        .word ui_sh_l16
+        .word ui_sh_l15
         .word 21*SCR_COLS+5
+        .word A_DIM
+        .word ui_sh_l16
+        .word 22*SCR_COLS+5
         .word A_TITLE
         .word ui_sh_l17
         .word -1
@@ -3008,13 +3107,13 @@ ui_title_texts:
         .word 21*SCR_COLS+47
         .word A_BAD
         .word ui_st_leg_en
-        .word 21*SCR_COLS+62
+        .word 21*SCR_COLS+66
         .word A_DIM
         .word ui_st_leg_en2
         .word 25*SCR_COLS+30
         .word FG_BLACK|BG_BYELLOW
         .word ui_s_start
-        .word 27*SCR_COLS+15
+        .word 27*SCR_COLS+12
         .word A_DIM
         .word ui_st_keys
         .word -1
@@ -3141,7 +3240,7 @@ ui_art_packed: ; 5 rows x 9 words (2-bit packed, 8 chars/word MSB-first, 71 char
         .word 0x5014
         .word 0x5554
 
-ui_s_help_map:    .pstring "hjkl/yubn/arrows move  f/F fire  g/e/r/x parts  ; look  m log  z rest  o explore  < up  ? help"
+ui_s_help_map:    .pstring "hjkl/yubn/arrows move  f/F fire  g/e/r/x/R parts  ; look  m log  z rest  o explore  < up  ? help"
 ui_s_help_target: .pstring "TARGET: Tab / ] / [ cycle target   f or Enter fire   Esc cancel"
 ui_s_help_equip:  .pstring "EQUIP: 1-4 attach carried part   Esc cancel"
 ui_s_help_remove: .pstring "REMOVE: 1-8 detach loadout slot   Esc cancel"
@@ -3152,6 +3251,9 @@ ui_s_help_look:   .pstring "LOOK: move cursor  Shift+dir jump  Tab/]/[ robots  f
 ui_s_help_log:    .pstring "LOG: press any key to close"
 ui_s_help_toggle: .pstring "WEAPONS: 1-3 toggle hold-fire on weapon slot   Esc cancel"
 ui_s_help_close:  .pstring "CLOSE: direction (hjkl/yubn/arrows) to close door   Esc cancel"
+ui_s_help_recycle: .string "RECYCLE: 1-4 scrap carried part for core HP   Esc cancel"
+ui_s_alarm:        .string "Alarm "
+ui_c_alarm_empty:  .word G_LIGHT|A_DIM
 ui_s_title:       .pstring "SCRAPCORE"
 ui_s_depth:       .pstring "Depth "
 ui_s_surface:     .pstring "Surface"
@@ -3160,7 +3262,7 @@ ui_s_core:        .pstring "Core"
 ui_s_energy:      .pstring "Energy"
 ui_s_move:        .pstring "Move "
 ui_s_sight:       .pstring "  Sight "
-ui_s_kills:       .pstring "  Kills "
+ui_s_kills:       .pstring "  Score Kills "
 ui_s_load:        .pstring "-- Loadout --"
 ui_s_inv:         .pstring "-- Carried --"
 ui_s_tgt:         .pstring "-- Target --"
@@ -3199,6 +3301,10 @@ ui_s_sp_mel:      .pstring " mel"
 ui_s_sp_e:        .pstring " e"
 ui_s_splus:       .pstring "s+"
 ui_s_rep:         .pstring "rep"
+ui_s_plus:        .string "+"
+ui_s_stun:        .string " S"
+ui_s_absorb:      .string "abs "
+ui_s_drop_bonus:  .string "drop +"
 ui_sh_title:      .pstring " SCRAPCORE - CONTROLS & GUIDE "
 ui_sh_l1:         .pstring "MOVEMENT & WORLD"
 ui_sh_l2:         .pstring "  hjkl/yubn/arrows   Move or melee bump (8-way)"
@@ -3210,6 +3316,7 @@ ui_sh_l6:         .pstring "PARTS & SALVAGE"
 ui_sh_l7:         .pstring "  g                  Pick up part on your tile"
 ui_sh_l8:         .pstring "  e 1-4 / r 1-8      Equip carried / Remove slot"
 ui_sh_l9:         .pstring "  x 1-4 / w 1-3      Drop carried / Hold weapon fire"
+ui_sh_recycle:    .pstring "  R 1-4              Recycle carried part for core HP"
 ui_sh_l11:        .pstring "COMBAT & SYSTEM"
 ui_sh_l12:        .pstring "  f / F              Target robot / Quick-fire"
 ui_sh_l13:        .pstring "  Tab / ] / [        Cycle visible robots"
@@ -3239,10 +3346,10 @@ ui_st_leg_util:   .pstring "Utility"
 ui_st_leg_t1:     .pstring "Tier 1  "
 ui_st_leg_t2:     .pstring "Tier 2  "
 ui_st_leg_t3:     .pstring "Tier 3"
-ui_st_leg_en:     .pstring "f s r W B k t  "
+ui_st_leg_en:     .pstring "f s r W B k t l x"
 ui_st_leg_en2:    .pstring "Machine patrols"
 ui_s_start:       .pstring "  Press any key to start  |  Q to quit  "
-ui_st_keys:       .pstring "hjkl/yubn/arrows move  |  f fire  |  g/e/r/x parts  |  < stairs  |  ? help"
+ui_st_keys:       .pstring "hjkl/yubn/arrows move  |  f fire  |  g/e/r/x/R parts  |  < stairs  |  ? help"
 ui_se_dead_hdr:   .pstring "====  CORE DESTROYED  ===="
 ui_se_dead_sub:   .pstring "Your salvaged chassis lies silent in the machine depths."
 ui_se_cause:      .pstring "Destroyed by: "
@@ -3253,7 +3360,10 @@ ui_se_won_sub:    .pstring "You escaped the buried complex and broke through to 
 ui_se_escaped:    .pstring "VICTORY -- CORE ONLINE ON SURFACE"
 ui_se_sum_hdr:    .pstring " RUN SUMMARY "
 ui_se_best:       .pstring "Shallowest Depth:"
-ui_se_kills:      .pstring "Robots Destroyed:"
+ui_se_kills:      .pstring "Score Kills:     "
 ui_se_turns:      .pstring "Turns Taken:     "
 ui_se_score:      .pstring "FINAL SCORE:     "
+ui_se_salvaged:   .string "Parts: picked up "
+ui_se_lost:       .string ", lost "
+ui_se_recycled:   .string ", recycled "
 ui_se_prompt:     .pstring "  Press any key to play again  |  Q to quit  "

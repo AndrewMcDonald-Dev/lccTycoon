@@ -2,17 +2,17 @@
   "scenarios": [
     {
       "name": "regression: an enemy's hit message comes before the '<part> destroyed!' it caused",
-      "clock": 123,
-      "keys": "a*2 u*2 l*3 n l ff l ff l*3 g u l*3 u k*3 u*4 l n*3 j g e2 u*2 l n l u l n*4 j*4 n u l*3 u k*15 u*2 k g e2 n*2 b g u ff u l*3 j <lt> k*4 y h*4 y*2 h*5 y k*3 y*3 h ff h ff b ff y ff y ff b ff h k ff u ff n b y ff u ff b y*2 g l*2 n*4 j*2 ff j*3 b g k u k*4 y h*5 y h*5 b j*11 b*2 h*2 y k*3 ff k ff k ff k ff k ff k*4 ff k ff k ff j <lt> b y*2 k*3 u*3 l n l*13 ff j*3 l*3 n j*5 n l*2 ff l*2",
+      "clock": 28,
+      "keys": "<enter> h*2 y l*3 u*3 k*2 u*7 y n j*2 b h*3 b*2 h*13 y k y*2 k y k*2 y*2 k*2 F*2 k*4 y l*2 b j*2 b*3 h*3 y k*6 y h F*2 h*5 y j*2 b y h y h*12 g e1 l n <lt> j*2 n j*2 F*4",
       "tail": 0,
       "expect": {
         "status": "frames-complete",
         "memory": {
-          "st_depth": 8
+          "st_depth": 9
         },
         "screen": {
           "matches": [
-            "Scuttler hits Scrap Plate for 4\\.\\s*\\n\\s*Scrap Plate destroyed!"
+            "Rifler hits Rivet Gun for 5\\.\\s*\\n\\s*Rivet Gun destroyed!"
           ]
         }
       }
@@ -39,7 +39,7 @@
     {
       "name": "scripted run (clock 123): climbs 10 -> 6 salvaging parts, dies to a Watcher; death screen shows cause and score",
       "clock": 123,
-      "keys": "a*2 u*2 l*3 n l ff l ff l*3 g u l*3 u k*3 u*4 l n*3 j g e2 u*2 l n l u l n*4 j*4 n u l*3 u k*15 u*2 k g e2 n*2 b g u ff u l*3 j <lt> k*4 y h*4 y*2 h*5 y k*3 y*3 h ff h ff b ff y ff y ff b ff h k ff u ff n b y ff u ff b y*2 g l*2 n*4 j*2 ff j*3 b g k u k*4 y h*5 y h*5 b j*11 b*2 h*2 y k*3 ff k ff k ff k ff k ff k*4 ff k ff k ff j <lt> b y*2 k*3 u*3 l n l*13 ff j*3 l*3 n j*5 n l*2 ff l*4 ff l ff l ff l ff u ff u ff l ff n <lt> u*3 k*12 ff u ff b ff u b y*2 u*15 n*2 j*6 n l*4 u l*8 e2 u*3 n*3 j*2 b*2 h*2 y k*2 b k*2 u*4 l*5 u l n*2 <lt> h b j*7 n l u*2 l n l*5 u n j b h y h*5 e1 y*8 l g h y g e2 l*10 g e2 u k ff e1 ff k ff k ff y ff g ff k _2",
+      "keys": "<enter> l*7 F*5 l*5 u*2 l*2 y k*3 u l*2 k*2 u l F*4 n j n*2 g e1 l*3 u l*7 j*7 n l*3 u*2 k*15 F u*3 k g e1 l n*2 <lt> k*2 u*2 k u l*5 F*5 l*2 F l*5 n l F l*2 F*2 l j*3 g e1 l*3 u*2 k*2 y*2 g e1 n*3 l*16 u k*6 u l*2 u*2 <lt> j b*2 j*2 b h*8 F h*5 F*5 h*3 b*3 g e2 k*10 y h*3 k*2 l j l k l j l j l k y k*4 y h*3 F h F*5 h*11 b j*5 b*4 h*3 y F*2 k*6 <lt> k*2 h*6 l*4 u*2 k F*2 k*2 y h*13 j n*2 j*3 b F*3 h*7 y g e3 h y k*2 y h j*7 b h y k y k*5 y h*2 F*4 h F h*9 y*3 k*3 y h*5 b <lt> j l j*2 b l h b*2 j*4 n l*11 F*2 l*3 u*3 k*5 F*6 k*2 F k F*2 u*3 g e4 l n*3 F*4 j*5 n*2 l*8 n l*7 u .*137 e4 b*14 .*44 _2",
       "expect": {
         "status": "frames-complete",
         "maxStepsPerFrame": 500000,
@@ -48,15 +48,16 @@
           "st_core_hp": 0,
           "st_depth": 6,
           "st_depth_best": 6,
-          "st_kills": 14,
+          "st_kills": 15,
           "st_death_cause": 4,
-          "st_turn": 434
+          "st_turn": 672,
+          "st_stat_salvaged": 7
         },
         "screen": {
           "contains": [
             "CORE DESTROYED",
             "Destroyed by: Watcher at Depth 6",
-            "FINAL SCORE:            540"
+            "FINAL SCORE:            550"
           ]
         }
       }
@@ -126,57 +127,83 @@
       }
     },
     {
-      "name": "scripted run (clock 123): a Watcher kill drops a part on the floor",
-      "clock": 123,
-      "keys": "a*2 u*2 l*3 n l ff l ff l*3 g u l*3 u k*3 u*4 l n*3 j g e2 u*2 l n l u l n*4 j*4 n u l*3 u k*15 u*2 k g e2 n*2 b g u ff u l*3 j <lt> k*4 y h*4 y*2 h*5 y k*3 y*3 h ff h ff b ff y ff y ff b ff h k ff u ff n b y ff u ff b y*2 g l*2 n*4 j*2 ff j*3 b g k u k*4 y h*5 y h*5 b j*11 b*2 h*2 y k*3 ff k ff k ff k ff k ff k*4 ff k ff k ff j <lt> b y*2 k*3 u*3 l n l*13 ff j*3 l*3 n j*5 n l*2 ff l*4 ff l ff l ff l ff u ff u ff l ff",
+      "name": "scripted run (clock 4): a Watcher kill drops a Pulse Rifle on the floor",
+      "clock": 4,
+      "keys": "<enter> b*2 h*6 b j*9 F b*3 h*4 b*2 h y k*3 F*3 k*7 y F*2 y h F h*7 F*2 h*2 g e1 h*3 b*2 j b*2 <lt> l*6 u k*5 f]f k*2 F k F k u*2 g e1 l*3 u l*9 u l u*2 l F*8 l*2 F l u k u <lt> h*4 j b j*6 b h*11 F*7",
       "tail": 0,
       "expect": {
         "status": "frames-complete",
         "memory": {
           "st_depth": 8,
-          "st_kills": 10
+          "st_kills": 8
         },
         "screen": {
           "contains": [
-            "Watcher destroyed. Drops Optic Mast."
+            "Watcher destroyed. Drops Pulse Rifle."
           ]
         }
       }
     },
     {
-      "name": "scripted run (clock 123): after losing both legs, attaching salvaged Grip Treads restores propulsion",
-      "clock": 123,
-      "keys": "a*2 u*2 l*3 n l ff l ff l*3 g u l*3 u k*3 u*4 l n*3 j g e2 u*2 l n l u l n*4 j*4 n u l*3 u k*15 u*2 k g e2 n*2 b g u ff u l*3 j <lt> k*4 y h*4 y*2 h*5 y k*3 y*3 h ff h ff b ff y ff y ff b ff h k ff u ff n b y ff u ff b y*2 g l*2 n*4 j*2 ff j*3 b g k u k*4 y h*5 y h*5 b j*11 b*2 h*2 y k*3 ff k ff k ff k ff k ff k*4 ff k ff k ff j <lt> b y*2 k*3 u*3 l n l*13 ff j*3 l*3 n j*5 n l*2 ff l*4 ff l ff l ff l ff u ff u ff l ff n <lt> u*3 k*12 ff u ff b ff u b y*2 u*15 n*2 j*6 n l*4 u l*8 e2",
+      "name": "scripted run (clock 5): after losing both legs, attaching salvaged Grip Treads restores propulsion",
+      "clock": 5,
+      "keys": "<enter> k u k*5 u*3 k u l*3 u l*3 n l*12 n l*3 n*3 j*5 n*2 g .*41 e1 h",
       "tail": 0,
       "expect": {
         "status": "frames-complete",
         "maxStepsPerFrame": 500000,
         "memory": {
-          "st_depth": 7,
-          "st_slots": [
-            5,
-            31,
-            1,
-            1,
-            9,
-            4,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0
-          ]
+          "st_game_state": 1,
+          "st_depth": 10,
+          "st_slots": 5,
+          "st_move_cost": 170,
+          "st_px": 40,
+          "st_py": 15
         },
         "screen": {
           "contains": [
-            "Attached Grip Treads."
+            "Move 170"
           ]
-        }
+        },
+        "frames": [
+          {
+            "frame": 47,
+            "screen": {
+              "contains": [
+                "Picked up Grip Treads."
+              ]
+            }
+          },
+          {
+            "frame": 61,
+            "screen": {
+              "contains": [
+                "Stub Legs destroyed!",
+                "Move 130"
+              ]
+            }
+          },
+          {
+            "frame": 88,
+            "screen": {
+              "contains": [
+                "Stub Legs destroyed!",
+                "Move 250"
+              ],
+              "matches": [
+                "│P -\\s*\\n.*│P -"
+              ]
+            }
+          },
+          {
+            "frame": 89,
+            "screen": {
+              "contains": [
+                "Attached Grip Treads."
+              ]
+            }
+          }
+        ]
       }
     }
   ]

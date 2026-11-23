@@ -182,6 +182,8 @@ ui_msg:
         ret
 ui_msg_add:
         ret
+ui_msg_attr:
+        ret
 
 drv_depth:      .word 0
 drv_i:          .word 0

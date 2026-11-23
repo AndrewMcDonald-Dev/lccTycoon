@@ -1,0 +1,233 @@
+; Unit driver for WP11 v2 Barrier (-2 full absorb & partial st_absorbed) paths
+; in cbt_enemy_attack (incl. Leech drain blocking) and cbt_blast, linking the
+; real src/parts.ap (prt_damage / prt_recalc).
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        mov r0, 77
+        srand r0
+        bl ui_init
+        bl prt_init
+        bl act_init
+        ; Strip loadout so non-absorbed hits go deterministically to core, then poke st_shield
+        lea r0, st_slots
+        mov r1, 0
+        mov r2, NUM_SLOTS*SLOT_SIZE
+drv_strip_lp:
+        str r1, r0, 0
+        add r0, r0, 1
+        sub r2, r2, 1
+        brp drv_strip_lp
+        bl prt_recalc
+        mov r0, GAME_PLAY
+        st r0, st_game_state
+        mov r0, 10
+        st r0, st_px
+        st r0, st_py
+        mov r0, 0
+        st r0, st_evade
+
+        ; 1. Full absorb (-2) on Leech attack: core untouched, NO Leech drain,
+        ;    only barrier energy (a * SHIELD_COST) spent!
+        bl act_clear
+        mov r0, EN_LEECH
+        mov r1, 11
+        mov r2, 10
+        bl act_spawn            ; slot 0 (dmg 1..3)
+        mov r0, 40
+        st r0, st_core_hp
+        mov r0, 3
+        st r0, st_shield        ; absorbs up to 3 (all of Leech's 1..3!)
+        mov r0, 20
+        st r0, st_energy
+        mov r0, 0
+        st r0, st_absorbed
+drv_b1_lp:
+        mov r0, 0
+        bl cbt_enemy_attack
+        ld r0, st_absorbed
+        cmp r0, 0
+        brz drv_b1_lp           ; wait until Leech hits (not misses)
+        ld r0, st_core_hp
+        st r0, drv_b1_hp        ; expect 40 (no core damage)
+        ; Energy spent must be EXACTLY st_absorbed * SHIELD_COST (NO Leech drain!)
+        ld r0, st_absorbed
+        mov r1, SHIELD_COST
+        mul r0, r1
+        mov r1, 20
+        sub r1, r1, r0          ; expected energy
+        ld r2, st_energy
+        mov r0, 0
+        cmp r1, r2
+        brne drv_b1_e_st
+        mov r0, 1
+drv_b1_e_st:
+        st r0, drv_b1_e_ok      ; expect 1
+        lea r0, drv_b1_msg
+        bl drv_copy_head_msg
+
+        ; 2. Partial absorb on Leech attack: st_shield=1, rolled >= 2,
+        ;    dealt = rolled - 1, Leech DOES drain LEECH_DRAIN (5) after barrier energy!
+        mov r0, 40
+        st r0, st_core_hp
+        mov r0, 1
+        st r0, st_shield
+drv_b2_lp:
+        mov r0, 20
+        st r0, st_energy
+        mov r0, 0
+        bl cbt_enemy_attack
+        ld r0, st_core_hp
+        mov r1, 40
+        cmp r0, r1
+        bre drv_b2_lp           ; wait for a roll >= 2 so it is partial (not -2)
+        ; Energy spent = 1 * SHIELD_COST (2) + LEECH_DRAIN (5) = 7 -> 13
+        ld r0, st_energy
+        st r0, drv_b2_energy    ; expect 13
+        ld r0, st_absorbed
+        st r0, drv_b2_abs       ; expect 1
+        lea r0, drv_b2_msg
+        bl drv_copy_head_msg
+
+        ; 3. Partial absorb on Bulwark attack (dmg 4..8, st_shield=3 -> dealt = rolled-3)
+        bl act_clear
+        mov r0, EN_BULWARK
+        mov r1, 11
+        mov r2, 10
+        bl act_spawn            ; slot 0
+        mov r0, 40
+        st r0, st_core_hp
+        mov r0, 3
+        st r0, st_shield
+        mov r0, 20
+        st r0, st_energy
+        mov r0, 0
+        st r0, st_absorbed
+drv_b3_lp:
+        mov r0, 0
+        bl cbt_enemy_attack
+        ld r0, st_absorbed
+        cmp r0, 0
+        brz drv_b3_lp           ; wait until Bulwark hits
+        ld r0, st_absorbed
+        st r0, drv_b3_abs       ; expect 3
+        ld r0, st_energy
+        st r0, drv_b3_energy    ; expect 14 (20 - 3*2)
+        ; dealt = 40 - st_core_hp must be in 1..5
+        ld r0, st_core_hp
+        mov r1, 40
+        sub r0, r1, r0
+        mov r2, 0
+        cmp r0, 1
+        brlt drv_b3_dok
+        cmp r0, 5
+        brgt drv_b3_dok
+        mov r2, 1
+drv_b3_dok:
+        st r2, drv_b3_dmg_ok    ; expect 1
+        lea r0, drv_b3_msg
+        bl drv_copy_head_msg
+
+        ; 4. Full absorb (-2) on cbt_blast: st_shield=10, st_energy=40
+        bl act_clear
+        mov r0, 40
+        st r0, st_core_hp
+        mov r0, 10
+        st r0, st_shield
+        mov r0, 40
+        st r0, st_energy
+        mov r0, 10
+        mov r1, 10
+        mov r2, EN_SAPPER
+        bl cbt_blast
+        ld r0, st_core_hp
+        st r0, drv_b4_hp        ; expect 40
+        lea r0, drv_b4_msg
+        bl drv_copy_head_msg
+
+        ; 5. Partial absorb on cbt_blast: st_shield=3, st_energy=40
+        mov r0, 40
+        st r0, st_core_hp
+        mov r0, 3
+        st r0, st_shield
+        mov r0, 40
+        st r0, st_energy
+        mov r0, 10
+        mov r1, 10
+        mov r2, EN_SAPPER
+        bl cbt_blast
+        ld r0, st_absorbed
+        st r0, drv_b5_abs       ; expect 3
+        ld r0, st_energy
+        st r0, drv_b5_energy    ; expect 34 (40 - 3*2)
+        ld r0, st_core_hp
+        mov r1, 40
+        sub r0, r1, r0          ; dealt = rolled - 3 in 1..5
+        mov r2, 0
+        cmp r0, 1
+        brlt drv_b5_dok
+        cmp r0, 5
+        brgt drv_b5_dok
+        mov r2, 1
+drv_b5_dok:
+        st r2, drv_b5_dmg_ok    ; expect 1
+        lea r0, drv_b5_msg
+        bl drv_copy_head_msg
+        halt
+
+drv_copy_head_msg:
+        push r0
+        push r1
+        push r2
+        push r3
+        ld r1, st_msg_head
+        and r1, r1, MSG_COUNT-1
+        sll r1, MSG_SHIFT
+        lea r2, st_msg_text
+        add r2, r2, r1
+drv_chm_lp:
+        ldr r3, r2, 0
+        str r3, r0, 0
+        cmp r3, 0
+        brz drv_chm_done
+        add r2, r2, 1
+        add r0, r0, 1
+        br drv_chm_lp
+drv_chm_done:
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+drv_b1_hp:     .word 99
+drv_b1_e_ok:   .word 99
+drv_b1_msg:    .zero MSG_LEN
+drv_b2_energy: .word 99
+drv_b2_abs:    .word 99
+drv_b2_msg:    .zero MSG_LEN
+drv_b3_abs:    .word 99
+drv_b3_energy: .word 99
+drv_b3_dmg_ok: .word 99
+drv_b3_msg:    .zero MSG_LEN
+drv_b4_hp:     .word 99
+drv_b4_msg:    .zero MSG_LEN
+drv_b5_abs:    .word 99
+drv_b5_energy: .word 99
+drv_b5_dmg_ok: .word 99
+drv_b5_msg:    .zero MSG_LEN
+
+        .include "../../src/state.ap"
+        .include "../../src/rng.ap"
+        .include "../../src/dungeon.ap"
+        .include "../../src/fov.ap"
+        .include "../../src/parts.ap"
+        .include "../../src/items.ap"
+        .include "../../src/actors.ap"
+        .include "../../src/combat.ap"
+        .include "../../src/ui.ap"
+        .include "video.ap"
+        .include "util.ap"

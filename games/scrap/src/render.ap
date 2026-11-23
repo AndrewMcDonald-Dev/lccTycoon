@@ -7,7 +7,7 @@
 ;   tiles  FOV_VISIBLE → kind glyph with its A_* color (defs palette);
 ;          FOV_KNOWN only → same glyph in A_MEMORY; unknown → blank
 ;   items  on visible tiles: the part's P_CELL
-;   enemies on visible tiles: ET_CELL of the type
+;   enemies on visible tiles: ET_CELL of the type, A_ARMED_BG for armed Sappers
 ;   player GL_PLAYER | A_PLAYER
 ;   target in MODE_TARGET the st_target enemy's cell gets A_TARGET_BG;
 ;          in MODE_LOOK the (st_look_x, st_look_y) cell gets A_LOOK_BG
@@ -161,6 +161,17 @@ ren_en_lp:
         cmp r0, 0
         brz ren_en_next
         ldr r2, r0, ET_CELL
+        ldr r0, r4, E_TYPE
+        cmp r0, EN_SAPPER
+        brnz ren_en_put
+        ldr r0, r4, E_FLAGS
+        and r0, r0, EF_ARMED
+        brz ren_en_put
+        ld r0, ren_m_nobg
+        and r2, r2, r0
+        ld r0, ren_bg_armed
+        or r2, r0
+ren_en_put:
         str r2, r1, 0
 ren_en_next:
         mov r0, ENEMY_SIZE
@@ -405,3 +416,4 @@ ren_tbl_vis2:
 ren_k_neg_map:  .word -MAP_SIZE
 ren_c_player:   .word GL_PLAYER|A_PLAYER
 ren_m_nobg:     .word 0x0FFF
+ren_bg_armed:   .word A_ARMED_BG

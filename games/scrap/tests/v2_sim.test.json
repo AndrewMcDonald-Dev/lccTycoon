@@ -1,0 +1,36 @@
+{
+  "scenarios": [
+    {
+      "name": "v2 simulation whole-game: floor alarm ticks up during play and stays within frame budget",
+      "clock": 1000,
+      "keys": "<space> .*5 Q y",
+      "expect": {
+        "status": "halted",
+        "maxStepsPerFrame": 1000000,
+        "memory": {
+          "st_turn": 5,
+          "st_alarm": 5,
+          "st_alarm_waves": 0
+        }
+      }
+    },
+    {
+      "name": "v2 simulation whole-game (clock 41): wave robot tracks player after 1-tile step and attacks",
+      "clock": 41,
+      "keys": "<enter> u n g .*247 h .*40",
+      "expect": {
+        "status": "frames-complete",
+        "maxStepsPerFrame": 1000000,
+        "memory": {
+          "st_alarm_waves": 1,
+          "st_core_hp": 20,
+          "st_game_state": 1,
+          "st_turn": 291
+        },
+        "screen": {
+          "contains": ["1 hostile in view", "Flit hits core for 2.", "Score Kills 0"]
+        }
+      }
+    }
+  ]
+}

@@ -2,7 +2,7 @@
 ; Module: player (prefix ply_) — owner WP9. Input → actions. Drains the
 ; keys queued this frame and dispatches them by st_mode (MODE_*):
 ;   MODE_MAP    hjkl yubn / arrows move or bump-attack, '.' or space wait,
-;               g pick up, e equip menu, r remove menu, x drop menu,
+;               g pick up, e equip menu, r remove menu, x drop menu, R recycle,
 ;               f targeting, F quick fire, '<' stairs, ? help, Q quit prompt,
 ;               ; look, m message history, w hold fire, c close door
 ;               Shift+vi-key run, z rest, t travel to stairs, o explore
@@ -17,6 +17,7 @@
 ;   MODE_LOG    any key closes
 ;   MODE_TOGGLE 1-3 toggle hold fire on that weapon slot, Esc cancels
 ;   MODE_CLOSE  vi-key or arrow picks a door to close, Esc cancels
+;   MODE_RECYCLE 1-4 recycle that inventory part, Esc cancels
 ; Every action adds its TU cost to st_ply_next (ply_spend); main_turn then
 ; lets the world catch up. At most one action per frame: ply_handle stops
 ; draining after an action, so later keys wait for the next frame.
@@ -35,10 +36,11 @@
 ;; ply_move          r0=dx r1=dy   -> r0=PR_*  enemy on the target tile → manual bump attack (TIME_MELEE) or automatic stop. Walkable and free → move (opens a closed door),
 ;;                   cost st_move_cost, message naming any item on the new tile. Blocked → PR_NONE, no time.
 ;; ply_spend         r0=TU         -> -        st_ply_next += TU (the action's cost)
-;; ply_pickup        ()            -> r0=PR_*  item on the player's tile → prt_inv_add, itm_remove, message, TIME_PICKUP; nothing / inventory full → message, PR_NONE
+;; ply_pickup        ()            -> r0=PR_*  item on the player's tile → prt_inv_add, itm_remove, st_stat_salvaged++, message, TIME_PICKUP; nothing / inventory full → message, PR_NONE
 ;; ply_equip         r0=inv index  -> r0=PR_*  prt_attach; attached → message, TIME_SWAP; empty entry → PR_NONE
 ;; ply_remove        r0=slot       -> r0=PR_*  prt_detach; detached → message, TIME_SWAP; empty slot / inventory full → message, PR_NONE
 ;; ply_drop          r0=inv index  -> r0=PR_*  itm_place on the player's tile (or nearby), prt_inv_clear, message, TIME_DROP; empty entry / no room → PR_NONE
+;; ply_recycle       r0=inv index  -> r0=PR_*  prt_recycle; restored HP → message, TIME_RECYCLE; empty entry / full core → message, PR_NONE
 ;; ply_target        r0=dir        -> -        st_target = act_next_visible(st_target, dir); no visible enemy → message, back to MODE_MAP
 ;; ply_fire          ()            -> r0=PR_*  cbt_player_fire(st_target); >0 fired → MODE_MAP, TIME_FIRE; -1 → "Not enough energy.", 0 → "Nothing can fire.", leave the current mode as-is, PR_NONE
 ;; ply_stairs        ()            -> r0=PR_*  on T_STAIRS → st_climb = 1, TIME_STAIRS; else message, PR_NONE
@@ -242,7 +244,7 @@ ply_k_do_quit:
         mov r0, PR_QUIT
         br ply_k_ret
 
-; ---- MODE_EQUIP / REMOVE / DROP / TOGGLE: digit '1'..max -------------------
+; ---- inventory / loadout menus: digit '1'..max ------------------------------
 ply_k_equip:
         mov r2, NUM_INV
         lea r3, ply_equip
@@ -254,6 +256,10 @@ ply_k_remove:
 ply_k_drop:
         mov r2, NUM_INV
         lea r3, ply_drop
+        br ply_k_digit
+ply_k_recycle:
+        mov r2, NUM_INV
+        lea r3, ply_recycle
         br ply_k_digit
 ply_k_toggle:
         mov r2, NUM_WEAP
@@ -1176,6 +1182,9 @@ ply_pickup:
         brn ply_pk_full
         mov r0, r2
         bl itm_remove
+        ld r0, st_stat_salvaged
+        add r0, r0, 1
+        st r0, st_stat_salvaged
         lea r0, ply_s_picked
         mov r1, r3
         bl ply_msg_part
@@ -1328,6 +1337,52 @@ ply_dr_ret:
         pop r1
         ret
 
+; ---- recycle carried part to heal the core ---------------------------------
+ply_recycle:
+        push r1
+        push r2
+        push lr
+        cmp r0, 0
+        brn ply_ry_empty
+        cmp r0, NUM_INV-1
+        brgt ply_ry_empty
+        mov r1, r0
+        sll r1, SLOT_SHIFT
+        lea r2, st_inv
+        add r1, r1, r2
+        ldr r1, r1, S_PART
+        bl prt_recycle
+        cmp r0, 0
+        brz ply_ry_empty
+        brn ply_ry_full
+        mov r2, r0              ; HP restored
+        lea r0, ply_s_recycled
+        bl ui_msg
+        mov r0, r1
+        bl prt_name
+        bl ui_msg_add
+        lea r0, ply_s_core_gain
+        bl ui_msg_add
+        mov r0, r2
+        bl ui_msg_addn
+        lea r0, ply_s_dot
+        bl ui_msg_add
+        mov r0, TIME_RECYCLE
+        bl ply_act
+        br ply_ry_ret
+ply_ry_empty:
+        lea r0, ply_s_noinv
+        br ply_ry_fail
+ply_ry_full:
+        lea r0, ply_s_core_full
+ply_ry_fail:
+        bl ply_fail_msg
+ply_ry_ret:
+        pop lr
+        pop r2
+        pop r1
+        ret
+
 ; ---- target selection / cycling ---------------------------------------------
 ; Keep the tracked robot if it is still living and visible, else use the
 ; existing nearest-target policy (hostile first).
@@ -1452,6 +1507,7 @@ ply_mode_jt:
         .word ply_k_cancel      ; MODE_LOG
         .word ply_k_toggle
         .word ply_k_close
+        .word ply_k_recycle
 
 ply_arr_tbl:
         .word 0                 ; 65 KEY_ARR_UP
@@ -1480,6 +1536,8 @@ ply_mode_tbl:
         .word MODE_TOGGLE
         .word KEY_CLOSE
         .word MODE_CLOSE
+        .word KEY_RECYCLE
+        .word MODE_RECYCLE
         .word 0
 
 ply_vi_tbl:
@@ -1523,6 +1581,9 @@ ply_s_picked:   .string "Picked up "
 ply_s_attached: .string "Attached "
 ply_s_removed:  .string "Removed "
 ply_s_dropped:  .string "Dropped "
+ply_s_recycled: .string "Recycled "
+ply_s_core_gain: .string ". Core +"
+ply_s_core_full: .string "Core integrity is full."
 ply_s_dot:      .string "."
 ply_s_noitem:   .string "Nothing here to pick up."
 ply_s_invfull:  .string "Inventory full."

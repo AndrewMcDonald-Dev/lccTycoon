@@ -156,6 +156,8 @@ ui_msg:
         ret
 ui_msg_add:
         ret
+ui_msg_attr:
+        ret
 
 drv_before_open: .word 99
 drv_after_open:  .word 99
