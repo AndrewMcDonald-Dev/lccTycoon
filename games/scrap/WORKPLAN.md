@@ -181,8 +181,17 @@ tests go red by design (PART_COUNT 26 changes loot rolls); fixed in WP12/WP13.
 
 ## WP11 — v2 simulation (Neon): Leech, Sapper + blasts, stun, salvage drops, alarm + reinforcements
 **Files:** src/actors.ap, src/combat.ap, tests/unit/actors*, tests/unit/combat*, tests/unit/v2_sim_*, tests/v2_sim.test.json
+**Status:** done (Neon).
+**Log:** 2026-11-22 done (Neon): Leech drain, Sapper arm/detonate + chain blasts, weapon stun, salvage drops, floor alarm + reinforcements in actors/combat; actors/combat + v2_sim_* tests passing.
 
 ## WP12 — v2 parts/player/UI (Sol): barrier, salvage/shield recalc, recycling, render armed Sapper, alarm meter, part stats, run summary
 **Files:** src/parts.ap, src/player.ap, src/ui.ap, src/render.ap, tests/unit/parts*, player*, render*, ui*, tests/unit/v2_ui_*, tests/v2_ui.test.json
+**Status:** done (Sol).
+**Log:** 2026-11-22 done (Sol): Barrier Grid absorption, shield/salvage recalc, `R` recycling, armed Sapper highlight, alarm meter, v2 part stats, run summary in parts/player/ui/render; 33.6K/40K words, v2_ui_* tests passing.
 
 ## WP13 — Wording pass (Neon) + replay re-record + QA (Sol)
+**Status:** active (WP13a/WP13c done; WP13b in progress).
+**Log:**
+- 2026-11-22 WP13a done (Neon): wording pass (`Barrier Field` → `Barrier Grid`).
+- 2026-11-22 WP13b active (Sol): re-recording replays (`play`/`qa1`/`qa2`/`qol_*`) and v2 balance pass.
+- 2026-11-22 WP13c done (Neon): title screen updated for Leech `l`, Sapper `x`, and `R` recycle; DESIGN.md and WORKPLAN.md synced with v2.

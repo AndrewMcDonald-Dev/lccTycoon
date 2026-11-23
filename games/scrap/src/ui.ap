@@ -3109,13 +3109,13 @@ ui_title_texts:
         .word 21*SCR_COLS+47
         .word A_BAD
         .word ui_st_leg_en
-        .word 21*SCR_COLS+62
+        .word 21*SCR_COLS+66
         .word A_DIM
         .word ui_st_leg_en2
         .word 25*SCR_COLS+30
         .word FG_BLACK|BG_BYELLOW
         .word ui_s_start
-        .word 27*SCR_COLS+15
+        .word 27*SCR_COLS+12
         .word A_DIM
         .word ui_st_keys
         .word -1
@@ -3348,10 +3348,10 @@ ui_st_leg_util:   .pstring "Utility"
 ui_st_leg_t1:     .pstring "Tier 1  "
 ui_st_leg_t2:     .pstring "Tier 2  "
 ui_st_leg_t3:     .pstring "Tier 3"
-ui_st_leg_en:     .pstring "f s r W B k t  "
+ui_st_leg_en:     .pstring "f s r W B k t l x"
 ui_st_leg_en2:    .pstring "Machine patrols"
 ui_s_start:       .pstring "  Press any key to start  |  Q to quit  "
-ui_st_keys:       .pstring "hjkl/yubn/arrows move  |  f fire  |  g/e/r/x parts  |  < stairs  |  ? help"
+ui_st_keys:       .pstring "hjkl/yubn/arrows move  |  f fire  |  g/e/r/x/R parts  |  < stairs  |  ? help"
 ui_se_dead_hdr:   .pstring "====  CORE DESTROYED  ===="
 ui_se_dead_sub:   .pstring "Your salvaged chassis lies silent in the machine depths."
 ui_se_cause:      .pstring "Destroyed by: "

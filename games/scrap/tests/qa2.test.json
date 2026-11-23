@@ -1,9 +1,9 @@
 {
   "scenarios": [
     {
-      "name": "win path (clock 32, recorded autoplayer, no pokes): climbs 10 -> surface in 989 turns; win screen shows Surface and score",
+      "name": "win path (clock 32, recorded autoplayer, no pokes): climbs 10 -> surface in 1002 turns; win screen shows Surface and score",
       "clock": 32,
-      "keys": "a*2 n j b j*3 b h b*2 h b j*4 n g e1 l*2 g b*2 h*4 y g e2 b h*2 y h*6 y k y h*5 b*2 y*4 g k u k*3 y h*4 y*2 h*7 ff b ff b y*4 ff b*5 j*3 ff j*8 b*4 g e3 u*3 l g n*2 b <lt> h*7 g u*2 l*2 u k*4 u l*12 u l n*3 ff j ff j*3 n l*5 ff l ff l*2 ff u l*7 n l*7 u k*2 ff k ff k ff k ff y h y*2 <lt> h y k*5 y h*3 b*3 h*3 y h*4 ff y f<tab>f k ff k ff y f<tab>f k ff n*2 j b n b j*5 b h*7 ff h ff h ff b ff h ff h ff h*2 ff e4 k u*2 g b*3 h*3 y ff h f<tab>f h ff b ff b ff y ff k <lt> k*5 y h*5 b ff h ff h ff h b j*4 ff j ff j ff j ff e1 ff j ff b ff n b g e1 k*3 u k*7 u g e1 k y g n j b j*7 b*5 h y*2 h*7 ff h ff h ff h ff k*3 y*3 k*2 y ff h*7 b*2 ff h y*2 <lt> k u l*3 n j*12 n ff l*6 n*2 l u k*13 u l*5 ff u ff u l*3 e1 l*5 n g j b*2 j*7 n l*4 n*3 l*2 u n l*3 u ff e2 ff u*2 ff u l n*2 g j <lt> b*3 h b j*3 b*3 h ff h*3 b h*3 y h ff h ff h ff b ff h ff h ff h ff h ff h*2 y h*2 ff b y*5 ff y ff k ff k ff k ff y*2 k u k y h*2 ff h f<tab>f b ff b ff h ff h ff h ff k*2 y*2 <lt> k y h*3 y*3 k*10 y h*5 ff b h*2 b h y*2 <lt> k*2 y*2 k ff k*4 e1 ff e3 f<tab>f u f<tab>f u ff b ff b ff e2 ff h ff h*5 g e1 h y g e1 h*7 b j*14 ff j f<tab>f e4 n*4 ff n ff n ff l n*3 u g e1 j*2 g h y*3 k y h*4 ff h ff h ff h ff h ff b ff b h y*2 g b*2 <lt> n b*3 ff j ff j ff j ff n b*2 h ff h y*2 j b ff j*4 ff n*2 l*2 n*2 b h*4 y*3 k*11 g e3 n b j*9 n l*2 u k*7 g e3 n j b j*4 b*2 y*2 k*9 y h y*2 h*3 b j*5 ff n j*5 ff b ff b ff k b ff k ff k ff j ff k j ff k y k y ff h*4 ff l n j n*3 b g k*3 u k*2 y g e4 b*2 y h*3 y h*5 ff y ff y*3 n*2 b j*3 b*2 g j b*2 h ff h b h*3 y <lt> n b*3 ff j ff j ff b*5 y h*6 y*2 ff u ff k ff j b h*10 ff h ff e1 ff h ff h ff y g j <lt> _3",
+      "keys": "<enter> j*6 b h*15 b*6 h*6 y*4 k*3 y h*4 y*2 h*7 b F h*10 k*3 F*2 b*6 j F j*5 F j*2 F b*3 F b*4 g e1 u g e1 l*3 n <lt> l*6 g e2 l n l u*5 F l*3 u k*6 u l*11 u*2 <lt> j*2 g e3 k*3 y k*3 u F*12 l*3 F l*4 F*2 l*10 n j n*2 l*9 g e3 n <lt> k y*3 g e4 b*2 y k*5 y h*10 F*2 h F*6 h y*3 k F*18 y h <lt> u l*6 u*2 F*2 k*13 F*3 l n j*2 n l*2 u*2 f]]f F*2 h F*12 l*5 .*113 l*14 u k F*2 j k u l*2 u*2 <lt> l*3 n j*4 b h*5 y*2 k*6 y h*14 F*12 h*2 b*3 j*6 b F h*2 F h*3 F*2 h*5 <lt> k u*2 k*6 y h*4 F h*8 y*2 h*5 k y h*2 j*9 F b*6 h*3 b h*2 F*4 h*3 y*2 k F k*4 y h*2 y*3 h*6 F*2 h F h F*3 h*12 F*3 h*2 F h b <lt> j*2 b*4 h*18 F h*3 F*14 h*4 y h l n j*2 b h*2 j*2 b h*2 F*10 y k y*3 k*2 F*4 y h*5 y*2 h*2 b j*11 F j b F h*8 b h*5 <lt> k*3 y*2 k*10 u l*6 n*3 j*8 F n l F*11 j h l n l*8 F k*2 l*4 u*3 F f]f j*3 k*3 F*6 k f]f F j*2 b y h*5 l*2 j l*2 n k n k*2 u F*3 b h*3 l*3 u k*3 F*2 j k*5 F*4 k*3 y <lt> h b j b*2 h b h*26 y k*12 F*2 y*12 F*8 y h y h*6 F*8 h*3 <lt> _3",
       "maxSteps": 400000000,
       "expect": {
         "status": "frames-complete",
@@ -11,15 +11,15 @@
         "memory": {
           "st_game_state": 3,
           "st_depth_best": 0,
-          "st_kills": 43,
-          "st_turn": 989,
-          "st_core_hp": 33
+          "st_kills": 26,
+          "st_turn": 1002,
+          "st_core_hp": 26
         },
         "screen": {
           "contains": [
             "SURFACE REACHED!",
             "Shallowest Depth:       Surface",
-            "FINAL SCORE:            2430"
+            "FINAL SCORE:            2260"
           ],
           "notContains": [
             "Depth 0"
@@ -30,7 +30,7 @@
     {
       "name": "after a win, play again starts a clean game at depth 10",
       "clock": 32,
-      "keys": "a*2 n j b j*3 b h b*2 h b j*4 n g e1 l*2 g b*2 h*4 y g e2 b h*2 y h*6 y k y h*5 b*2 y*4 g k u k*3 y h*4 y*2 h*7 ff b ff b y*4 ff b*5 j*3 ff j*8 b*4 g e3 u*3 l g n*2 b <lt> h*7 g u*2 l*2 u k*4 u l*12 u l n*3 ff j ff j*3 n l*5 ff l ff l*2 ff u l*7 n l*7 u k*2 ff k ff k ff k ff y h y*2 <lt> h y k*5 y h*3 b*3 h*3 y h*4 ff y f<tab>f k ff k ff y f<tab>f k ff n*2 j b n b j*5 b h*7 ff h ff h ff b ff h ff h ff h*2 ff e4 k u*2 g b*3 h*3 y ff h f<tab>f h ff b ff b ff y ff k <lt> k*5 y h*5 b ff h ff h ff h b j*4 ff j ff j ff j ff e1 ff j ff b ff n b g e1 k*3 u k*7 u g e1 k y g n j b j*7 b*5 h y*2 h*7 ff h ff h ff h ff k*3 y*3 k*2 y ff h*7 b*2 ff h y*2 <lt> k u l*3 n j*12 n ff l*6 n*2 l u k*13 u l*5 ff u ff u l*3 e1 l*5 n g j b*2 j*7 n l*4 n*3 l*2 u n l*3 u ff e2 ff u*2 ff u l n*2 g j <lt> b*3 h b j*3 b*3 h ff h*3 b h*3 y h ff h ff h ff b ff h ff h ff h ff h ff h*2 y h*2 ff b y*5 ff y ff k ff k ff k ff y*2 k u k y h*2 ff h f<tab>f b ff b ff h ff h ff h ff k*2 y*2 <lt> k y h*3 y*3 k*10 y h*5 ff b h*2 b h y*2 <lt> k*2 y*2 k ff k*4 e1 ff e3 f<tab>f u f<tab>f u ff b ff b ff e2 ff h ff h*5 g e1 h y g e1 h*7 b j*14 ff j f<tab>f e4 n*4 ff n ff n ff l n*3 u g e1 j*2 g h y*3 k y h*4 ff h ff h ff h ff h ff b ff b h y*2 g b*2 <lt> n b*3 ff j ff j ff j ff n b*2 h ff h y*2 j b ff j*4 ff n*2 l*2 n*2 b h*4 y*3 k*11 g e3 n b j*9 n l*2 u k*7 g e3 n j b j*4 b*2 y*2 k*9 y h y*2 h*3 b j*5 ff n j*5 ff b ff b ff k b ff k ff k ff j ff k j ff k y k y ff h*4 ff l n j n*3 b g k*3 u k*2 y g e4 b*2 y h*3 y h*5 ff y ff y*3 n*2 b j*3 b*2 g j b*2 h ff h b h*3 y <lt> n b*3 ff j ff j ff b*5 y h*6 y*2 ff u ff k ff j b h*10 ff h ff e1 ff h ff h ff y g j <lt> _12 a _ a _2",
+      "keys": "<enter> j*6 b h*15 b*6 h*6 y*4 k*3 y h*4 y*2 h*7 b F h*10 k*3 F*2 b*6 j F j*5 F j*2 F b*3 F b*4 g e1 u g e1 l*3 n <lt> l*6 g e2 l n l u*5 F l*3 u k*6 u l*11 u*2 <lt> j*2 g e3 k*3 y k*3 u F*12 l*3 F l*4 F*2 l*10 n j n*2 l*9 g e3 n <lt> k y*3 g e4 b*2 y k*5 y h*10 F*2 h F*6 h y*3 k F*18 y h <lt> u l*6 u*2 F*2 k*13 F*3 l n j*2 n l*2 u*2 f]]f F*2 h F*12 l*5 .*113 l*14 u k F*2 j k u l*2 u*2 <lt> l*3 n j*4 b h*5 y*2 k*6 y h*14 F*12 h*2 b*3 j*6 b F h*2 F h*3 F*2 h*5 <lt> k u*2 k*6 y h*4 F h*8 y*2 h*5 k y h*2 j*9 F b*6 h*3 b h*2 F*4 h*3 y*2 k F k*4 y h*2 y*3 h*6 F*2 h F h F*3 h*12 F*3 h*2 F h b <lt> j*2 b*4 h*18 F h*3 F*14 h*4 y h l n j*2 b h*2 j*2 b h*2 F*10 y k y*3 k*2 F*4 y h*5 y*2 h*2 b j*11 F j b F h*8 b h*5 <lt> k*3 y*2 k*10 u l*6 n*3 j*8 F n l F*11 j h l n l*8 F k*2 l*4 u*3 F f]f j*3 k*3 F*6 k f]f F j*2 b y h*5 l*2 j l*2 n k n k*2 u F*3 b h*3 l*3 u k*3 F*2 j k*5 F*4 k*3 y <lt> h b j b*2 h b h*26 y k*12 F*2 y*12 F*8 y h y h*6 F*8 h*3 <lt> _12 a _ a _2",
       "maxSteps": 400000000,
       "expect": {
         "status": "frames-complete",

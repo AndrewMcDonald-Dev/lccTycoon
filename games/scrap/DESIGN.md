@@ -52,7 +52,7 @@ cols 0-63                                                         cols 64-99
 |                                                                | 1  Core   ██████████ 40/40         |
 |   #########                                                    | 2  Energy ██████░░░░ 12/20         |
 |   #·····@·+········                                            | 3  Move 100  Sight 8  Kills 3      |
-|   #··/····#                         (unknown = blank,          | 4  -- Loadout --                   |
+|   #··/····#                         (unknown = blank,          | 4  -- Loadout --  Alarm ░░░░░░░░░░ |
 |   #···r···#                          remembered = A_MEMORY,    | 5  P Stub Legs    ████████ 20      |
 |   ####+####                          visible = palette)        | 6  P Stub Legs    ████████ 20      |
 |                                                                | 7  E Cell Pack    ███████░ 13      |
@@ -77,13 +77,16 @@ cols 0-63                                                         cols 64-99
 ```
 
 Region rectangles are defines: `VIEW_*`, `PANEL_*`, `MSG_ROW/MSG_ROWS`, `HELP_ROW`, and the
-panel rows `PR_*`. Loadout rows: kind letter at panel col 1 (`P` propulsion, `E` power, `W`
-weapon, `U` utility), name at col 3 (≤ 12 chars), integrity bar (width 8) at col 16,
+panel rows `PR_*`. Row 4 (`PR_LOAD_HDR`) shows a compact 10-cell `Alarm` meter at the right
+of `-- Loadout --` (`A_GOOD` up to half `ALARM_MAX`, `A_WARN` past half, `A_BAD` after the
+first reinforcement wave). Loadout rows: kind letter at panel col 1 (`P` propulsion, `E`
+power, `W` weapon, `U` utility), name at col 3 (≤ 12 chars), integrity bar (width 8) at col 16,
 number at col 25. Weapons whose `st_wpn_off` bit is set are dimmed (`A_DIM`) and tagged
 `[HOLD]` (`A_WARN`) at col 28 in every mode. Carried rows show digit `1`-`4`, kind letter,
-name, compact key stat (weapon damage/range/energy per shot, e.g. `4-7 r8 e4` or
-`2-5 mel e0`, propulsion move cost, power regen, utility effect), and `hp/max` at panel
-col 30; `Here:` shows the floor part name with `[<kind> <stat>]`. In MODE_EQUIP/DROP the
+name, compact key stat (weapon damage/range/energy per shot, e.g. `4-7 r8 e4`, `2-5 mel e0`,
+or `1-3 r5 e3 S` for stun; propulsion move cost; power regen; utility effect incl. `abs N`
+and `drop +N%`), and `hp/max` at panel
+col 30; `Here:` shows the floor part name with `[<kind> <stat>]`. In MODE_EQUIP/DROP/RECYCLE the
 inventory rows show their digit highlighted `A_SELECT`; in MODE_REMOVE the loadout rows
 show digits 1-8; in MODE_TOGGLE the weapon rows (slots 3-5) show digits 1-3 highlighted
 `A_SELECT`. Target row 21 shows `Hit NN%  Dist N` for the best active (non-held) in-range
@@ -101,7 +104,9 @@ is a status line showing the active auto-action (`Running...` / `Resting...` /
 visible hostile robots (`N hostile(s) in view` in `A_WARN`), or blank. MODE_HELP draws a
 key list box over the viewport; MODE_LOG draws a full 16-message history box over the
 viewport oldest→newest in each message's stored `st_msg_attr` color. On reaching the
-surface, the panel and win screen display `Surface` instead of `Depth 0`.
+surface, the panel and win screen display `Surface` instead of `Depth 0`. Death and win
+screens include a parts summary line (`Parts: salvaged N, lost N, recycled N`) below the
+score.
 
 ## Controls
 
@@ -123,6 +128,7 @@ Every key can be written in the harness key script (`tools/lib/keys.js`): letter
 | `e` then `1`-`4` | map → equip | attach that inventory part (swaps if its slots are full) |
 | `r` then `1`-`8` | map → remove | detach that slot into the inventory |
 | `x` then `1`-`4` | map → drop | drop that inventory part on the floor |
+| `R` then `1`-`4` | map → recycle | scrap that carried part to restore core integrity (`TIME_RECYCLE`) |
 | `w` then `1`-`3` | map → toggle | toggle hold-fire (`st_wpn_off`) on weapon slot 3-5 (held weapons do not fire or swing) |
 | `f` | map → target | targeting: reuses current target if still visible, else nearest visible hostile (Tinkers only if no hostiles visible) |
 | `F` | map | quick-fire at once at the last / nearest visible target |
@@ -164,26 +170,27 @@ the robot types are `act_types` in actors.ap.
 - **Loadout** `st_slots` NUM_SLOTS 8 × SLOT_SIZE 2: S_PART (id, 0 = empty), S_HP
   (integrity). Slots 0-1 propulsion, 2 power, 3-5 weapon, 6-7 utility. **Inventory**
   `st_inv` NUM_INV 4 × 2, same layout. Written only by parts.
-- **Part catalog** (static, parts.ap) PART_COUNT 23 × PART_SIZE 16: P_KIND, P_NAME
+- **Part catalog** (static, parts.ap) PART_COUNT 26 × PART_SIZE 16: P_KIND, P_NAME
   (string address), P_CELL (glyph|fg), P_MAXHP, P_TIER, P_COVER, then kind stats in
-  P_S0..P_S5. Weapon: P_W_DMIN, P_W_DMAX, P_W_RANGE, P_W_ENERGY, P_W_ACC, P_W_MELEE.
-  Propulsion: P_M_COST, P_M_EVADE, P_M_TYPE. Power: P_E_REGEN, P_E_CAP. Utility:
-  P_U_TYPE, P_U_VALUE.
-- **Robot types** (static, actors.ap) ETYPE_COUNT 7 × ETYPE_SIZE 16: ET_NAME, ET_CELL,
+  P_S0..P_S5 plus P_W_FX. Weapon: P_W_DMIN, P_W_DMAX, P_W_RANGE, P_W_ENERGY, P_W_ACC,
+  P_W_MELEE, P_W_FX (`WFX_*`). Propulsion: P_M_COST, P_M_EVADE, P_M_TYPE. Power:
+  P_E_REGEN, P_E_CAP. Utility: P_U_TYPE, P_U_VALUE.
+- **Robot types** (static, actors.ap) ETYPE_COUNT 9 × ETYPE_SIZE 16: ET_NAME, ET_CELL,
   ET_HP, ET_SPEED, ET_ATK_TIME, ET_DMIN, ET_DMAX, ET_RANGE, ET_ACC, ET_AI, ET_DLO,
   ET_DHI, ET_DROP (address of `count, id, id, ...`), ET_DROP_PCT, ET_SIGHT, ET_WEIGHT.
 - **Enemies** `st_enemies` MAX_ENEMIES 24 × ENEMY_SIZE 16: E_TYPE (0 = free), E_X,
   E_Y, E_HP, E_NEXT (next-act time), E_STATE (ES_IDLE/HUNT/FLEE), E_TX, E_TY,
-  E_ALERT, E_FLAGS (EF_SEEN), 10-15 spare for actors. Written by actors. Combat writes
+  E_ALERT, E_FLAGS (EF_SEEN/EF_ARMED/EF_BLOWN), 10-15 spare for actors. Written by actors. Combat writes
   E_HP and frees records through `act_kill`.
 - **Floor items** `st_items` MAX_ITEMS 32 × ITEM_SIZE 4: I_PART (0 = free), I_X, I_Y,
   I_HP. One item per tile. Written by items.
 - **Player** `st_px/st_py`, `st_ply_next` (TU), `st_core_hp` (0..CORE_MAX 40),
   `st_energy` (0..st_energy_max), regen/repair accumulators.
 - **Derived stats** (written only by `prt_recalc`): `st_move_cost`, `st_regen`,
-  `st_energy_max`, `st_sight`, `st_acc_bonus`, `st_evade`, `st_repair_turns`.
-- **Game** `st_game_state` (GAME_TITLE/PLAY/DEAD/WON), `st_mode` (MODE_MAP..MODE_CLOSE,
-  incl. MODE_LOOK/LOG/TOGGLE/CLOSE), `st_depth` (10..1), `st_depth_best`, `st_turn`
+  `st_energy_max`, `st_sight`, `st_acc_bonus`, `st_evade`, `st_repair_turns`, plus
+  v2 `st_shield` and `st_salvage`.
+- **Game** `st_game_state` (GAME_TITLE/PLAY/DEAD/WON), `st_mode` (MODE_MAP..MODE_RECYCLE,
+  incl. MODE_LOOK/LOG/TOGGLE/CLOSE/RECYCLE), `st_depth` (10..1), `st_depth_best`, `st_turn`
   (player actions), `st_time` (scheduler clock, TU), `st_kills`, `st_target` (enemy index
   or -1), `st_climb`, `st_death_cause` (EN_*), `st_seed`, `st_frame`.
 - **QoL controls** `st_auto` (AUTO_NONE/RUN/REST/TRAVEL/EXPLORE), `st_auto_dx/dy`,
@@ -191,6 +198,12 @@ the robot types are `act_types` in actors.ap.
   slot i holds fire, weapon slots 3-5). Written by player (`st_wpn_off` bit cleared when
   a slot gets a new part or is emptied by remove) and, for `st_wpn_off`, by parts
   (clears the bit when that part is destroyed). Read by combat, ui, render.
+- **v2 state** (appended to `src/state.ap`): floor alarm `st_alarm`, `st_alarm_acc`,
+  `st_alarm_waves` (written by actors, reset per floor in `act_spawn_floor`); barrier
+  & salvage `st_shield`, `st_salvage` (written by `prt_recalc`) and `st_absorbed`
+  (last barrier absorption in `prt_damage`, written by parts); run summary counters
+  `st_stat_salvaged` (written by player), `st_stat_lost` and `st_stat_recycled`
+  (written by parts), all three zeroed in `main_new_game`.
 - **Messages** `st_msg_text` MSG_COUNT 16 × MSG_LEN 64 (copied, NUL-terminated, so a
   message can contain names and numbers), `st_msg_attr[16]`, `st_msg_head`. Written only
   by `ui_msg*`.
@@ -227,8 +240,12 @@ Color by tier: white, bright cyan, bright magenta. Names are ≤ 12 chars.
 | 21 | Optic Mast | utility sensor | 1 | 8 | 1 | +3 sight |
 | 22 | Patch Drone | utility repair | 2 | 10 | 1 | 1 integrity every 3 turns |
 | 23 | Aim Gyro | utility target | 2 | 10 | 1 | +15% accuracy |
+| 24 | Jolt Caster | weapon | 2 | 14 | 3 | 1-3, range 5, energy 3, acc 75, stun (`WFX_STUN`) |
+| 25 | Barrier Grid | utility shield | 2 | 12 | 1 | absorbs up to 3/hit (`SHIELD_COST` 2 energy/pt) |
+| 26 | Salvage Rig | utility salvage | 1 | 10 | 1 | +25% drop chance; drops at 75-100% integrity |
 
-Starting loadout: 2× Stub Legs, Cell Pack, Rivet Gun, Spark Prod. That gives move 100,
+See "v2 features" below for stun, barrier absorption, and salvage drop rules. Starting
+loadout: 2× Stub Legs, Cell Pack, Rivet Gun, Spark Prod. That gives move 100,
 energy 40, regen 3. Five slots filled, so the core-hit chance is 6 + 3×6 = 24%.
 
 ## Enemy table
@@ -244,8 +261,11 @@ Depth range: a type spawns on depths ET_DHI down to ET_DLO (10 = deepest, start)
 | 5 | Bulwark | `B` bright white | 40 | 150 | 120 | 4-8 | 1 | 70 | melee | 6-1 | 6 | 70 | 5, 6, 20, 18, 16 |
 | 6 | Stalker | `k` bright magenta | 22 | 60 | 80 | 4-8 | 7 | 70 | ranged | 4-1 | 10 | 60 | 8, 17, 11, 4, 22 |
 | 7 | Tinker | `t` green | 8 | 80 | — | — | 0 | — | worker | 10-1 | 6 | 80 | 19, 21, 22, 23, 9 |
+| 8 | Leech | `l` bright green | 10 | 70 | 100 | 1-3 | 1 | 70 | melee | 9-3 | 7 | 60 | 9, 10, 25 |
+| 9 | Sapper | `x` bright yellow | 8 | 60 | 100 | 4-8 (blast) | 1 | — | sapper | 8-1 | 8 | 0 | (none) |
 
-Per floor: SPAWN_BASE 4 + (11 − depth)/2 hostile robots (types eligible for the depth,
+See "v2 features" below for Leech energy drain, Sapper arm/blast behavior, and floor alarm
+reinforcements. Per floor: SPAWN_BASE 4 + (11 − depth)/2 hostile robots (types eligible for the depth,
 weighted by ET_WEIGHT), plus one Tinker. None spawn in the start room or within
 SPAWN_SAFE 6 tiles of the player.
 
@@ -256,7 +276,7 @@ SPAWN_SAFE 6 tiles of the player.
 - A player action adds its cost to `st_ply_next` (`ply_spend`). Costs:
   - move = `st_move_cost`
   - melee TIME_MELEE 100, fire TIME_FIRE 100, wait 100, pick up 100, stairs 100 (climbing a floor reinforces the core by +10 HP, capped at CORE_MAX)
-  - attach/detach TIME_SWAP 150, drop 50
+  - attach/detach TIME_SWAP 150, recycle TIME_RECYCLE 150, drop 50
   - menus, targeting, help and blocked moves cost nothing
 - Move cost is the average P_M_COST of the attached propulsion parts, +LIMP_EXTRA 30
   with only one, and CRAWL_COST 250 with none.
@@ -336,7 +356,7 @@ player action (private to actors, 1536 words + queue).
 | enemies 24×16, items 32×4, slots/inv 24, rooms 48 | ~590 |
 | messages 16×64 + 17 | ~1041 |
 | other state | ~60 |
-| part catalog 23×16 + names, robot types 7×16 + names + drop lists | ~800 |
+| part catalog 26×16 + names, robot types 9×16 + names + drop lists | ~920 |
 | code (estimate) | 12–18K |
 | **total estimate / budget.words** | **~24–30K / 40000** |
 
