@@ -39,7 +39,7 @@
     {
       "name": "scripted run (clock 123): climbs 10 -> 6 salvaging parts, dies to a Watcher; death screen shows cause and score",
       "clock": 123,
-      "keys": "<enter> l*7 F*5 l*5 u*2 l*2 y k*3 u l*2 k*2 u l F*4 n j n*2 g e1 l*3 u l*7 j*7 n l*3 u*2 k*15 F u*3 k g e1 l n*2 <lt> k*2 u*2 k u l*5 F*5 l*2 F l*5 n l F l*2 F*2 l j*3 g e1 l*3 u*2 k*2 y*2 g e1 n*3 l*16 u k*6 u l*2 u*2 <lt> j b*2 j*2 b h*8 F h*5 F*5 h*3 b*3 g e2 k*10 y h*3 k*2 l j l k l j l j l k y k*4 y h*3 F h F*5 h*11 b j*5 b*4 h*3 y F*2 k*6 <lt> k*2 h*6 l*4 u*2 k F*2 k*2 y h*13 j n*2 j*3 b F*3 h*7 y g e3 h y k*2 y h j*7 b h y k y k*5 y h*2 F*4 h F h*9 y*3 k*3 y h*5 b <lt> j l j*2 b l h b*2 j*4 n l*11 F*2 l*3 u*3 k*5 F*6 k*2 F k F*2 u*3 g e4 l n*3 F*4 j*5 n*2 l*8 n l*7 u .*137 e4 b*6 j e1 l*2 k .*61 R3 R2 k*2 y u*2 n j*15 k*5 . _2",
+      "keys": "<enter> l*7 F*5 l*5 u*2 l*2 y k*3 u l*2 k*2 u l F*4 n j n*2 g e1 l*3 u l*7 j*7 n l*3 u*2 k*15 F u*3 k g e1 l n*2 <lt> k*2 u*2 k u l*5 F*5 l*2 F l*5 n l F l*2 F*2 l j*3 g e1 l*3 u*2 k*2 y*2 g e1 n*3 l*16 u k*6 u l*2 u*2 <lt> j b*2 j*2 b h*8 F h*5 F*5 h*3 b*3 g e2 k*10 y h*3 k*2 l j l k l j l j l k y k*4 y h*3 F h F*5 h*11 b j*5 b*4 h*3 y F*2 k*6 <lt> k*2 h*6 l*4 u*2 k F*2 k*2 y h*13 j n*2 j*3 b F*3 h*7 y g e3 h y k*2 y h j*7 b h y k y k*5 y h*2 F*4 h F h*9 y*3 k*3 y h*5 b <lt> j l j*2 b l h b*2 j*4 n l*11 F*2 l*3 u*3 k*5 F*6 k*2 F k F*2 u*3 g e4 l n*3 F*4 j*5 n*2 l*8 n l*7 u .*137 e4 b*14 .*44 _2",
       "expect": {
         "status": "frames-complete",
         "maxStepsPerFrame": 500000,
@@ -50,7 +50,7 @@
           "st_depth_best": 6,
           "st_kills": 15,
           "st_death_cause": 4,
-          "st_turn": 715,
+          "st_turn": 672,
           "st_stat_salvaged": 7
         },
         "screen": {

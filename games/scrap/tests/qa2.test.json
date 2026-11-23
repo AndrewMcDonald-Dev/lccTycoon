@@ -1,9 +1,9 @@
 {
   "scenarios": [
     {
-      "name": "win path (clock 32, recorded autoplayer, no pokes): climbs 10 -> surface in 1002 turns; win screen shows Surface and score",
+      "name": "win path (clock 32, recorded autoplayer, no pokes): climbs 10 -> surface in 828 turns; win screen shows Surface and score",
       "clock": 32,
-      "keys": "<enter> j*6 b h*15 b*6 h*6 y*4 k*3 y h*4 y*2 h*7 b F h*10 k*3 F*2 b*6 j F j*5 F j*2 F b*3 F b*4 g e1 u g e1 l*3 n <lt> l*6 g e2 l n l u*5 F l*3 u k*6 u l*11 u*2 <lt> j*2 g e3 k*3 y k*3 u F*12 l*3 F l*4 F*2 l*10 n j n*2 l*9 g e3 n <lt> k y*3 g e4 b*2 y k*5 y h*10 F*2 h F*6 h y*3 k F*18 y h <lt> u l*6 u*2 F*2 k*13 F*3 l n j*2 n l*2 u*2 f]]f F*2 h F*12 l*5 .*113 l*14 u k F*2 j k u l*2 u*2 <lt> l*3 n j*4 b h*5 y*2 k*6 y h*14 F*12 h*2 b*3 j*6 b F h*2 F h*3 F*2 h*5 <lt> k u*2 k*6 y h*4 F h*8 y*2 h*5 k y h*2 j*9 F b*6 h*3 b h*2 F*4 h*3 y*2 k F k*4 y h*2 y*3 h*6 F*2 h F h F*3 h*12 F*3 h*2 F h b <lt> j*2 b*4 h*18 F h*3 F*14 h*4 y h l n j*2 b h*2 j*2 b h*2 F*10 y k y*3 k*2 F*4 y h*5 y*2 h*2 b j*11 F j b F h*8 b h*5 <lt> k*3 y*2 k*10 u l*6 n*3 j*8 F n l F*11 j h l n l*8 F k*2 l*4 u*3 F f]f j*3 k*3 F*6 k f]f F j*2 b y h*5 l*2 j l*2 n k n k*2 u F*3 b h*3 l*3 u k*3 F*2 j k*5 F*4 k*3 y <lt> h b j b*2 h b h*26 y k*12 F*2 y*12 F*8 y h y h*6 F*8 h*3 <lt> _3",
+      "keys": "<enter> j*6 b h*15 b*6 h*6 y*4 k*3 y h*4 y*2 h*7 F*3 h*6 F b*2 F*3 b*5 F*5 j*3 F n*2 F*3 b*4 g e1 l*5 <lt> u k*4 u F*10 l*28 n l*10 n g e1 h*6 l*10 k l*3 n j F*5 j*6 f]f F j*5 F j n*2 g e2 j g e2 h y <lt> h y h*4 b F*4 j*3 b h b y k*2 y h*4 b*3 h F*2 h*2 F h F h*13 b j*8 b*7 g e3 j b <lt> h y*2 h*9 b j F*6 b h F h*3 j*2 l k l j*8 b*3 h*4 F*2 h*4 b*2 g e4 k*4 u*2 f]f b h l u k y h*2 y*2 h*7 b j*3 F*2 j n <lt> h*9 b h*2 b j*2 b h*4 b h*8 F*2 h*7 g e4 b*2 j*4 b h*3 b*2 h*2 y k*2 y F*4 h*3 b <lt> h*5 k*2 y k F*2 k*11 F y h F h*4 F*8 y*2 F*3 h*7 b*3 j*7 b h*3 y k F*4 k*3 F*2 k y*5 k*4 y h b*3 h*14 y <lt> l*14 k*5 u*2 k*6 u f]f F*7 l F l F*2 l*17 n*2 l*4 u k <lt> h*2 b j b h*3 b*2 F h*16 F h*9 F l*2 h*4 F*4 h*4 y*2 <lt> h b*2 h*2 F b j F*2 j*3 b h F*10 h*2 F*3 h*12 F*4 b h*13 y k y <lt> j*2 n j*2 F*4 j*4 n F*3 l*5 n l*7 u F*7 k*4 u*4 k*2 u l*3 u l*5 F*3 n F*10 j F*5 n*7 j F*3 j F*2 e3 j*3 b*2 <lt> _3",
       "maxSteps": 400000000,
       "expect": {
         "status": "frames-complete",
@@ -11,26 +11,37 @@
         "memory": {
           "st_game_state": 3,
           "st_depth_best": 0,
-          "st_kills": 26,
-          "st_turn": 1002,
-          "st_core_hp": 26
+          "st_kills": 36,
+          "st_turn": 828,
+          "st_core_hp": 40
         },
         "screen": {
           "contains": [
             "SURFACE REACHED!",
             "Shallowest Depth:       Surface",
-            "FINAL SCORE:            2260"
+            "FINAL SCORE:            2360"
           ],
           "notContains": [
             "Depth 0"
           ]
-        }
+        },
+        "frames": [
+          {
+            "frame": 1,
+            "screen": {
+              "contains": [
+                "Depth 10  Turn 1",
+                "Core online. Depth 10."
+              ]
+            }
+          }
+        ]
       }
     },
     {
       "name": "after a win, play again starts a clean game at depth 10",
       "clock": 32,
-      "keys": "<enter> j*6 b h*15 b*6 h*6 y*4 k*3 y h*4 y*2 h*7 b F h*10 k*3 F*2 b*6 j F j*5 F j*2 F b*3 F b*4 g e1 u g e1 l*3 n <lt> l*6 g e2 l n l u*5 F l*3 u k*6 u l*11 u*2 <lt> j*2 g e3 k*3 y k*3 u F*12 l*3 F l*4 F*2 l*10 n j n*2 l*9 g e3 n <lt> k y*3 g e4 b*2 y k*5 y h*10 F*2 h F*6 h y*3 k F*18 y h <lt> u l*6 u*2 F*2 k*13 F*3 l n j*2 n l*2 u*2 f]]f F*2 h F*12 l*5 .*113 l*14 u k F*2 j k u l*2 u*2 <lt> l*3 n j*4 b h*5 y*2 k*6 y h*14 F*12 h*2 b*3 j*6 b F h*2 F h*3 F*2 h*5 <lt> k u*2 k*6 y h*4 F h*8 y*2 h*5 k y h*2 j*9 F b*6 h*3 b h*2 F*4 h*3 y*2 k F k*4 y h*2 y*3 h*6 F*2 h F h F*3 h*12 F*3 h*2 F h b <lt> j*2 b*4 h*18 F h*3 F*14 h*4 y h l n j*2 b h*2 j*2 b h*2 F*10 y k y*3 k*2 F*4 y h*5 y*2 h*2 b j*11 F j b F h*8 b h*5 <lt> k*3 y*2 k*10 u l*6 n*3 j*8 F n l F*11 j h l n l*8 F k*2 l*4 u*3 F f]f j*3 k*3 F*6 k f]f F j*2 b y h*5 l*2 j l*2 n k n k*2 u F*3 b h*3 l*3 u k*3 F*2 j k*5 F*4 k*3 y <lt> h b j b*2 h b h*26 y k*12 F*2 y*12 F*8 y h y h*6 F*8 h*3 <lt> _12 a _ a _2",
+      "keys": "<enter> j*6 b h*15 b*6 h*6 y*4 k*3 y h*4 y*2 h*7 F*3 h*6 F b*2 F*3 b*5 F*5 j*3 F n*2 F*3 b*4 g e1 l*5 <lt> u k*4 u F*10 l*28 n l*10 n g e1 h*6 l*10 k l*3 n j F*5 j*6 f]f F j*5 F j n*2 g e2 j g e2 h y <lt> h y h*4 b F*4 j*3 b h b y k*2 y h*4 b*3 h F*2 h*2 F h F h*13 b j*8 b*7 g e3 j b <lt> h y*2 h*9 b j F*6 b h F h*3 j*2 l k l j*8 b*3 h*4 F*2 h*4 b*2 g e4 k*4 u*2 f]f b h l u k y h*2 y*2 h*7 b j*3 F*2 j n <lt> h*9 b h*2 b j*2 b h*4 b h*8 F*2 h*7 g e4 b*2 j*4 b h*3 b*2 h*2 y k*2 y F*4 h*3 b <lt> h*5 k*2 y k F*2 k*11 F y h F h*4 F*8 y*2 F*3 h*7 b*3 j*7 b h*3 y k F*4 k*3 F*2 k y*5 k*4 y h b*3 h*14 y <lt> l*14 k*5 u*2 k*6 u f]f F*7 l F l F*2 l*17 n*2 l*4 u k <lt> h*2 b j b h*3 b*2 F h*16 F h*9 F l*2 h*4 F*4 h*4 y*2 <lt> h b*2 h*2 F b j F*2 j*3 b h F*10 h*2 F*3 h*12 F*4 b h*13 y k y <lt> j*2 n j*2 F*4 j*4 n F*3 l*5 n l*7 u F*7 k*4 u*4 k*2 u l*3 u l*5 F*3 n F*10 j F*5 n*7 j F*3 j F*2 e3 j*3 b*2 <lt> _12 a _ a _2",
       "maxSteps": 400000000,
       "expect": {
         "status": "frames-complete",
@@ -68,13 +79,26 @@
             0,
             0,
             0
-          ]
+          ],
+          "st_stat_salvaged": 0,
+          "st_stat_lost": 0,
+          "st_stat_recycled": 0
         },
         "screen": {
           "contains": [
             "Depth 10  Turn 0"
           ]
-        }
+        },
+        "frames": [
+          {
+            "frame": 828,
+            "screen": {
+              "contains": [
+                "SURFACE REACHED!"
+              ]
+            }
+          }
+        ]
       }
     }
   ]
