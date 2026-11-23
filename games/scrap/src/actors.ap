@@ -8,19 +8,21 @@
 ; for chasing and fleeing. Attacks go through cbt_enemy_attack.
 ; All routines: args r0..r4, result r0, all other registers preserved.
 ;
-;; act_init         ()                  -> -        new game: act_clear
+;; act_init         ()                  -> -        new game: act_clear and zero st_alarm/st_alarm_acc/st_alarm_waves
 ;; act_clear        ()                  -> -        free every enemy record (E_TYPE = EN_NONE)
-;; act_spawn_floor  r0=depth            -> -        spawn SPAWN_BASE + (11-depth)/2 hostile enemies (types whose ET_DHI >= depth >= ET_DLO, by ET_WEIGHT) plus one EN_TINKER,
-;;                   on random floor tiles (dun_random_floor) not in st_start_room and >= SPAWN_SAFE from the player, never two on one tile
+;; act_spawn_floor  r0=depth            -> -        reset floor alarm (st_alarm, st_alarm_acc, st_alarm_waves = 0), then spawn SPAWN_BASE + (11-depth)/2 hostile enemies (types whose
+;;                   ET_DHI >= depth >= ET_DLO, by ET_WEIGHT) plus one EN_TINKER, on random floor tiles (dun_random_floor) not in st_start_room and >= SPAWN_SAFE from the player, never two on one tile
 ;; act_spawn        r0=type r1=x r2=y   -> r0=enemy index, -1 pool full. Full hp, ES_IDLE, E_NEXT = st_time + rand(0..ET_SPEED)
 ;; act_at           r0=x r1=y           -> r0=index of the enemy on that tile, -1 none
 ;; act_run          ()                  -> -        recompute the distance field, then repeatedly let the enemy with the smallest E_NEXT < st_ply_next act (act_think; ties →
-;;                   lower index) until none is left or st_game_state != GAME_PLAY; set st_time = st_ply_next; if st_time >= TIME_REBASE subtract TIME_REBASE from st_time, st_ply_next and
-;;                   every E_NEXT
+;;                   lower index) until none is left or st_game_state != GAME_PLAY; set st_time = st_ply_next; rebase at TIME_REBASE; while GAME_PLAY accumulate ALARM_PER_TURN per
+;;                   TIME_TURN elapsed (st_alarm_acc) and if st_alarm >= ALARM_MAX post an alarm (A_BAD), spawn up to REINF_COUNT hunting hostiles (no turrets/workers, >= REINF_MIN_DIST,
+;;                   not fov-visible), st_alarm_waves++, st_alarm = ALARM_MAX - REINF_AFTER
 ;; act_think        r0=index            -> -        one action of that enemy, adds its cost (ET_SPEED for a step, ET_ATK_TIME for an attack, TIME_WAIT otherwise) to E_NEXT.
-;;                   Sight: dist <= ET_SIGHT and fov_los → ES_HUNT, E_TX/TY = player, E_ALERT = ALERT_TURNS, first sighting while fov_visible posts "<name> spotted." AI_MELEE: adjacent →
-;;                   attack, else step down the distance field. AI_RANGED: in range with LOS → attack; dist <= 2 → step away. AI_TURRET: never moves. AI_WORKER: never attacks, flees when it
-;;                   sees the player. hp < FLEE_PCT% → ES_FLEE (not turrets). Idle: random walk. Steps never enter the player's or another enemy's tile; entering T_DOOR makes it T_DOOR_OPEN.
+;;                   Sight: dist <= ET_SIGHT and fov_los → ES_HUNT, E_TX/TY = player, E_ALERT = ALERT_TURNS, first sighting while fov_visible posts "<name> spotted."; Watcher sighting
+;;                   (ES_IDLE → ES_HUNT) adds ALARM_WATCHER to st_alarm. AI_MELEE: adjacent → attack, else chase. AI_SAPPER: hunts like melee (never flees); adjacent unarmed → set EF_ARMED,
+;;                   warning (A_WARN), spend ET_ATK_TIME; adjacent armed → detonate via cbt_enemy_attack. AI_RANGED: in range with LOS → attack; dist <= 2 → step away. AI_TURRET: never moves.
+;;                   AI_WORKER: never attacks, flees when it sees the player. hp < FLEE_PCT% → ES_FLEE (not turrets/sappers). Idle: random walk. Steps open T_DOOR.
 ;; act_type_info    r0=type             -> r0=address of the type record, 0 if invalid
 ;; act_name         r0=index            -> r0=name string of that enemy's type
 ;; act_kill         r0=index            -> -        free the record (combat calls it after drops)
@@ -48,9 +50,15 @@ act_c_pool_words: .word MAX_ENEMIES*ENEMY_SIZE
 ; =====================================================================
 
 act_init:
+        push r0
         push lr
         bl act_clear
+        mov r0, 0
+        st r0, st_alarm
+        st r0, st_alarm_acc
+        st r0, st_alarm_waves
         pop lr
+        pop r0
         ret
 
 act_clear:
@@ -323,6 +331,10 @@ act_spawn_floor:
         push r3
         push r4
         push lr
+        mov r1, 0
+        st r1, st_alarm
+        st r1, st_alarm_acc
+        st r1, st_alarm_waves
         cmp r0, 1
         brp act_sf_dhi
         bre act_sf_dhi
@@ -1068,20 +1080,22 @@ act_run_chk:
 
 act_run_finish:
         ld r2, act_p_pnext4
-        ldr r0, r2, 0
+        ldr r0, r2, 0           ; new_time = st_ply_next
         ld r3, act_p_time4
+        ldr r4, r3, 0           ; old_time = st_time
+        sub r4, r0, r4          ; r4 = elapsed = new_time - old_time
         str r0, r3, 0
         ld r1, act_c_rebase
         cmp r0, r1
-        brlt act_run_done
+        brlt act_run_alarm
         sub r0, r0, r1
         str r0, r3, 0
         str r0, r2, 0
         ld r2, act_p_enemies4
         mov r3, -MAX_ENEMIES
 act_run_rb_lp:
-        ldr r4, r2, E_TYPE
-        cmp r4, EN_NONE
+        ldr r0, r2, E_TYPE
+        cmp r0, EN_NONE
         brz act_run_rb_next
         ldr r0, r2, E_NEXT
         sub r0, r0, r1
@@ -1091,6 +1105,34 @@ act_run_rb_next:
         add r2, r2, 8
         add r3, r3, 1
         brn act_run_rb_lp
+act_run_alarm:
+        ld r0, act_p_gstate4
+        ldr r0, r0, 0
+        cmp r0, GAME_PLAY
+        brne act_run_done
+        cmp r4, 0
+        brp act_run_al_add
+        br act_run_al_chk
+act_run_al_add:
+        ld r0, st_alarm_acc
+        add r0, r0, r4
+        mov r1, TIME_TURN
+        ld r2, st_alarm
+act_run_al_lp:
+        cmp r0, r1
+        brlt act_run_al_st
+        sub r0, r0, r1
+        add r2, r2, ALARM_PER_TURN
+        br act_run_al_lp
+act_run_al_st:
+        st r0, st_alarm_acc
+        st r2, st_alarm
+act_run_al_chk:
+        ld r0, st_alarm
+        mov r1, ALARM_MAX
+        cmp r0, r1
+        brlt act_run_done
+        bl act_alarm_wave
 act_run_done:
         pop lr
         pop r4
@@ -1098,6 +1140,372 @@ act_run_done:
         pop r2
         pop r1
         pop r0
+        ret
+
+; Internal: set attribute r0 on the newest message in st_msg_attr.
+; Mirrors ui_msg_attr without introducing a new external link symbol into
+; minimal unit drivers (bfs_cache_driver, fov_cache_driver) that stub ui_msg*.
+act_set_msg_attr:
+        push r1
+        push r2
+        ld r1, st_msg_head
+        and r1, r1, MSG_COUNT-1
+        lea r2, st_msg_attr
+        add r2, r2, r1
+        str r0, r2, 0
+        pop r2
+        pop r1
+        ret
+
+; Internal: trigger a floor reinforcement wave when st_alarm >= ALARM_MAX.
+; Preserves all registers.
+act_aw_depth:   .word 0
+act_aw_wsum:    .word 0
+act_aw_left:    .word 0
+act_aw_tile:    .word 0
+act_aw_pick_t:  .word 0
+act_aw_tries:   .word 0
+act_aw_ri:      .word 0
+act_aw_x0:      .word 0
+act_aw_x:       .word 0
+act_aw_xend:    .word 0
+act_aw_y:       .word 0
+act_aw_yend:    .word 0
+act_aw_chkx:    .word 0
+act_aw_chky:    .word 0
+
+act_alarm_wave:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+
+        ; Post alarm warning in A_BAD, bump wave count, reset alarm
+        lea r0, act_s_alarm
+        bl ui_msg
+        mov r0, A_BAD>>8
+        sll r0, 8
+        bl act_set_msg_attr
+
+        ld r0, st_alarm_waves
+        add r0, r0, 1
+        st r0, st_alarm_waves
+        mov r0, ALARM_MAX-REINF_AFTER
+        st r0, st_alarm
+
+        ; Clamp st_depth to 1..START_DEPTH
+        ld r0, st_depth
+        cmp r0, 1
+        brp act_aw_dhi
+        bre act_aw_dhi
+        mov r0, 1
+act_aw_dhi:
+        cmp r0, START_DEPTH
+        brlt act_aw_dok
+        bre act_aw_dok
+        mov r0, START_DEPTH
+act_aw_dok:
+        st r0, act_aw_depth
+
+        ; Sum ET_WEIGHT of depth-eligible mobile hostiles (no AI_WORKER, no AI_TURRET)
+        mov r3, 0
+        mov r2, 1
+act_aw_wlp:
+        mov r0, r2
+        bl act_type_info
+        mov r4, r0
+        ldr r0, r4, ET_AI
+        cmp r0, AI_WORKER
+        bre act_aw_wnext
+        cmp r0, AI_TURRET
+        bre act_aw_wnext
+        ldr r0, r4, ET_WEIGHT
+        cmp r0, 0
+        brlt act_aw_wnext
+        brz act_aw_wnext
+        ld r1, act_aw_depth
+        ldr r0, r4, ET_DLO
+        cmp r1, r0
+        brlt act_aw_wnext
+        ldr r0, r4, ET_DHI
+        cmp r1, r0
+        brgt act_aw_wnext
+        ldr r0, r4, ET_WEIGHT
+        add r3, r3, r0
+act_aw_wnext:
+        add r2, r2, 1
+        cmp r2, ETYPE_COUNT
+        brlt act_aw_wlp
+        bre act_aw_wlp
+        st r3, act_aw_wsum
+        cmp r3, 0
+        brp act_aw_go
+        br act_aw_done
+
+act_aw_go:
+        mov r0, REINF_COUNT
+        st r0, act_aw_left
+act_aw_sp_lp:
+        ld r0, act_aw_left
+        cmp r0, 0
+        brp act_aw_do_one
+        br act_aw_done
+act_aw_do_one:
+        sub r0, r0, 1
+        st r0, act_aw_left
+        bl act_find_reinf_tile
+        cmp r0, 0
+        brn act_aw_done         ; no valid spawn tile available
+        st r0, act_aw_tile
+        mov r0, 1
+        ld r1, act_aw_wsum
+        bl rng_range
+        mov r3, r0
+        mov r2, 1
+act_aw_pick_lp:
+        mov r0, r2
+        bl act_type_info
+        mov r4, r0
+        ldr r0, r4, ET_AI
+        cmp r0, AI_WORKER
+        bre act_aw_pick_next
+        cmp r0, AI_TURRET
+        bre act_aw_pick_next
+        ldr r0, r4, ET_WEIGHT
+        cmp r0, 0
+        brlt act_aw_pick_next
+        brz act_aw_pick_next
+        ld r1, act_aw_depth
+        ldr r0, r4, ET_DLO
+        cmp r1, r0
+        brlt act_aw_pick_next
+        ldr r0, r4, ET_DHI
+        cmp r1, r0
+        brgt act_aw_pick_next
+        ldr r0, r4, ET_WEIGHT
+        sub r3, r3, r0
+        cmp r3, 0
+        brlt act_aw_picked
+        brz act_aw_picked
+act_aw_pick_next:
+        add r2, r2, 1
+        cmp r2, ETYPE_COUNT
+        brlt act_aw_pick_lp
+        bre act_aw_pick_lp
+        mov r2, EN_SCUTTLER
+act_aw_picked:
+        st r2, act_aw_pick_t
+        ld r1, act_aw_tile
+        mov r0, MAP_XMASK
+        and r1, r1, r0
+        ld r2, act_aw_tile
+        srl r2, MAP_SHIFT
+        ld r0, act_aw_pick_t
+        bl act_spawn
+        cmp r0, 0
+        brn act_aw_done         ; pool full
+        ; Set ES_HUNT toward player position with ALERT_TURNS
+        sll r0, ENEMY_SHIFT
+        lea r4, st_enemies
+        add r4, r4, r0
+        mov r1, ES_HUNT
+        str r1, r4, E_STATE
+        ld r1, st_px
+        str r1, r4, E_TX
+        ld r1, st_py
+        str r1, r4, E_TY
+        mov r1, ALERT_TURNS
+        str r1, r4, E_ALERT
+        br act_aw_sp_lp
+
+act_aw_done:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; Find a T_FLOOR tile >= REINF_MIN_DIST from player, not fov-visible, unoccupied.
+; Returns packed tile index (y<<MAP_SHIFT)|x or -1.
+act_find_reinf_tile:
+        push lr
+        mov r0, 48
+        st r0, act_aw_tries
+act_frt_rand:
+        bl dun_random_floor
+        st r0, act_aw_tile
+        mov r1, r0
+        mov r2, MAP_XMASK
+        and r0, r0, r2
+        srl r1, MAP_SHIFT
+        bl act_reinf_tile_ok
+        cmp r0, 0
+        brnz act_frt_found
+        ld r0, act_aw_tries
+        sub r0, r0, 1
+        st r0, act_aw_tries
+        brp act_frt_rand
+
+        ; Fallback 1: linear scan of all rooms (including start room)
+        mov r0, 0
+        st r0, act_aw_ri
+act_frt_rm_lp:
+        ld r0, act_aw_ri
+        ld r1, st_room_count
+        cmp r0, r1
+        brlt act_frt_rm_chk
+        br act_frt_map_scan
+act_frt_rm_chk:
+        sll r0, ROOM_SHIFT
+        lea r4, st_rooms
+        add r4, r4, r0
+        ldr r1, r4, RM_Y
+        ldr r2, r4, RM_H
+        add r2, r1, r2
+        st r1, act_aw_y
+        st r2, act_aw_yend
+        ldr r1, r4, RM_X
+        ldr r2, r4, RM_W
+        add r2, r1, r2
+        st r1, act_aw_x0
+        st r2, act_aw_xend
+act_frt_ylp:
+        ld r1, act_aw_y
+        ld r2, act_aw_yend
+        cmp r1, r2
+        brlt act_frt_xinit
+        br act_frt_rm_next
+act_frt_xinit:
+        ld r0, act_aw_x0
+        st r0, act_aw_x
+act_frt_xlp:
+        ld r0, act_aw_x
+        ld r2, act_aw_xend
+        cmp r0, r2
+        brlt act_frt_xtry
+        ld r1, act_aw_y
+        add r1, r1, 1
+        st r1, act_aw_y
+        br act_frt_ylp
+act_frt_xtry:
+        ld r1, act_aw_y
+        mov r2, r1
+        sll r2, MAP_SHIFT
+        or r2, r0
+        st r2, act_aw_tile
+        bl act_reinf_tile_ok
+        cmp r0, 0
+        brnz act_frt_found
+        ld r0, act_aw_x
+        add r0, r0, 1
+        st r0, act_aw_x
+        br act_frt_xlp
+act_frt_rm_next:
+        ld r0, act_aw_ri
+        add r0, r0, 1
+        st r0, act_aw_ri
+        br act_frt_rm_lp
+
+        ; Fallback 2: full map scan (covers synthetic maps with st_room_count == 0)
+act_frt_map_scan:
+        mov r0, 0
+        st r0, act_aw_y
+act_frt_mylp:
+        ld r1, act_aw_y
+        mov r2, MAP_H
+        cmp r1, r2
+        brlt act_frt_mxinit
+        mov r0, -1
+        pop lr
+        ret
+act_frt_mxinit:
+        mov r0, 0
+        st r0, act_aw_x
+act_frt_mxlp:
+        ld r0, act_aw_x
+        mov r2, MAP_W
+        cmp r0, r2
+        brlt act_frt_mxtry
+        ld r1, act_aw_y
+        add r1, r1, 1
+        st r1, act_aw_y
+        br act_frt_mylp
+act_frt_mxtry:
+        ld r1, act_aw_y
+        mov r2, r1
+        sll r2, MAP_SHIFT
+        or r2, r0
+        lea r3, st_map
+        add r3, r3, r2
+        ldr r3, r3, 0
+        and r3, r3, T_KIND_MASK
+        cmp r3, T_FLOOR
+        brne act_frt_mxnext
+        st r2, act_aw_tile
+        bl act_reinf_tile_ok
+        cmp r0, 0
+        brnz act_frt_found
+act_frt_mxnext:
+        ld r0, act_aw_x
+        add r0, r0, 1
+        st r0, act_aw_x
+        br act_frt_mxlp
+
+act_frt_found:
+        ld r0, act_aw_tile
+        pop lr
+        ret
+
+; Check if (r0=x, r1=y) is a valid reinforcement tile -> r0=1|0
+act_reinf_tile_ok:
+        push lr
+        st r0, act_aw_chkx
+        st r1, act_aw_chky
+        cmp r0, 0
+        brn act_rto_no
+        mov r2, MAP_W-1
+        cmp r0, r2
+        brgt act_rto_no
+        cmp r1, 0
+        brn act_rto_no
+        mov r2, MAP_H-1
+        cmp r1, r2
+        brgt act_rto_no
+        mov r2, r1
+        sll r2, MAP_SHIFT
+        or r2, r0
+        lea r3, st_map
+        add r3, r3, r2
+        ldr r2, r3, 0
+        and r2, r2, T_KIND_MASK
+        cmp r2, T_FLOOR
+        brne act_rto_no
+        ld r2, st_px
+        ld r3, st_py
+        bl dun_dist
+        cmp r0, REINF_MIN_DIST
+        brlt act_rto_no
+        ld r0, act_aw_chkx
+        ld r1, act_aw_chky
+        bl fov_visible
+        cmp r0, 0
+        brnz act_rto_no
+        ld r0, act_aw_chkx
+        ld r1, act_aw_chky
+        bl act_at
+        cmp r0, 0
+        brn act_rto_yes
+act_rto_no:
+        mov r0, 0
+        pop lr
+        ret
+act_rto_yes:
+        mov r0, 1
+        pop lr
         ret
 
 ; =====================================================================
@@ -1229,6 +1637,8 @@ act_th_seen_ok:
         cmp r0, AI_WORKER
         bre act_th_set_flee
         cmp r0, AI_TURRET
+        bre act_th_turret_sight
+        cmp r0, AI_SAPPER
         bre act_th_set_hunt
         ldr r0, r4, E_HP
         mov r2, 100
@@ -1239,6 +1649,16 @@ act_th_seen_ok:
         mul r1, r2
         cmp r0, r1
         brlt act_th_set_flee
+        br act_th_set_hunt
+act_th_turret_sight:
+        ; Watcher sighting (ES_IDLE -> ES_HUNT) adds ALARM_WATCHER
+        ldr r0, r4, E_STATE
+        cmp r0, ES_IDLE
+        brne act_th_set_hunt
+        ld r0, st_alarm
+        mov r1, ALARM_WATCHER
+        add r0, r0, r1
+        st r0, st_alarm
 act_th_set_hunt:
         mov r0, ES_HUNT
         str r0, r4, E_STATE
@@ -1256,6 +1676,8 @@ act_th_unseen:
         bre act_th_act
         ld r1, act_th_ai
         cmp r1, AI_TURRET
+        bre act_th_decay
+        cmp r1, AI_SAPPER
         bre act_th_decay
         ldr r0, r4, E_HP
         mov r2, 100
@@ -1312,6 +1734,8 @@ act_th_mobile:
         bre act_th_flee
         cmp r0, AI_RANGED
         bre act_th_ranged
+        cmp r0, AI_SAPPER
+        bre act_th_sapper
 
         ; AI_MELEE in ES_HUNT
         ld r4, act_th_tptr
@@ -1320,6 +1744,29 @@ act_th_mobile:
         cmp r0, r1
         brgt act_th_chase
         br act_th_do_attack
+
+act_th_sapper:
+        ; AI_SAPPER in ES_HUNT: chase until adjacent; arm first, then detonate
+        ld r0, act_th_dist
+        cmp r0, 1
+        brgt act_th_chase
+        ld r4, act_th_eptr
+        ldr r0, r4, E_FLAGS
+        and r0, r0, EF_ARMED
+        brnz act_th_do_attack
+        ldr r0, r4, E_FLAGS
+        mov r1, EF_ARMED
+        or r0, r1
+        str r0, r4, E_FLAGS
+        lea r0, act_s_arm
+        bl ui_msg
+        mov r0, A_WARN>>8
+        sll r0, 8
+        bl act_set_msg_attr
+        ld r4, act_th_tptr
+        ldr r0, r4, ET_ATK_TIME
+        st r0, act_th_cost
+        br act_th_apply_cost
 
 act_th_ranged:
         ld r0, act_th_see
@@ -2472,6 +2919,42 @@ act_types:
         .word 6
         .word 0
 
+        ; 8: EN_LEECH — fast melee energy drainer
+        .word act_n_leech
+        .word 'l'|FG_BGREEN
+        .word 10
+        .word 70
+        .word 100
+        .word 1
+        .word 3
+        .word 1
+        .word 70
+        .word AI_MELEE
+        .word 3
+        .word 9
+        .word act_drop_leech
+        .word 60
+        .word 7
+        .word 12
+
+        ; 9: EN_SAPPER — suicide bomber (arms adjacent, then detonates)
+        .word act_n_sapper
+        .word 'x'|FG_BYELLOW
+        .word 8
+        .word 60
+        .word 100
+        .word BLAST_DMIN
+        .word BLAST_DMAX
+        .word 1
+        .word 0
+        .word AI_SAPPER
+        .word 1
+        .word 8
+        .word act_drop_sapper
+        .word 0
+        .word 8
+        .word 7
+
 act_n_flit:      .string "Flit"
 act_n_scuttler:  .string "Scuttler"
 act_n_rifler:    .string "Rifler"
@@ -2479,8 +2962,12 @@ act_n_watcher:   .string "Watcher"
 act_n_bulwark:   .string "Bulwark"
 act_n_stalker:   .string "Stalker"
 act_n_tinker:    .string "Tinker"
+act_n_leech:     .string "Leech"
+act_n_sapper:    .string "Sapper"
 act_s_none:      .string "?"
 act_s_spotted:   .string " spotted."
+act_s_arm:       .string "Sapper arms its charge!"
+act_s_alarm:     .string "Floor alarm! Reinforcements incoming!"
 
 act_drop_flit:
         .word 4
@@ -2528,6 +3015,13 @@ act_drop_tinker:
         .word PT_PATCH_DRONE
         .word PT_AIM_GYRO
         .word PT_CELL_PACK
+act_drop_leech:
+        .word 3
+        .word PT_CELL_PACK
+        .word PT_ARC_BATTERY
+        .word PT_BARRIER
+act_drop_sapper:
+        .word 0
 
 ; Private BFS arrays (3072 words, budgeted in DESIGN.md)
 act_dist:       .zero MAP_SIZE

@@ -1,0 +1,60 @@
+{
+  "game": "v2_sim_combat_driver.ap",
+  "scenarios": [
+    {
+      "name": "Leech drain, Sapper arm/chase/detonate, chain reaction, EF_BLOWN, stun + cap, salvage",
+      "clock": 1000,
+      "frames": 10,
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_lch_e1": 7,
+          "drv_lch_e2": 0,
+          "drv_lch_e3": 0,
+          "drv_lch_msg1": "Leech hits core for 2 (-5 energy).",
+          "drv_lch_msg2": "Leech hits core for 2 (-2 energy).",
+          "drv_lch_msg3": "Leech hits core for 3.",
+          "drv_sap_armed": 2,
+          "drv_sap_alive1": 9,
+          "drv_sap_next1": 100,
+          "drv_sap_php1": 40,
+          "drv_sap_arm_msg": "Sapper arms its charge!",
+          "drv_sap_arm_attr": 2816,
+          "drv_sap_chase_x": 10,
+          "drv_sap_chase_ar": 2,
+          "drv_sap_freed": 0,
+          "drv_sap_scut_hp": 2,
+          "drv_sap_flit_st": 0,
+          "drv_sap_bul_hp": 40,
+          "drv_sap_kills": 1,
+          "drv_sap_nodrop": -1,
+          "drv_sap_dmg_ok": 1,
+          "drv_sap_alarm": 26,
+          "drv_ch_ret": 1,
+          "drv_ch_s0": 0,
+          "drv_ch_s1": 0,
+          "drv_ch_bul_hp": 30,
+          "drv_ch_kills": 2,
+          "drv_ch_alarm": 50,
+          "drv_ch_drop0": -1,
+          "drv_ch_drop1": -1,
+          "drv_bl_dead_st": 2,
+          "drv_bl_dead_cs": 9,
+          "drv_bln_ea_al": 0,
+          "drv_bln_ea_t": 9,
+          "drv_bln_de_al": 0,
+          "drv_bln_de_t": 0,
+          "drv_bln_de_bul": 40,
+          "drv_stun_n1": 600,
+          "drv_stun_n2": 700,
+          "drv_stun_n3": 700,
+          "drv_stun_msg1": "Jolt Caster hits Bulwark for 1. Stunned!",
+          "drv_stun_msg3": "Jolt Caster hits Bulwark for 1.",
+          "drv_salv_cnt": 8,
+          "drv_salv_hp_bad": 0,
+          "drv_salv_sap": -1
+        }
+      }
+    }
+  ]
+}

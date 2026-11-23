@@ -1,0 +1,668 @@
+; Unit driver for WP11 v2 simulation: Leech drain, Sapper arm/chase/detonate,
+; Sapper kill + chain reaction, EF_BLOWN guard, WFX_STUN + stun-lock cap,
+; Salvage drop chance & integrity.
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        mov r0, 123
+        srand r0
+        bl ui_init
+        bl prt_init
+        bl act_init
+        mov r0, GAME_PLAY
+        st r0, st_game_state
+
+        ; ============================================================
+        ; T1. Leech energy drain (normal, low energy, zero energy)
+        ; ============================================================
+        bl drv_make_open_room
+        bl drv_strip_loadout
+        mov r0, 10
+        st r0, st_px
+        st r0, st_py
+        mov r0, 8
+        st r0, st_sight
+        bl fov_reset
+        bl fov_update
+
+        bl act_clear
+        mov r0, EN_LEECH
+        mov r1, 11
+        mov r2, 10
+        bl act_spawn            ; slot 0
+
+        ; 1a. st_energy = 12 -> drains LEECH_DRAIN (5) -> 7
+        mov r0, 40
+        st r0, st_core_hp
+        mov r0, 12
+        st r0, st_energy
+drv_t1a_lp:
+        mov r0, 0
+        bl cbt_enemy_attack
+        ld r0, st_core_hp
+        mov r1, 40
+        cmp r0, r1
+        bre drv_t1a_lp
+        ld r0, st_energy
+        st r0, drv_lch_e1       ; expect 7
+        lea r0, drv_lch_msg1
+        bl drv_copy_head_msg
+
+        ; 1b. st_energy = 2 (< LEECH_DRAIN) -> drains 2 -> 0
+        mov r0, 40
+        st r0, st_core_hp
+        mov r0, 2
+        st r0, st_energy
+drv_t1b_lp:
+        mov r0, 0
+        bl cbt_enemy_attack
+        ld r0, st_core_hp
+        mov r1, 40
+        cmp r0, r1
+        bre drv_t1b_lp
+        ld r0, st_energy
+        st r0, drv_lch_e2       ; expect 0
+        lea r0, drv_lch_msg2
+        bl drv_copy_head_msg
+
+        ; 1c. st_energy = 0 -> stays 0, no "energy" in message
+        mov r0, 40
+        st r0, st_core_hp
+        mov r0, 0
+        st r0, st_energy
+drv_t1c_lp:
+        mov r0, 0
+        bl cbt_enemy_attack
+        ld r0, st_core_hp
+        mov r1, 40
+        cmp r0, r1
+        bre drv_t1c_lp
+        ld r0, st_energy
+        st r0, drv_lch_e3       ; expect 0
+        lea r0, drv_lch_msg3
+        bl drv_copy_head_msg
+
+        ; ============================================================
+        ; T2. Sapper arms adjacent, chases when player steps away,
+        ;     detonates next adjacent action (player + robots damaged,
+        ;     Sapper freed, no drop, not counted as kill)
+        ; ============================================================
+        mov r0, 1
+        sleep r0
+        bl drv_make_open_room
+        bl drv_strip_loadout
+        bl act_clear
+        bl itm_clear
+        mov r0, 0
+        st r0, st_time
+        st r0, st_ply_next
+        st r0, st_alarm
+        st r0, st_alarm_acc
+        st r0, st_kills
+        mov r0, 40
+        st r0, st_core_hp
+        mov r0, 10
+        st r0, st_px
+        st r0, st_py
+        mov r0, 8
+        st r0, st_sight
+        bl fov_reset
+        bl fov_update
+
+        ; Spawn Sapper (slot 0) adjacent at (11, 10), E_NEXT = 0
+        mov r0, EN_SAPPER
+        mov r1, 11
+        mov r2, 10
+        bl act_spawn
+        lea r2, st_enemies
+        mov r0, 0
+        str r0, r2, E_NEXT
+
+        ; Turn 1: ply_next = 100 -> Sapper arms (EF_ARMED), posts warning (A_WARN), spends ET_ATK_TIME (100)
+        mov r0, 100
+        st r0, st_ply_next
+        bl act_run
+        lea r2, st_enemies
+        ldr r0, r2, E_FLAGS
+        and r0, r0, EF_ARMED
+        st r0, drv_sap_armed    ; expect 2 (EF_ARMED)
+        ldr r0, r2, E_TYPE
+        st r0, drv_sap_alive1   ; expect 9 (EN_SAPPER)
+        ldr r0, r2, E_NEXT
+        st r0, drv_sap_next1    ; expect 100
+        ld r0, st_core_hp
+        st r0, drv_sap_php1     ; expect 40
+        lea r0, drv_sap_arm_msg
+        bl drv_copy_head_msg
+        bl drv_head_attr
+        st r0, drv_sap_arm_attr ; expect A_WARN (3584)
+
+        ; Turn 2: Player moves away to (8, 10) -> armed Sapper chases (steps west to 10, 10), stays armed
+        mov r0, 8
+        st r0, st_px
+        bl fov_update
+        mov r0, 160
+        st r0, st_ply_next
+        bl act_run
+        lea r2, st_enemies
+        ldr r0, r2, E_X
+        st r0, drv_sap_chase_x  ; expect 10
+        ldr r0, r2, E_FLAGS
+        and r0, r0, EF_ARMED
+        st r0, drv_sap_chase_ar ; expect 2 (still armed)
+
+        ; Turn 3: Player steps adjacent to (9, 10); place Scuttler (HP 12) at (11,10),
+        ; Flit (HP 6) at (10,11), Bulwark (HP 40) far at (20,10). Set all other E_NEXT = 500.
+        mov r0, 9
+        st r0, st_px
+        bl fov_update
+        mov r0, EN_SCUTTLER
+        mov r1, 11
+        mov r2, 10
+        bl act_spawn            ; slot 1
+        mov r0, EN_FLIT
+        mov r1, 10
+        mov r2, 11
+        bl act_spawn            ; slot 2
+        mov r0, EN_BULWARK
+        mov r1, 20
+        mov r2, 10
+        bl act_spawn            ; slot 3
+        ld r0, drv_k_500
+        lea r2, st_enemies
+        str r0, r2, ENEMY_SIZE+E_NEXT
+        mov r1, 2*ENEMY_SIZE
+        add r1, r2, r1
+        str r0, r1, E_NEXT
+        mov r1, 3*ENEMY_SIZE
+        add r1, r2, r1
+        str r0, r1, E_NEXT
+
+        ; Clear alarm before detonation so we can observe +ALARM_BLAST
+        mov r0, 0
+        st r0, st_alarm
+        st r0, st_alarm_acc
+        ld r0, drv_k_260
+        st r0, st_ply_next
+        bl act_run
+
+        lea r2, st_enemies
+        ldr r0, r2, E_TYPE
+        st r0, drv_sap_freed    ; expect 0 (EN_NONE)
+        ldr r0, r2, ENEMY_SIZE+E_HP
+        st r0, drv_sap_scut_hp  ; expect 2 (12 - 10)
+        mov r1, 2*ENEMY_SIZE
+        add r1, r2, r1
+        ldr r0, r1, E_TYPE
+        st r0, drv_sap_flit_st  ; expect 0 (Flit killed by blast)
+        mov r1, 3*ENEMY_SIZE
+        add r1, r2, r1
+        ldr r0, r1, E_HP
+        st r0, drv_sap_bul_hp   ; expect 40 (outside radius)
+        ld r0, st_kills
+        st r0, drv_sap_kills    ; expect 1 (Flit killed, self-detonating Sapper NOT a kill)
+        mov r0, 10
+        mov r1, 10
+        bl itm_at
+        st r0, drv_sap_nodrop   ; expect -1 (no drop from Sapper)
+        ; Player took BLAST_DMIN..BLAST_DMAX (4..8) -> core_hp in 32..36
+        ld r0, st_core_hp
+        mov r1, 40
+        sub r0, r1, r0          ; dmg taken
+        mov r2, 0
+        cmp r0, BLAST_DMIN
+        brlt drv_sap_dmg_st
+        cmp r0, BLAST_DMAX
+        brgt drv_sap_dmg_st
+        mov r2, 1
+drv_sap_dmg_st:
+        st r2, drv_sap_dmg_ok   ; expect 1
+        ld r0, st_alarm
+        st r0, drv_sap_alarm    ; expect 26 (ALARM_BLAST 25 + 1 turn elapsed)
+
+        ; ============================================================
+        ; T3. Sapper killed by player detonates and chains into a 2nd
+        ;     Sapper exactly once each; blast core death sets cause
+        ; ============================================================
+        mov r0, 1
+        sleep r0
+        bl act_clear
+        bl itm_clear
+        mov r0, 0
+        st r0, st_kills
+        st r0, st_alarm
+        mov r0, 40
+        st r0, st_core_hp
+        mov r0, 5
+        st r0, st_px
+        mov r0, 10
+        st r0, st_py
+
+        mov r0, EN_SAPPER
+        mov r1, 10
+        mov r2, 10
+        bl act_spawn            ; slot 0
+        mov r0, EN_SAPPER
+        mov r1, 11
+        mov r2, 10
+        bl act_spawn            ; slot 1 (adjacent to slot 0)
+        mov r0, EN_BULWARK
+        mov r1, 12
+        mov r2, 10
+        bl act_spawn            ; slot 2 (adjacent to slot 1 only)
+
+        ; Kill Sapper 0 -> blasts -> kills Sapper 1 -> blasts -> hits Bulwark 2 once
+        mov r0, 0
+        mov r1, 8
+        bl cbt_damage_enemy
+        st r0, drv_ch_ret       ; expect 1
+        lea r2, st_enemies
+        ldr r0, r2, E_TYPE
+        st r0, drv_ch_s0        ; expect 0
+        ldr r0, r2, ENEMY_SIZE+E_TYPE
+        st r0, drv_ch_s1        ; expect 0
+        mov r1, 2*ENEMY_SIZE
+        add r1, r2, r1
+        ldr r0, r1, E_HP
+        st r0, drv_ch_bul_hp    ; expect 30 (40 - 10)
+        ld r0, st_kills
+        st r0, drv_ch_kills     ; expect 2 (both Sappers counted as kills)
+        ld r0, st_alarm
+        st r0, drv_ch_alarm     ; expect 50 (2 * ALARM_BLAST -> exactly once each!)
+        mov r0, 10
+        mov r1, 10
+        bl itm_at
+        st r0, drv_ch_drop0     ; expect -1
+        mov r0, 11
+        mov r1, 10
+        bl itm_at
+        st r0, drv_ch_drop1     ; expect -1
+
+        ; Blast killing player sets st_death_cause = cause
+        mov r0, 10
+        st r0, st_px
+        mov r0, 10
+        st r0, st_py
+        mov r0, 1
+        st r0, st_core_hp
+        mov r0, CAUSE_NONE
+        st r0, st_death_cause
+        mov r0, 10
+        mov r1, 10
+        mov r2, EN_SAPPER
+        bl cbt_blast
+        ld r0, st_game_state
+        st r0, drv_bl_dead_st   ; expect GAME_DEAD (2)
+        ld r0, st_death_cause
+        st r0, drv_bl_dead_cs   ; expect EN_SAPPER (9)
+        mov r0, GAME_PLAY
+        st r0, st_game_state
+        mov r0, 40
+        st r0, st_core_hp
+
+        ; ============================================================
+        ; T4. EF_BLOWN prevents double blast (both attack and damage)
+        ; ============================================================
+        bl act_clear
+        mov r0, 0
+        st r0, st_alarm
+        mov r0, 5
+        st r0, st_px
+        mov r0, 10
+        st r0, st_py
+        mov r0, EN_SAPPER
+        mov r1, 10
+        mov r2, 10
+        bl act_spawn            ; slot 0
+        mov r0, EN_BULWARK
+        mov r1, 11
+        mov r2, 10
+        bl act_spawn            ; slot 1 (HP 40)
+        lea r2, st_enemies
+        mov r0, EF_ARMED|EF_BLOWN
+        str r0, r2, E_FLAGS
+
+        ; cbt_enemy_attack on EF_BLOWN Sapper must do nothing
+        mov r0, 0
+        bl cbt_enemy_attack
+        ld r0, st_alarm
+        st r0, drv_bln_ea_al    ; expect 0
+        lea r2, st_enemies
+        ldr r0, r2, E_TYPE
+        st r0, drv_bln_ea_t     ; expect EN_SAPPER (9, untouched)
+
+        ; cbt_damage_enemy killing EF_BLOWN Sapper must NOT blast
+        mov r0, 0
+        mov r1, 10
+        bl cbt_damage_enemy
+        ld r0, st_alarm
+        st r0, drv_bln_de_al    ; expect 0
+        lea r2, st_enemies
+        ldr r0, r2, E_TYPE
+        st r0, drv_bln_de_t     ; expect 0 (freed)
+        ldr r0, r2, ENEMY_SIZE+E_HP
+        st r0, drv_bln_de_bul   ; expect 40 (no blast damage)
+
+        ; ============================================================
+        ; T5. Stun (WFX_STUN): +STUN_TU delay and no-stun-lock cap
+        ; ============================================================
+        mov r0, 1
+        sleep r0
+        bl drv_make_open_room
+        bl drv_strip_loadout
+        ; Put Jolt Caster (id 24) in slot 3 (SLOT_WEAP0)
+        lea r1, st_slots
+        add r1, r1, SLOT_WEAP0*SLOT_SIZE
+        mov r0, PT_JOLT_CASTER
+        str r0, r1, S_PART
+        mov r0, 14
+        str r0, r1, S_HP
+        bl prt_recalc
+        mov r0, 30
+        st r0, st_acc_bonus
+        mov r0, 40
+        st r0, st_energy
+        mov r0, 10
+        st r0, st_px
+        st r0, st_py
+        mov r0, 8
+        st r0, st_sight
+        bl fov_reset
+        bl fov_update
+
+        bl act_clear
+        ld r0, drv_k_500
+        st r0, st_time
+        mov r0, EN_BULWARK
+        mov r1, 12
+        mov r2, 10
+        bl act_spawn            ; slot 0 (HP 40, dist 2 <= range 5)
+        lea r2, st_enemies
+        ld r0, drv_k_500
+        str r0, r2, E_NEXT      ; E_NEXT = 500 = st_time
+
+        ; Hit 1: E_NEXT 500 -> 600 (< 700), message says "Stunned!"
+        bl drv_fire_until_hit
+        lea r2, st_enemies
+        ldr r0, r2, E_NEXT
+        st r0, drv_stun_n1      ; expect 600
+        lea r0, drv_stun_msg1
+        bl drv_copy_head_msg
+
+        ; Hit 2: E_NEXT 600 -> 700 (< 700), message says "Stunned!"
+        bl drv_fire_until_hit
+        lea r2, st_enemies
+        ldr r0, r2, E_NEXT
+        st r0, drv_stun_n2      ; expect 700
+
+        ; Hit 3: E_NEXT 700 >= st_time + 2*STUN_TU (700) -> stays 700 (no stun-lock!)
+        bl drv_fire_until_hit
+        lea r2, st_enemies
+        ldr r0, r2, E_NEXT
+        st r0, drv_stun_n3      ; expect 700
+        lea r0, drv_stun_msg3
+        bl drv_copy_head_msg
+
+        ; ============================================================
+        ; T6. Salvage: drop chance cap 100%, integrity >= SALVAGE_HP_MIN%,
+        ;     empty drop list still never drops
+        ; ============================================================
+        mov r0, 1
+        sleep r0
+        bl act_clear
+        bl itm_clear
+        mov r0, 25
+        st r0, st_salvage
+        mov r0, 0
+        st r0, drv_salv_cnt
+        st r0, drv_salv_hp_bad
+
+        ; Kill 8 Tinkers (ET_DROP_PCT=80 + 25 -> 100% drop, integrity 75..100%)
+        mov r3, 0
+drv_salv_lp:
+        mov r0, EN_TINKER
+        mov r1, 20
+        add r1, r1, r3
+        mov r2, 10
+        bl act_spawn            ; idx in r0
+        mov r1, 10
+        bl cbt_damage_enemy
+        mov r0, 20
+        add r0, r0, r3
+        mov r1, 10
+        bl itm_at
+        cmp r0, 0
+        brn drv_salv_next
+        ; Count drop and verify integrity >= (P_MAXHP * SALVAGE_HP_MIN + 50) / 100
+        ld r1, drv_salv_cnt
+        add r1, r1, 1
+        st r1, drv_salv_cnt
+        sll r0, ITEM_SHIFT
+        lea r4, st_items
+        add r4, r4, r0
+        ldr r0, r4, I_PART
+        bl prt_info
+        ldr r1, r0, P_MAXHP
+        mov r2, SALVAGE_HP_MIN
+        mul r1, r2
+        mov r2, 50
+        add r1, r1, r2
+        mov r2, 100
+        div r1, r2              ; r1 = min valid rounded integrity
+        ldr r2, r4, I_HP
+        cmp r2, r1
+        brlt drv_salv_bad
+        br drv_salv_next
+drv_salv_bad:
+        ld r0, drv_salv_hp_bad
+        add r0, r0, 1
+        st r0, drv_salv_hp_bad
+drv_salv_next:
+        add r3, r3, 1
+        cmp r3, 8
+        brlt drv_salv_lp
+
+        ; Sapper (empty drop list) still never drops even with st_salvage = 25
+        mov r0, EN_SAPPER
+        mov r1, 15
+        mov r2, 15
+        bl act_spawn            ; idx in r0
+        mov r1, r0
+        sll r1, ENEMY_SHIFT
+        lea r2, st_enemies
+        add r2, r2, r1
+        mov r1, EF_BLOWN
+        str r1, r2, E_FLAGS
+        mov r1, 10
+        bl cbt_damage_enemy
+        mov r0, 15
+        mov r1, 15
+        bl itm_at
+        st r0, drv_salv_sap     ; expect -1
+
+        mov r0, 0
+        st r0, st_salvage
+        halt
+
+; ---- Helpers --------------------------------------------------------
+drv_fire_until_hit:
+        push r0
+        push r1
+        push r2
+        push lr
+drv_fuh_lp:
+        mov r0, 40
+        st r0, st_energy
+        lea r2, st_enemies
+        ldr r1, r2, E_HP        ; hp before
+        mov r0, 0
+        bl cbt_player_fire
+        ldr r0, r2, E_HP        ; hp after
+        cmp r0, r1
+        bre drv_fuh_lp
+        pop lr
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+drv_strip_loadout:
+        push r0
+        push r1
+        push r2
+        push lr
+        lea r0, st_slots
+        mov r1, 0
+        mov r2, NUM_SLOTS*SLOT_SIZE
+drv_sl_lp:
+        str r1, r0, 0
+        add r0, r0, 1
+        sub r2, r2, 1
+        brp drv_sl_lp
+        bl prt_recalc
+        pop lr
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+drv_make_open_room:
+        push r0
+        push r1
+        push r2
+        push r3
+        push lr
+        lea r0, st_map
+        ld r1, drv_k_mapsize
+        mov r2, T_WALL
+drv_mor_w:
+        str r2, r0, 0
+        add r0, r0, 1
+        sub r1, r1, 1
+        brp drv_mor_w
+        mov r1, 1
+drv_mor_y:
+        mov r0, 1
+drv_mor_x:
+        mov r2, T_FLOOR
+        bl dun_set
+        add r0, r0, 1
+        mov r3, MAP_W-1
+        cmp r0, r3
+        brlt drv_mor_x
+        add r1, r1, 1
+        mov r3, MAP_H-1
+        cmp r1, r3
+        brlt drv_mor_y
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+drv_copy_head_msg:
+        push r0
+        push r1
+        push r2
+        push r3
+        ld r1, st_msg_head
+        and r1, r1, MSG_COUNT-1
+        sll r1, MSG_SHIFT
+        lea r2, st_msg_text
+        add r2, r2, r1
+drv_chm_lp:
+        ldr r3, r2, 0
+        str r3, r0, 0
+        cmp r3, 0
+        brz drv_chm_done
+        add r2, r2, 1
+        add r0, r0, 1
+        br drv_chm_lp
+drv_chm_done:
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+drv_head_attr:
+        push r1
+        ld r0, st_msg_head
+        and r0, r0, MSG_COUNT-1
+        lea r1, st_msg_attr
+        add r1, r1, r0
+        ldr r0, r1, 0
+        pop r1
+        ret
+
+; ---- Constants & outputs --------------------------------------------
+drv_k_mapsize:   .word MAP_SIZE
+drv_k_260:       .word 260
+drv_k_500:       .word 500
+
+drv_lch_e1:      .word 99
+drv_lch_e2:      .word 99
+drv_lch_e3:      .word 99
+drv_lch_msg1:    .zero MSG_LEN
+drv_lch_msg2:    .zero MSG_LEN
+drv_lch_msg3:    .zero MSG_LEN
+
+drv_sap_armed:    .word 99
+drv_sap_alive1:   .word 99
+drv_sap_next1:    .word 99
+drv_sap_php1:     .word 99
+drv_sap_arm_msg:  .zero MSG_LEN
+drv_sap_arm_attr: .word 99
+drv_sap_chase_x:  .word 99
+drv_sap_chase_ar: .word 99
+drv_sap_freed:    .word 99
+drv_sap_scut_hp:  .word 99
+drv_sap_flit_st:  .word 99
+drv_sap_bul_hp:   .word 99
+drv_sap_kills:    .word 99
+drv_sap_nodrop:   .word 99
+drv_sap_dmg_ok:   .word 99
+drv_sap_alarm:    .word 99
+
+drv_ch_ret:      .word 99
+drv_ch_s0:       .word 99
+drv_ch_s1:       .word 99
+drv_ch_bul_hp:   .word 99
+drv_ch_kills:    .word 99
+drv_ch_alarm:    .word 99
+drv_ch_drop0:    .word 99
+drv_ch_drop1:    .word 99
+drv_bl_dead_st:  .word 99
+drv_bl_dead_cs:  .word 99
+
+drv_bln_ea_al:   .word 99
+drv_bln_ea_t:    .word 99
+drv_bln_de_al:   .word 99
+drv_bln_de_t:    .word 99
+drv_bln_de_bul:  .word 99
+
+drv_stun_n1:     .word 99
+drv_stun_n2:     .word 99
+drv_stun_n3:     .word 99
+drv_stun_msg1:   .zero MSG_LEN
+drv_stun_msg3:   .zero MSG_LEN
+
+drv_salv_cnt:    .word 99
+drv_salv_hp_bad: .word 99
+drv_salv_sap:    .word 99
+
+        .include "../../src/state.ap"
+        .include "../../src/rng.ap"
+        .include "../../src/dungeon.ap"
+        .include "../../src/fov.ap"
+        .include "../../src/parts.ap"
+        .include "../../src/items.ap"
+        .include "../../src/actors.ap"
+        .include "../../src/combat.ap"
+        .include "../../src/ui.ap"
+        .include "video.ap"
+        .include "util.ap"

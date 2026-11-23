@@ -1,0 +1,18 @@
+{
+  "scenarios": [
+    {
+      "name": "v2 simulation whole-game: floor alarm ticks up during play and stays within frame budget",
+      "clock": 1000,
+      "keys": "<space> .*5 Q y",
+      "expect": {
+        "status": "halted",
+        "maxStepsPerFrame": 1000000,
+        "memory": {
+          "st_turn": 5,
+          "st_alarm": 5,
+          "st_alarm_waves": 0
+        }
+      }
+    }
+  ]
+}

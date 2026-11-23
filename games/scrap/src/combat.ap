@@ -9,14 +9,20 @@
 ;; cbt_hit_chance    r0=accuracy% r1=distance   -> r0=accuracy - HIT_DIST_PEN×(distance-1), clamped HIT_MIN..HIT_MAX
 ;; cbt_player_fire   r0=enemy index             -> r0=number of weapons fired (>0), -1 if unheld in-range ranged weapon(s) lacked energy, 0 otherwise (target not visible, no usable ranged
 ;;                   or out of range; caller spends no time). Checks fov_visible(E_X, E_Y), then fires every unheld ranged weapon slot (P_W_MELEE 0) in slot order: spend P_W_ENERGY,
-;;                   roll hit (P_W_ACC + st_acc_bonus), damage rng_range(DMIN..DMAX) via cbt_damage_enemy; message per shot; stops once the target is destroyed.
-;; cbt_player_melee  r0=enemy index             -> -        bump attack with every unheld melee weapon slot (each spends P_W_ENERGY if it can, else is skipped); with none usable, a
-;;                   core ram RAM_DMIN..RAM_DMAX at RAM_ACC. Messages.
-;; cbt_enemy_attack  r0=enemy index             -> -        that enemy attacks the player: hit = cbt_hit_chance(ET_ACC, dist) - st_evade (>= HIT_MIN); damage
-;;                   rng_range(ET_DMIN..ET_DMAX) → prt_damage; message "<name> hits <part|core> for N." (A_BAD), followed by "<part> destroyed!" (A_BAD) if prt_damage destroyed a part,
-;;                   or "<name> misses." (A_DIM); if the core dies sets st_death_cause = the enemy's type.
-;; cbt_damage_enemy  r0=enemy index r1=damage   -> r0=1 destroyed, 0 still alive. On survival: alerts the enemy via act_alert. On destruction: message "<name> destroyed.",
-;;                   st_kills++, ET_DROP_PCT chance to itm_place one random part from ET_DROP at rng_range(DROP_HP_MIN..100)% integrity on its tile, act_kill. Clears st_target if it was the target.
+;;                   roll hit (P_W_ACC + st_acc_bonus), damage rng_range(DMIN..DMAX) via cbt_damage_enemy; P_W_FX == WFX_STUN on a surviving robot adds STUN_TU to E_NEXT unless already
+;;                   >= st_time + 2*STUN_TU; message per shot; stops once the target is destroyed.
+;; cbt_player_melee  r0=enemy index             -> -        bump attack with every unheld melee weapon slot (each spends P_W_ENERGY if it can, else is skipped; WFX_STUN applies on hit);
+;;                   with none usable, a core ram RAM_DMIN..RAM_DMAX at RAM_ACC. Messages.
+;; cbt_enemy_attack  r0=enemy index             -> -        that enemy attacks the player. AI_SAPPER: if not EF_BLOWN, sets EF_BLOWN, clears st_target if matching, act_kill (no kill/drop),
+;;                   calls cbt_blast. Others: hit = cbt_hit_chance(ET_ACC, dist) - st_evade (>= HIT_MIN); damage rng_range(ET_DMIN..ET_DMAX) → prt_damage (-2 = fully absorbed by Barrier,
+;;                   no Leech drain; else reports dealt = rolled - st_absorbed with armor reduction, mentions absorption; EN_LEECH drains min(LEECH_DRAIN, st_energy)); posts "<part> destroyed!"
+;;                   if prt_damage destroyed a part, or "<name> misses." (A_DIM); on core death sets st_death_cause = enemy type.
+;; cbt_damage_enemy  r0=enemy index r1=damage   -> r0=1 destroyed, 0 still alive. On survival: alerts via act_alert. On destruction: message "<name> destroyed." (A_GOOD), st_kills++,
+;;                   clears st_target if matching. AI_SAPPER with EF_BLOWN clear sets EF_BLOWN, calls act_kill then cbt_blast (no drop). Others with non-empty ET_DROP roll
+;;                   min(100, ET_DROP_PCT + st_salvage)% to itm_place one random part at rng_range((st_salvage>0?SALVAGE_HP_MIN:DROP_HP_MIN)..100)% integrity, then act_kill.
+;; cbt_blast         r0=x r1=y r2=cause         -> -        blast at (x,y): message (A_BAD), st_alarm += ALARM_BLAST, player within BLAST_RADIUS takes rng_range(BLAST_DMIN..BLAST_DMAX)
+;;                   via prt_damage (never misses; Barrier applies; core death sets st_death_cause = cause), every other living robot within BLAST_RADIUS takes BLAST_ROBOT via
+;;                   cbt_damage_enemy (reentrant for chain reactions).
 ; ---------------------------------------------------------------------
 
 ; Offsets from st_game_state (see src/state.ap)
@@ -144,14 +150,40 @@ cbt_roll_weapon:
         ldr r1, r4, P_W_DMAX
         bl rng_range
         mov r1, r0              ; r1 = dmg
-        push r2
+        push r2                 ; save enemy_idx
         ldr r0, r4, P_NAME
         mov r2, r1              ; r2 = dmg
         mov r1, r3              ; r1 = ename
         bl cbt_msg_hit
         mov r1, r2              ; r1 = dmg
-        pop r0                  ; r0 = enemy_idx
+        pop r2                  ; r2 = enemy_idx (preserved across cbt_damage_enemy)
+        mov r0, r2
         bl cbt_damage_enemy     ; r0 = 1 destroyed, 0 alive
+        cmp r0, 0
+        brnz cbt_rw_ret
+        ; Surviving hit: check WFX_STUN (delays E_NEXT by STUN_TU unless >= st_time + 2*STUN_TU)
+        ldr r1, r4, P_W_FX
+        cmp r1, WFX_STUN
+        brne cbt_rw_ret0
+        mov r0, r2
+        bl cbt_enemy_ptr
+        cmp r0, 0
+        brz cbt_rw_ret0
+        ldr r1, r0, E_NEXT
+        ld r3, st_time
+        mov r2, 2*STUN_TU
+        add r3, r3, r2          ; r3 = st_time + 2*STUN_TU
+        cmp r1, r3
+        brlt cbt_rw_stun
+        br cbt_rw_ret0
+cbt_rw_stun:
+        mov r2, STUN_TU
+        add r1, r1, r2
+        str r1, r0, E_NEXT
+        lea r0, cbt_s_stunned
+        bl ui_msg_add
+cbt_rw_ret0:
+        mov r0, 0
         br cbt_rw_ret
 cbt_rw_miss:
         ldr r0, r4, P_NAME
@@ -452,15 +484,164 @@ cbt_pm_out:
         pop r0
         ret
 
+; ---- shared player-hit message helpers --------------------------------------
+; cbt_post_player_hit (r0=subj_str, r1=slot, r2=rolled, r3=snap_ptr, r4=drain)
+; Formats & posts "<subj> hits <part|core> for <dealt>[ (<abs> absorbed[, -<drain> energy]|-<drain> energy)]." in A_BAD.
+; Locals: fp-1 subj_str, fp-2 drain, fp-3 abs, fp-4 dealt, fp-5 snapped_pid
+cbt_post_player_hit:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        push fp
+        mov fp, sp
+        sub sp, sp, 5
+
+        str r0, fp, -1          ; subj_str
+        str r4, fp, -2          ; drain
+        ld r0, st_absorbed
+        cmp r0, 0
+        brp cbt_pph_absok
+        mov r0, 0
+cbt_pph_absok:
+        str r0, fp, -3          ; abs
+        sub r2, r2, r0          ; dealt = rolled - abs
+        cmp r2, 0
+        brp cbt_pph_dok
+        mov r2, 0
+cbt_pph_dok:
+        ; Choose part name (and apply armor reduction to dealt) or "core"
+        cmp r1, 0
+        brn cbt_pph_core
+        cmp r1, NUM_SLOTS
+        brlt cbt_pph_part
+cbt_pph_core:
+        lea r1, cbt_s_core
+        br cbt_pph_post
+cbt_pph_part:
+        add r3, r3, r1
+        ldr r0, r3, 0           ; pid
+        str r0, fp, -5
+        cmp r2, 0
+        brp cbt_pph_arm
+        br cbt_pph_pname
+cbt_pph_arm:
+        bl prt_info
+        cmp r0, 0
+        brz cbt_pph_pname
+        ldr r1, r0, P_KIND
+        cmp r1, PK_UTIL
+        brne cbt_pph_pname
+        ldr r1, r0, P_U_TYPE
+        cmp r1, UT_ARMOR
+        brne cbt_pph_pname
+        ldr r1, r0, P_U_VALUE
+        sub r2, r2, r1
+        cmp r2, 1
+        brlt cbt_pph_min1
+        br cbt_pph_pname
+cbt_pph_min1:
+        mov r2, 1
+cbt_pph_pname:
+        ldr r0, fp, -5
+        bl prt_name
+        mov r1, r0              ; r1 = part name
+cbt_pph_post:
+        str r2, fp, -4          ; dealt
+        ldr r0, fp, -1          ; subj_str
+        bl ui_msg
+        lea r0, cbt_s_hits
+        bl ui_msg_add
+        mov r0, r1              ; obj_str
+        bl ui_msg_add
+        lea r0, cbt_s_for
+        bl ui_msg_add
+        ldr r0, fp, -4          ; dealt
+        bl ui_msg_addn
+
+        ; Optional parenthetical for absorption and/or Leech energy drain
+        ldr r3, fp, -3          ; abs
+        ldr r4, fp, -2          ; drain
+        cmp r3, 0
+        brp cbt_pph_has_abs
+        cmp r4, 0
+        brp cbt_pph_only_drn
+        lea r0, cbt_s_dot
+        bl ui_msg_add
+        br cbt_pph_attr
+cbt_pph_has_abs:
+        lea r0, cbt_s_lparen
+        bl ui_msg_add
+        mov r0, r3
+        bl ui_msg_addn
+        lea r0, cbt_s_absorbed
+        bl ui_msg_add
+        cmp r4, 0
+        brp cbt_pph_both
+        lea r0, cbt_s_rparen
+        bl ui_msg_add
+        br cbt_pph_attr
+cbt_pph_both:
+        lea r0, cbt_s_comma_en
+        bl ui_msg_add
+        mov r0, r4
+        bl ui_msg_addn
+        lea r0, cbt_s_energy_end
+        bl ui_msg_add
+        br cbt_pph_attr
+cbt_pph_only_drn:
+        lea r0, cbt_s_lparen_en
+        bl ui_msg_add
+        mov r0, r4
+        bl ui_msg_addn
+        lea r0, cbt_s_energy_end
+        bl ui_msg_add
+cbt_pph_attr:
+        mov r0, A_BAD>>8
+        sll r0, 8
+        bl ui_msg_attr
+
+        mov sp, fp
+        pop fp
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; cbt_post_part_dest (r0=destroyed_pid): if > 0 posts "<part> destroyed!" in A_BAD
+cbt_post_part_dest:
+        push r0
+        push lr
+        cmp r0, 0
+        brp cbt_ppd_go
+        br cbt_ppd_done
+cbt_ppd_go:
+        bl prt_name
+        bl ui_msg
+        lea r0, cbt_s_part_dest
+        bl ui_msg_add
+        mov r0, A_BAD>>8
+        sll r0, 8
+        bl ui_msg_attr
+cbt_ppd_done:
+        pop lr
+        pop r0
+        ret
+
 ; ---- enemy attack on the player ---------------------------------------------
 ; r0 = enemy index -> -
 ; Locals relative to fp:
 ;   fp-1  etype
 ;   fp-2  tptr
 ;   fp-3  rolled dmg
-;   fp-4  slot hit (-1 = core, 0..NUM_SLOTS-1 = slot)
-;   fp-5  (unused)
-;   fp-6  snapped part id of hit slot
+;   fp-4  slot hit (-2 = barrier full absorb, -1 = core, 0..NUM_SLOTS-1 = slot)
+;   fp-5  enemy_idx
+;   fp-6  ex (for sapper) / drain (for leech)
 ;   fp-7  destroyed part id (from prt_damage, or -1)
 ;   fp-8..-15  snapshot of st_slots[0..7].S_PART (8 words, fp-15 = slot 0)
 cbt_enemy_attack:
@@ -474,6 +655,7 @@ cbt_enemy_attack:
         mov fp, sp
         sub sp, sp, 7+NUM_SLOTS
 
+        str r0, fp, -5          ; enemy_idx
         bl cbt_enemy_ptr
         cmp r0, 0
         brz cbt_ea_out
@@ -485,6 +667,39 @@ cbt_enemy_attack:
         brz cbt_ea_out
         str r0, fp, -2          ; tptr
 
+        ; AI_SAPPER self-detonation when adjacent and armed (no kill credit, no drop)
+        ldr r1, r0, ET_AI
+        cmp r1, AI_SAPPER
+        brne cbt_ea_normal
+        ldr r1, r4, E_FLAGS
+        and r1, r1, EF_BLOWN
+        brnz cbt_ea_out         ; already detonated
+        ldr r1, r4, E_FLAGS
+        mov r2, EF_BLOWN
+        or r1, r2
+        str r1, r4, E_FLAGS
+        ldr r1, r4, E_X
+        str r1, fp, -6          ; save ex
+        ldr r2, r4, E_Y
+        str r2, fp, -3          ; save ey
+        ; Clear st_target if pointing at this Sapper
+        lea r3, st_game_state
+        ldr r0, r3, CBT_ST_TARGET
+        ldr r1, fp, -5
+        cmp r0, r1
+        brne cbt_ea_sap_kill
+        mov r0, -1
+        str r0, r3, CBT_ST_TARGET
+cbt_ea_sap_kill:
+        ldr r0, fp, -5
+        bl act_kill
+        ldr r0, fp, -6          ; ex
+        ldr r1, fp, -3          ; ey
+        ldr r2, fp, -1          ; EN_SAPPER
+        bl cbt_blast
+        br cbt_ea_out
+
+cbt_ea_normal:
         ; Non-attacking type (e.g., Tinker)
         ldr r1, r0, ET_DMAX
         cmp r1, 0
@@ -544,80 +759,61 @@ cbt_ea_snap:
         ldr r0, fp, -3
         sub r1, fp, 7
         bl prt_damage
-        str r0, fp, -4          ; slot (-1 = core)
+        str r0, fp, -4          ; slot (-2 = barrier absorbed all, -1 = core)
 
+        ; Fully absorbed by Barrier (-2): post absorption message, skip drain/death
+        cmp r0, -2
+        brne cbt_ea_dealt
+        ldr r4, fp, -2
+        ldr r0, r4, ET_NAME
+        bl ui_msg
+        lea r0, cbt_s_bar_abs
+        bl ui_msg_add
+        ld r0, st_absorbed
+        bl ui_msg_addn
+        lea r0, cbt_s_dot
+        bl ui_msg_add
+        br cbt_ea_out
+
+cbt_ea_dealt:
         ; Set death cause if core died
         lea r4, st_game_state
         ldr r1, r4, CBT_ST_GAME_STATE
         cmp r1, GAME_DEAD
-        brne cbt_ea_msg
+        brne cbt_ea_drain
         ldr r1, fp, -1          ; etype
         str r1, r4, CBT_ST_DEATH_CAUSE
 
+cbt_ea_drain:
+        ; Leech hit drains min(LEECH_DRAIN, st_energy) energy
+        mov r4, 0               ; r4 = drain
+        ldr r0, fp, -1
+        cmp r0, EN_LEECH
+        brne cbt_ea_msg
+        ld r1, st_energy
+        cmp r1, 0
+        brp cbt_ea_do_drain
+        br cbt_ea_msg
+cbt_ea_do_drain:
+        mov r4, LEECH_DRAIN
+        cmp r1, LEECH_DRAIN
+        brlt cbt_ea_dr_clamp
+        br cbt_ea_dr_sub
+cbt_ea_dr_clamp:
+        mov r4, r1
+cbt_ea_dr_sub:
+        sub r1, r1, r4
+        st r1, st_energy
+
 cbt_ea_msg:
-        ; Message: "<name> hits <part|core> for <N>." in A_BAD
-        ldr r0, fp, -4          ; slot
-        cmp r0, 0
-        brn cbt_ea_msg_core
-        cmp r0, NUM_SLOTS
-        brlt cbt_ea_msg_part
-cbt_ea_msg_core:
-        lea r1, cbt_s_core
-        ldr r2, fp, -3
-        br cbt_ea_msg_post
-
-cbt_ea_msg_part:
-        mov r1, sp
-        add r1, r1, r0
-        ldr r0, r1, 0           ; pid
-        str r0, fp, -6
-        ; Match prt_damage armor reduction for reported damage
-        ldr r2, fp, -3          ; dmg
-        cmp r2, 0
-        brp cbt_ea_arm_chk
-        br cbt_ea_part_name
-cbt_ea_arm_chk:
-        bl prt_info
-        cmp r0, 0
-        brz cbt_ea_part_name
-        ldr r1, r0, P_KIND
-        cmp r1, PK_UTIL
-        brne cbt_ea_part_name
-        ldr r1, r0, P_U_TYPE
-        cmp r1, UT_ARMOR
-        brne cbt_ea_part_name
-        ldr r1, r0, P_U_VALUE
-        sub r2, r2, r1
-        cmp r2, 1
-        brlt cbt_ea_arm_min1
-        br cbt_ea_part_name
-cbt_ea_arm_min1:
-        mov r2, 1
-cbt_ea_part_name:
-        ldr r0, fp, -6
-        bl prt_name
-        mov r1, r0              ; r1 = part name
-cbt_ea_msg_post:
-        ldr r4, fp, -2
-        ldr r0, r4, ET_NAME
-        bl cbt_msg_hit
-        mov r0, A_BAD>>8
-        sll r0, 8
-        bl ui_msg_attr
-
-        ; If prt_damage destroyed a part, post "<part> destroyed!" AFTER the hit message
+        ldr r1, fp, -2
+        ldr r0, r1, ET_NAME     ; subj_str
+        ldr r1, fp, -4          ; slot
+        ldr r2, fp, -3          ; rolled dmg
+        mov r3, sp              ; snap_ptr
+        bl cbt_post_player_hit
         ldr r0, fp, -7
-        cmp r0, 0
-        brp cbt_ea_pdest
-        br cbt_ea_out
-cbt_ea_pdest:
-        bl prt_name
-        bl ui_msg
-        lea r0, cbt_s_part_dest
-        bl ui_msg_add
-        mov r0, A_BAD>>8
-        sll r0, 8
-        bl ui_msg_attr
+        bl cbt_post_part_dest
         br cbt_ea_out
 
 cbt_ea_miss:
@@ -641,6 +837,158 @@ cbt_ea_out:
         pop r0
         ret
 
+; ---- Sapper / area blast ----------------------------------------------------
+; cbt_blast r0=x r1=y r2=cause -> -
+; Reentrant (all state on stack) so Sapper chain reactions terminate cleanly.
+; Locals relative to fp:
+;   fp-1  bx
+;   fp-2  by
+;   fp-3  cause
+;   fp-4  rolled dmg (player)
+;   fp-5  slot hit
+;   fp-6  destroyed part id
+;   fp-7  enemy scan index 0..MAX_ENEMIES-1
+;   fp-8..-15  snapshot of st_slots[0..7].S_PART (8 words, sp = fp-15)
+cbt_blast:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        push fp
+        mov fp, sp
+        sub sp, sp, 7+NUM_SLOTS
+
+        str r0, fp, -1          ; bx
+        str r1, fp, -2          ; by
+        str r2, fp, -3          ; cause
+
+        ; 1. Blast message in A_BAD
+        cmp r2, EN_SAPPER
+        brne cbt_bl_msg_gen
+        lea r0, cbt_s_sap_expl
+        br cbt_bl_msg_do
+cbt_bl_msg_gen:
+        lea r0, cbt_s_expl
+cbt_bl_msg_do:
+        bl ui_msg
+        mov r0, A_BAD>>8
+        sll r0, 8
+        bl ui_msg_attr
+
+        ; 2. Floor alarm += ALARM_BLAST
+        ld r0, st_alarm
+        mov r1, ALARM_BLAST
+        add r0, r0, r1
+        st r0, st_alarm
+
+        ; 3. Player within BLAST_RADIUS takes one prt_damage hit (never misses)
+        ld r0, st_core_hp
+        cmp r0, 0
+        brp cbt_bl_pchk
+        br cbt_bl_robots
+cbt_bl_pchk:
+        ldr r0, fp, -1
+        ldr r1, fp, -2
+        lea r4, st_game_state
+        ldr r2, r4, CBT_ST_PX
+        ldr r3, r4, CBT_ST_PY
+        bl dun_dist
+        cmp r0, BLAST_RADIUS
+        brgt cbt_bl_robots
+
+        ; Roll BLAST_DMIN..BLAST_DMAX
+        mov r0, BLAST_DMIN
+        mov r1, BLAST_DMAX
+        bl rng_range
+        str r0, fp, -4          ; rolled dmg
+
+        ; Snapshot st_slots[0..7].S_PART into [sp..sp+7]
+        lea r1, st_slots
+        mov r2, sp
+        mov r3, NUM_SLOTS
+cbt_bl_snap:
+        ldr r4, r1, S_PART
+        str r4, r2, 0
+        add r1, r1, SLOT_SIZE
+        add r2, r2, 1
+        sub r3, r3, 1
+        brp cbt_bl_snap
+
+        ldr r0, fp, -4
+        sub r1, fp, 6
+        bl prt_damage
+        str r0, fp, -5          ; slot hit
+
+        cmp r0, -2
+        brne cbt_bl_pdealt
+        lea r0, cbt_s_bl_abs1
+        bl ui_msg
+        ld r0, st_absorbed
+        bl ui_msg_addn
+        lea r0, cbt_s_rparen
+        bl ui_msg_add
+        br cbt_bl_robots
+
+cbt_bl_pdealt:
+        lea r4, st_game_state
+        ldr r1, r4, CBT_ST_GAME_STATE
+        cmp r1, GAME_DEAD
+        brne cbt_bl_pmsg
+        ldr r1, fp, -3          ; cause
+        str r1, r4, CBT_ST_DEATH_CAUSE
+cbt_bl_pmsg:
+        lea r0, cbt_s_blast
+        ldr r1, fp, -5          ; slot
+        ldr r2, fp, -4          ; rolled
+        mov r3, sp              ; snap_ptr
+        mov r4, 0               ; drain = 0
+        bl cbt_post_player_hit
+        ldr r0, fp, -6
+        bl cbt_post_part_dest
+
+        ; 4. Every living robot within BLAST_RADIUS takes BLAST_ROBOT via cbt_damage_enemy
+cbt_bl_robots:
+        mov r0, 0
+        str r0, fp, -7
+cbt_bl_rlp:
+        ldr r0, fp, -7
+        mov r1, MAX_ENEMIES
+        cmp r0, r1
+        brlt cbt_bl_rchk
+        br cbt_bl_out
+cbt_bl_rchk:
+        bl cbt_enemy_ptr
+        cmp r0, 0
+        brz cbt_bl_rnext
+        ldr r2, r0, E_X
+        ldr r3, r0, E_Y
+        ldr r0, fp, -1          ; bx
+        ldr r1, fp, -2          ; by
+        bl dun_dist
+        cmp r0, BLAST_RADIUS
+        brgt cbt_bl_rnext
+        ldr r0, fp, -7
+        mov r1, BLAST_ROBOT
+        bl cbt_damage_enemy
+cbt_bl_rnext:
+        ldr r0, fp, -7
+        add r0, r0, 1
+        str r0, fp, -7
+        br cbt_bl_rlp
+
+cbt_bl_out:
+        mov sp, fp
+        pop fp
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
 ; ---- damage enemy & handle destruction / drops ------------------------------
 ; r0 = enemy index, r1 = damage -> r0 = 1 destroyed, 0 still alive
 ; Locals relative to fp:
@@ -649,6 +997,8 @@ cbt_ea_out:
 ;   fp-3  ex
 ;   fp-4  ey
 ;   fp-5  drop part id
+;   fp-6  etype
+;   fp-7  eflags
 cbt_damage_enemy:
         push r1
         push r2
@@ -657,7 +1007,7 @@ cbt_damage_enemy:
         push lr
         push fp
         mov fp, sp
-        sub sp, sp, 5
+        sub sp, sp, 7
 
         cmp r1, 0
         brp cbt_de_dmgok
@@ -680,7 +1030,10 @@ cbt_de_dmgok:
         str r2, fp, -3          ; ex
         ldr r2, r3, E_Y
         str r2, fp, -4          ; ey
+        ldr r2, r3, E_FLAGS
+        str r2, fp, -7          ; eflags
         ldr r0, r3, E_TYPE
+        str r0, fp, -6          ; etype
         bl act_type_info
         str r0, fp, -2          ; tptr
 
@@ -704,19 +1057,69 @@ cbt_de_kills_sat:
         ldr r0, r4, CBT_ST_TARGET
         ldr r1, fp, -1
         cmp r0, r1
-        brne cbt_de_drop
+        brne cbt_de_sap_chk
         mov r0, -1
         str r0, r4, CBT_ST_TARGET
 
-cbt_de_drop:
-        ; Roll ET_DROP_PCT chance to drop one random part from ET_DROP
+cbt_de_sap_chk:
+        ; Sapper destroyed by anything detonates once (guarded by EF_BLOWN; no drop)
         ldr r4, fp, -2          ; tptr
         cmp r4, 0
         brz cbt_de_kill
-        ldr r2, r4, ET_DROP_PCT
-        cmp r2, 0
-        brp cbt_de_roll
+        ldr r0, r4, ET_AI
+        cmp r0, AI_SAPPER
+        brne cbt_de_drop
+        ldr r0, fp, -7          ; eflags
+        and r0, r0, EF_BLOWN
+        brnz cbt_de_kill        ; already detonated -> never blast twice
+        ; Mark EF_BLOWN and free record BEFORE calling cbt_blast (chain safety)
+        ldr r0, fp, -1
+        bl cbt_enemy_ptr
+        cmp r0, 0
+        brz cbt_de_sap_go
+        ldr r1, fp, -7
+        mov r2, EF_BLOWN
+        or r1, r2
+        str r1, r0, E_FLAGS
+cbt_de_sap_go:
+        ldr r0, fp, -1
+        bl act_kill
+        ldr r0, fp, -3          ; ex
+        ldr r1, fp, -4          ; ey
+        ldr r2, fp, -6          ; EN_SAPPER
+        bl cbt_blast
+        mov r0, 1
+        br cbt_de_done
+
+cbt_de_drop:
+        ; Non-empty drop list required (empty list never drops even with st_salvage > 0)
+        ldr r3, r4, ET_DROP
+        cmp r3, 0
+        brz cbt_de_kill
+        ldr r1, r3, 0           ; drop list count
+        cmp r1, 0
+        brp cbt_de_chance
         br cbt_de_kill
+cbt_de_chance:
+        ; Effective drop chance = min(100, ET_DROP_PCT + st_salvage)
+        ldr r2, r4, ET_DROP_PCT
+        ld r0, st_salvage
+        cmp r0, 0
+        brp cbt_de_add_salv
+        br cbt_de_ch_chk
+cbt_de_add_salv:
+        add r2, r2, r0
+cbt_de_ch_chk:
+        cmp r2, 0
+        brp cbt_de_ch_cap
+        br cbt_de_kill
+cbt_de_ch_cap:
+        mov r0, 100
+        cmp r2, r0
+        brgt cbt_de_ch_100
+        br cbt_de_roll
+cbt_de_ch_100:
+        mov r2, 100
 cbt_de_roll:
         mov r0, 1
         mov r1, 100
@@ -724,18 +1127,12 @@ cbt_de_roll:
         cmp r0, r2
         brgt cbt_de_kill
 
-        ldr r4, r4, ET_DROP
-        cmp r4, 0
-        brz cbt_de_kill
-        ldr r1, r4, 0           ; drop list count
-        cmp r1, 0
-        brp cbt_de_pick
-        br cbt_de_kill
-cbt_de_pick:
+        ; Pick random part from drop list (r3 = drop list ptr)
+        ldr r1, r3, 0           ; count
         mov r0, 1
         bl rng_range            ; k in 1..count
-        add r4, r4, r0
-        ldr r2, r4, 0           ; part id
+        add r3, r3, r0
+        ldr r2, r3, 0           ; part id
         str r2, fp, -5
         mov r0, r2
         bl prt_info
@@ -743,8 +1140,15 @@ cbt_de_pick:
         brz cbt_de_kill
         ldr r3, r0, P_MAXHP
 
-        ; integrity = rng_range(DROP_HP_MIN..100)% of P_MAXHP (rounded half-up, >= 1)
+        ; integrity = rng_range(min%..100)% of P_MAXHP (SALVAGE_HP_MIN if st_salvage > 0 else DROP_HP_MIN)
+        ld r0, st_salvage
+        cmp r0, 0
+        brp cbt_de_hp_salv
         mov r0, DROP_HP_MIN
+        br cbt_de_hp_roll
+cbt_de_hp_salv:
+        mov r0, SALVAGE_HP_MIN
+cbt_de_hp_roll:
         mov r1, 100
         bl rng_range
         mul r3, r0
@@ -795,14 +1199,26 @@ cbt_de_done:
         ret
 
 ; ---- strings ----------------------------------------------------------------
-cbt_s_hits:      .string " hits "
-cbt_s_for:       .string " for "
-cbt_s_dot:       .string "."
-cbt_s_misses:    .string " misses."
-cbt_s_misses_sp: .string " misses "
-cbt_s_core:      .string "core"
-cbt_s_core_rams: .string "Core rams "
-cbt_s_ram_miss:  .string "Core ram misses "
-cbt_s_destroyed: .string " destroyed."
-cbt_s_part_dest: .string " destroyed!"
-cbt_s_drops:     .string " Drops "
+cbt_s_hits:       .string " hits "
+cbt_s_for:        .string " for "
+cbt_s_dot:        .string "."
+cbt_s_misses:     .string " misses."
+cbt_s_misses_sp:  .string " misses "
+cbt_s_core:       .string "core"
+cbt_s_core_rams:  .string "Core rams "
+cbt_s_ram_miss:   .string "Core ram misses "
+cbt_s_destroyed:  .string " destroyed."
+cbt_s_part_dest:  .string " destroyed!"
+cbt_s_drops:      .string " Drops "
+cbt_s_stunned:    .string " Stunned!"
+cbt_s_lparen:     .string " ("
+cbt_s_absorbed:   .string " absorbed"
+cbt_s_rparen:     .string ")."
+cbt_s_comma_en:   .string ", -"
+cbt_s_lparen_en:  .string " (-"
+cbt_s_energy_end: .string " energy)."
+cbt_s_bar_abs:    .string " hits; barrier absorbs "
+cbt_s_blast:      .string "Blast"
+cbt_s_sap_expl:   .string "Sapper explodes!"
+cbt_s_expl:       .string "Explosion!"
+cbt_s_bl_abs1:    .string "Blast absorbed by barrier ("

@@ -1,0 +1,39 @@
+{
+  "game": "v2_sim_alarm_driver.ap",
+  "scenarios": [
+    {
+      "name": "Floor alarm reset, accumulation, Watcher bonus, reinforcement wave invariants, pool-full wave",
+      "clock": 1000,
+      "frames": 10,
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_rst_al": 0,
+          "drv_rst_acc": 0,
+          "drv_rst_wv": 0,
+          "drv_acc_al1": 0,
+          "drv_acc_r1": 60,
+          "drv_acc_al2": 1,
+          "drv_acc_r2": 20,
+          "drv_acc_al3": 3,
+          "drv_acc_r3": 70,
+          "drv_wat_al1": 41,
+          "drv_wat_al2": 42,
+          "drv_wv_waves": 1,
+          "drv_wv_reset": 100,
+          "drv_wv_msg": "Floor alarm! Reinforcements incoming!",
+          "drv_wv_attr": 2304,
+          "drv_wv_cnt": 2,
+          "drv_wv_bad_ai": 0,
+          "drv_wv_bad_dep": 0,
+          "drv_wv_bad_dst": 0,
+          "drv_wv_bad_vis": 0,
+          "drv_wv_bad_hnt": 0,
+          "drv_pf_cnt": 24,
+          "drv_pf_waves": 2,
+          "drv_pf_alarm": 100
+        }
+      }
+    }
+  ]
+}

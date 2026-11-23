@@ -1,0 +1,111 @@
+; Controlled WP12 input and UI scenes using the real game modules.
+        .include "../../main.ap"
+        .start drv_start
+
+drv_start:
+        lea r0, st_screen
+        bl video_bind
+        bl prt_init
+        bl ply_init
+        bl ui_init
+        mov r0, GAME_PLAY
+        st r0, st_game_state
+        mov r0, 10
+        st r0, st_px
+        st r0, st_py
+        mov r1, r0
+        mov r2, T_FLOOR
+        bl dun_set
+        bl fov_update
+
+        nbain r0
+        mov r1, 'w'
+        cmp r0, r1
+        brz drv_win
+        mov r1, 's'
+        cmp r0, r1
+        brz drv_stats
+        mov r1, 'f'
+        cmp r0, r1
+        brz drv_pickup
+        mov r0, CORE_MAX-10
+        st r0, st_core_hp
+drv_pickup:
+        mov r0, 10
+        mov r1, 10
+        mov r2, PT_SALVAGE_RIG
+        mov r3, 7
+        bl itm_place
+drv_loop:
+        bl ply_handle
+        st r0, drv_result
+        bl drv_present
+        br drv_loop
+
+drv_stats:
+        mov r0, PT_JOLT_CASTER
+        mov r1, 10
+        bl prt_inv_add
+        mov r0, PT_BARRIER
+        mov r1, 11
+        bl prt_inv_add
+        mov r0, PT_SALVAGE_RIG
+        mov r1, 7
+        bl prt_inv_add
+        mov r0, ALARM_MAX/2
+        st r0, st_alarm
+        mov r0, MODE_LOOK
+        st r0, st_mode
+        mov r0, 10
+        st r0, st_look_x
+        st r0, st_look_y
+
+        mov r4, PT_JOLT_CASTER
+        bl drv_here
+        mov r0, ALARM_MAX/2+1
+        st r0, st_alarm
+        mov r4, PT_BARRIER
+        bl drv_here
+        mov r0, 1
+        st r0, st_alarm_waves
+        mov r0, ALARM_MAX-REINF_AFTER
+        st r0, st_alarm
+        mov r4, PT_SALVAGE_RIG
+        bl drv_here
+        halt
+
+drv_here:
+        push lr
+        bl itm_clear
+        mov r0, 10
+        mov r1, 10
+        mov r2, r4
+        mov r3, 7
+        bl itm_place
+        bl drv_present
+        pop lr
+        ret
+
+drv_present:
+        push lr
+        bl ren_draw
+        bl ui_draw
+        bl video_present
+        mov r0, FRAME_MS
+        sleep r0
+        pop lr
+        ret
+
+drv_win:
+        mov r0, GAME_WON
+        st r0, st_game_state
+        mov r0, 12
+        st r0, st_stat_salvaged
+        mov r0, 5
+        st r0, st_stat_lost
+        mov r0, 3
+        st r0, st_stat_recycled
+        bl ui_end_screen
+        halt
+
+drv_result: .word -1

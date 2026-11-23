@@ -1,0 +1,205 @@
+; Barrier, salvage and recycling tests with a deterministic damage roll.
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        bl prt_init
+        ld r0, st_shield
+        st r0, drv_start_shield
+        ld r0, st_salvage
+        st r0, drv_start_salvage
+
+        mov r0, PT_BARRIER
+        mov r1, SLOT_UTIL0
+        bl drv_attach_util
+        mov r0, PT_SALVAGE_RIG
+        mov r1, SLOT_UTIL0+1
+        bl drv_attach_util
+        ld r0, st_shield
+        st r0, drv_shield
+        ld r0, st_salvage
+        st r0, drv_salvage
+
+        ; Return, destroyed id, absorbed points, energy remaining, core HP.
+        lea r3, drv_hits
+        lea r4, drv_hit_results
+drv_hit_loop:
+        mov r0, CORE_MAX
+        st r0, st_core_hp
+        ldr r0, r3, 1
+        st r0, st_energy
+        ldr r0, r3, 0
+        lea r1, drv_destroyed
+        mov r2, 99
+        str r2, r1, 0
+        bl prt_damage
+        str r0, r4, 0
+        ldr r0, r1, 0
+        str r0, r4, 1
+        ld r0, st_absorbed
+        str r0, r4, 2
+        ld r0, st_energy
+        str r0, r4, 3
+        ld r0, st_core_hp
+        str r0, r4, 4
+        add r4, r4, 5
+        add r3, r3, 2
+        ldr r0, r3, 0
+        cmp r0, 0
+        brp drv_hit_loop
+
+        ; A second Barrier must not stack. Destroy one and retain the other.
+        mov r0, PT_BARRIER
+        mov r1, SLOT_UTIL0+1
+        bl drv_attach_util
+        ld r0, st_shield
+        st r0, drv_shield_duplicate
+        ld r0, st_salvage
+        st r0, drv_salvage_removed
+
+        lea r0, st_slots
+        mov r1, PART_NONE
+        mov r2, SLOT_UTIL0*SLOT_SIZE
+        bl util_memset
+        mov r0, 0
+        st r0, drv_force_core
+        st r0, st_energy
+        mov r0, 12
+        lea r1, drv_destroyed
+        bl prt_damage
+        st r0, drv_lost_slot
+        ld r0, drv_destroyed
+        st r0, drv_lost_part
+        ld r0, st_shield
+        st r0, drv_shield_remaining
+
+        mov r0, PT_SALVAGE_RIG
+        mov r1, SLOT_UTIL0
+        bl drv_attach_util
+        mov r0, PT_SALVAGE_RIG
+        mov r1, SLOT_UTIL0+1
+        bl drv_attach_util
+        ld r0, st_salvage
+        st r0, drv_salvage_duplicate
+        mov r0, 10
+        mov r1, 0
+        bl prt_damage
+        mov r0, 10
+        bl prt_damage
+
+        ; Return, core HP, inventory id and inventory integrity after each call.
+        lea r3, drv_recycle_inputs
+        lea r4, drv_recycle_results
+        lea r2, st_inv
+drv_recycle_loop:
+        ldr r0, r3, 0
+        cmp r0, -1
+        brz drv_done
+        str r0, r2, S_PART
+        ldr r0, r3, 1
+        str r0, r2, S_HP
+        ldr r0, r3, 2
+        st r0, st_core_hp
+        mov r0, 0
+        bl prt_recycle
+        str r0, r4, 0
+        ld r0, st_core_hp
+        str r0, r4, 1
+        ldr r0, r2, S_PART
+        str r0, r4, 2
+        ldr r0, r2, S_HP
+        str r0, r4, 3
+        add r3, r3, 3
+        add r4, r4, 4
+        br drv_recycle_loop
+drv_done:
+        halt
+
+; r0=part id r1=slot
+drv_attach_util:
+        push r0
+        push r1
+        push lr
+        mov r2, r1
+        mov r1, r0
+        mov r0, r2
+        bl prt_set_full
+        bl prt_recalc
+        pop lr
+        pop r1
+        pop r0
+        ret
+
+; Core roll uses 1 or 100. Weighted part roll always hits the first slot.
+rng_range:
+        push r2
+        mov r2, 100
+        cmp r1, r2
+        brnz drv_rng_out
+        ld r2, drv_force_core
+        cmp r2, 0
+        brnz drv_rng_out
+        mov r0, r1
+drv_rng_out:
+        pop r2
+        ret
+
+drv_hits:
+        .word 5
+        .word 10
+        .word 2
+        .word 10
+        .word 5
+        .word 3
+        .word 3
+        .word 1
+        .word 0
+drv_recycle_inputs:
+        .word PT_STUB_LEGS
+        .word 9
+        .word 10
+        .word PT_STUB_LEGS
+        .word 20
+        .word 10
+        .word PT_BARRIER
+        .word 7
+        .word 10
+        .word PT_BARRIER
+        .word 12
+        .word 10
+        .word PT_COIL_LANCE
+        .word 9
+        .word 10
+        .word PT_COIL_LANCE
+        .word 22
+        .word 10
+        .word PT_COIL_LANCE
+        .word 22
+        .word CORE_MAX-1
+        .word PT_BARRIER
+        .word 7
+        .word CORE_MAX
+        .word PART_NONE
+        .word 0
+        .word CORE_MAX
+        .word -1
+drv_force_core:         .word 1
+drv_destroyed:          .word 99
+drv_start_shield:       .word -1
+drv_start_salvage:      .word -1
+drv_shield:             .word -1
+drv_salvage:            .word -1
+drv_shield_duplicate:   .word -1
+drv_salvage_removed:    .word -1
+drv_lost_slot:          .word -1
+drv_lost_part:          .word -1
+drv_shield_remaining:   .word -1
+drv_salvage_duplicate:  .word -1
+drv_hit_results:        .zero 4*5
+drv_recycle_results:    .zero 9*4
+
+        .include "../../src/state.ap"
+        .include "../../src/parts.ap"
+        .include "util.ap"
