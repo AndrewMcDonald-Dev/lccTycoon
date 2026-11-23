@@ -6,8 +6,8 @@
 ;
 ; Flow:  title (ui_title) → main_new_game → frame loop → end screen
 ;        (ui_end_screen) → title again, or quit.
-; Frame: ply_handle (drains keys until ONE action or no keys left)
-;        → [PR_ACTED: main_turn] → ren_draw → ui_draw → video_present
+; Frame: ply_handle (input or one automatic step)
+;        → [PR_ACTED: main_turn, ply_auto_finish] → ren_draw → ui_draw → video_present
 ;        → sleep FRAME_MS → [game over: end screen]
 ; main_turn (after each player action, DESIGN.md "Turn system"):
 ;        stairs taken? climb (new floor + core reinforce +CLIMB_CORE_HEAL, or win)
@@ -48,6 +48,7 @@ main_loop:
         cmp r0, PR_ACTED
         brnz main_render
         bl main_turn
+        bl ply_auto_finish
         ld r0, st_game_state
         cmp r0, GAME_WON
         brnz main_render

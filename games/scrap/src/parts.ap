@@ -25,7 +25,7 @@
 ;; prt_inv_clear    r0=inv index     -> -        empty an inventory entry (callers read S_PART/S_HP first, e.g. to drop it)
 ;; prt_damage       r0=damage r1=out_destroyed -> r0=slot hit 0..NUM_SLOTS-1, or -1 = the core. If r1 != 0, stores destroyed part id (1..PART_COUNT) or -1 (none) to [r1]. Core
 ;;                   chance CORE_HIT_PCT + CORE_HIT_EMPTY × empty slots, else a random attached part weighted by P_COVER; armor parts reduce damage to themselves by P_U_VALUE
-;;                   (min 1). Part at 0 → slot emptied, prt_recalc (caller posts "<name> destroyed!"). Core at 0 → st_core_hp=0 and st_game_state=GAME_DEAD (caller sets st_death_cause).
+;;                   (min 1). Part at 0 → slot emptied, its st_wpn_off hold bit cleared, prt_recalc (caller posts "<name> destroyed!"). Core at 0 → st_core_hp=0 and st_game_state=GAME_DEAD (caller sets st_death_cause).
 ;; prt_tick         r0=elapsed TU    -> -        per TIME_TURN accumulated: st_energy += st_regen (<= max); every st_repair_turns turns repair 1 point on whichever of the core or
 ;;                   attached parts is missing the largest fraction of its max integrity (ties prefer core, then earlier slot)
 ;; prt_spend_energy r0=amount        -> r0=1 deducted, 0 not enough energy (nothing deducted)
@@ -712,6 +712,19 @@ prt_dmg_d_clr:
         mov r2, PART_NONE
         str r2, r4, S_PART
         str r2, r4, S_HP        ; PART_NONE == 0
+        mov r1, 1               ; the empty slot no longer holds fire: clear st_wpn_off bit r3
+        mov r2, r3
+prt_dmg_hold_lp:
+        cmp r2, 0
+        brz prt_dmg_hold_clr
+        add r1, r1, r1
+        sub r2, r2, 1
+        br prt_dmg_hold_lp
+prt_dmg_hold_clr:
+        not r1, r1
+        ld r2, st_wpn_off
+        and r2, r2, r1
+        st r2, st_wpn_off
         bl prt_recalc
         mov r0, r3
         br prt_dmg_out

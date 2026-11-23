@@ -1,0 +1,149 @@
+{
+  "game": "qol_controls_driver.ap",
+  "scenarios": [
+    {
+      "name": "rest tops up energy in two waits even with core damage and no repair part",
+      "clock": 7,
+      "keys": "rz _5",
+      "expect": {
+        "memory": { "st_core_hp": 39, "st_repair_turns": 0, "st_energy": 40, "st_auto": 0, "st_auto_steps": 2, "st_turn": 2, "st_time": 200 }
+      }
+    },
+    {
+      "name": "a movement key interrupts rest and is consumed",
+      "clock": 7,
+      "keys": "rz l _5",
+      "expect": {
+        "memory": { "st_px": 10, "st_py": 10, "st_energy": 37, "st_auto": 0, "st_auto_steps": 1, "st_turn": 1 }
+      }
+    },
+    {
+      "name": "rest with a repair part waits for full core and slot integrity",
+      "clock": 7,
+      "keys": "pz _10",
+      "expect": {
+        "memory": { "st_core_hp": 40, "drv_repair_hp": 10, "st_energy": 40, "st_auto": 0, "st_auto_steps": 6, "st_turn": 6 }
+      }
+    },
+    {
+      "name": "closing a door refreshes FOV in the same turn even though the player stays put",
+      "clock": 7,
+      "keys": "d c l",
+      "expect": {
+        "memory": { "drv_tile": 3, "drv_initial_sight": 1, "drv_sight": 0, "st_px": 10, "st_py": 10, "st_mode": 0, "st_turn": 1, "st_time": 100 },
+        "screen": { "contains": ["Door closed."] }
+      }
+    },
+    {
+      "name": "a floor item blocks door closing",
+      "clock": 7,
+      "keys": "i c l",
+      "expect": {
+        "memory": { "drv_tile": 4, "drv_sight": 1, "st_mode": 0, "st_turn": 0 },
+        "screen": { "contains": ["Doorway blocked."] }
+      }
+    },
+    {
+      "name": "a robot blocks door closing",
+      "clock": 7,
+      "keys": "b c <right>",
+      "expect": {
+        "memory": { "drv_tile": 4, "drv_sight": 1, "st_mode": 0, "st_turn": 0 },
+        "screen": { "contains": ["Doorway blocked."] }
+      }
+    },
+    {
+      "name": "Esc cancels door closing without time",
+      "clock": 7,
+      "keys": "d c <esc>",
+      "expect": {
+        "memory": { "drv_tile": 4, "st_mode": 0, "st_turn": 0 }
+      }
+    },
+    {
+      "name": "travel cannot use an unexplored route even when the stairs are known",
+      "clock": 7,
+      "keys": "t t",
+      "expect": {
+        "memory": { "st_px": 10, "st_py": 10, "st_auto": 0, "st_auto_steps": 0, "st_turn": 0 },
+        "screen": { "contains": ["No known path to stairs."] }
+      }
+    },
+    {
+      "name": "explore reports completion when the reachable area is already known",
+      "clock": 7,
+      "keys": "d o _5",
+      "expect": {
+        "memory": { "st_auto": 0, "st_auto_steps": 0, "st_turn": 0 },
+        "screen": { "contains": ["Nothing left to explore."] }
+      }
+    },
+    {
+      "name": "explore interrupts on a newly visible hostile even without a sighting message",
+      "clock": 7,
+      "keys": "xo _5",
+      "expect": {
+        "memory": { "drv_initial_sight": 0, "drv_sight": 1, "st_px": 11, "st_msg_head": 0, "st_auto": 0, "st_auto_steps": 1, "st_turn": 1 }
+      }
+    },
+    {
+      "name": "run stops when a new side exit opens along the corridor",
+      "clock": 7,
+      "keys": "vL _5",
+      "expect": {
+        "memory": { "st_px": 12, "st_py": 10, "st_auto": 0, "st_auto_steps": 2, "st_turn": 2 }
+      }
+    },
+    {
+      "name": "run ends on the stairs without taking them",
+      "clock": 7,
+      "keys": "rL _9",
+      "expect": {
+        "memory": { "st_px": 16, "st_py": 10, "st_auto": 0, "st_auto_steps": 6, "st_climb": 0, "st_turn": 6 }
+      }
+    },
+    {
+      "name": "run never bump-attacks a neutral robot",
+      "clock": 7,
+      "keys": "nL _5",
+      "expect": {
+        "memory": { "st_px": 10, "st_py": 10, "st_auto": 0, "st_auto_steps": 0, "st_turn": 0 },
+        "screen": { "notContains": ["Hostile in view.", "Spark Prod hits", "Spark Prod misses"] }
+      }
+    },
+    {
+      "name": "rest is not stopped by the 200-step cap",
+      "clock": 7,
+      "keys": "a _5",
+      "expect": {
+        "memory": { "st_auto": 2, "st_auto_steps": 206, "st_turn": 7, "st_energy": 21 }
+      }
+    },
+    {
+      "name": "an energy-starved unheld weapon and a held one have distinct failure messages",
+      "clock": 7,
+      "keys": "m F w 1 F",
+      "expect": {
+        "memory": { "st_wpn_off": 8, "st_energy": 0, "st_turn": 0 },
+        "screen": { "contains": ["Not enough energy.", "Rivet Gun on hold.", "Nothing can fire."] }
+      }
+    },
+    {
+      "name": "quick fire spends two energy before the turn regenerates three energy",
+      "clock": 7,
+      "keys": "m . F",
+      "expect": {
+        "memory": { "st_energy": 4, "st_mode": 0, "st_turn": 2, "st_time": 200 }
+      }
+    },
+    {
+      "name": "holding the Spark Prod makes a bump use the core ram",
+      "clock": 7,
+      "keys": "m w2 l",
+      "expect": {
+        "memory": { "st_wpn_off": 16, "st_px": 10, "st_turn": 1, "st_time": 100 },
+        "screen": { "contains": ["Spark Prod on hold.", "Core ram"], "notContains": ["Spark Prod hits", "Spark Prod misses"] }
+      }
+    }
+  ]
+}

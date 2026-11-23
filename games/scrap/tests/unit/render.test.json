@@ -95,6 +95,38 @@
       }
     },
     {
+      "name": "MODE_LOOK applies A_LOOK_BG (blue) preserving glyph and fg on enemy, remembered tile, unknown tile, and player",
+      "keys": "l _ _ _",
+      "expect": {
+        "status": "halted",
+        "frames": [
+          {
+            "frame": 0,
+            "screen": { "lines": { "6": " fr·" } },
+            "colors": { "lines": { "6": " CRb" } },
+            "bg": { "lines": { "6": " kbk" } }
+          },
+          {
+            "frame": 1,
+            "screen": { "lines": { "1": " ·#+'<," } },
+            "colors": { "lines": { "1": " bbbbbb" } },
+            "bg": { "lines": { "1": " bkkkkk" } }
+          },
+          {
+            "frame": 2,
+            "screen": { "lines": { "2": "" } },
+            "bg": { "lines": { "2": "     b" } }
+          },
+          {
+            "frame": 3,
+            "screen": { "lines": { "8": "  @" } },
+            "colors": { "lines": { "8": "  W" } },
+            "bg": { "lines": { "8": "  b" } }
+          }
+        ]
+      }
+    },
+    {
       "name": "perf: worst-case full visible viewport + 32 items + 24 enemies + target stays <= 150K instr/frame",
       "keys": "p _",
       "expect": {

@@ -27,6 +27,11 @@
 ;; act_alert        r0=index            -> -        alert a living enemy to (st_px,st_py): E_TX=st_px, E_TY=st_py, E_ALERT=ALERT_TURNS; if ES_IDLE switch to ES_HUNT (AI_WORKER → ES_FLEE)
 ;; act_next_visible r0=from r1=dir      -> r0=index of the next enemy (any type) on a fov_visible tile after index `from` in pool order (r1 = +1 / -1, wrapping); from = -1 →
 ;;                   the nearest visible enemy (preferring hostile over AI_WORKER); -1 if none visible
+;; act_visible_enemy r0=index           -> r0=address of a living visible enemy record, 0 otherwise
+;; act_nearest_visible ()               -> r0=nearest visible living robot of any type, -1 if none
+;; act_hostile_visible ()               -> r0=1 if a living non-worker robot is visible, 0 otherwise
+;; act_player_path  r0=tile index or -1 -> r0=first step's tile index, -1 if no step. BFS over known walkable tiles (8-way), avoiding visible robots.
+;;                   -1 searches for the nearest reachable tile with an unknown in-bounds neighbour. Uses its own queue and leaves the AI distance cache intact.
 ; ---------------------------------------------------------------------
 
 ; ---- local pool 1 (placed before routines: negative PC offsets) -----
@@ -1949,10 +1954,10 @@ act_sa_fail:
 ; =====================================================================
 
 ; ---- local pool 6 (BEFORE act_next_visible: negative PC offsets!) ---
-act_p_enemies6:   .word st_enemies
 act_p_px6:        .word st_px       ; +0: st_px, +1: st_py
 act_c_inf:        .word 9999
 act_c_worker_pen: .word 1000
+act_nv_penalty:   .word 0
 act_nv_step:      .word 0
 act_nv_cur:       .word 0
 act_nv_left:      .word 0
@@ -1967,7 +1972,7 @@ act_next_visible:
         push r4
         push lr
         cmp r0, 0
-        brn act_nv_nearest
+        brn act_nv_prefer_hostile
 
         cmp r1, 0
         brn act_nv_step_neg
@@ -2017,21 +2022,24 @@ act_nv_wrap_hi:
         mov r0, MAX_ENEMIES-1
 act_nv_wrap_ok:
         st r0, act_nv_cur
-        sll r0, ENEMY_SHIFT
-        ld r4, act_p_enemies6
-        add r4, r4, r0
-        ldr r0, r4, E_TYPE
-        cmp r0, EN_NONE
-        brz act_nv_cyc_lp
-        ldr r0, r4, E_X
-        ldr r1, r4, E_Y
-        bl fov_visible
+        bl act_visible_enemy
         cmp r0, 0
         brz act_nv_cyc_lp
         ld r0, act_nv_cur
         br act_nv_ret
 
+act_nearest_visible:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        mov r0, 0
+        br act_nv_nearest
+act_nv_prefer_hostile:
+        ld r0, act_c_worker_pen
 act_nv_nearest:
+        st r0, act_nv_penalty
         mov r0, -1
         st r0, act_nv_best
         ld r0, act_c_inf
@@ -2046,17 +2054,10 @@ act_nv_near_lp:
         ld r0, act_nv_best
         br act_nv_ret
 act_nv_near_chk:
-        sll r0, ENEMY_SHIFT
-        ld r4, act_p_enemies6
-        add r4, r4, r0
-        ldr r0, r4, E_TYPE
-        cmp r0, EN_NONE
-        brz act_nv_near_next
-        ldr r0, r4, E_X
-        ldr r1, r4, E_Y
-        bl fov_visible
+        bl act_visible_enemy
         cmp r0, 0
         brz act_nv_near_next
+        mov r4, r0
         ldr r0, r4, E_X
         ldr r1, r4, E_Y
         ld r3, act_p_px6
@@ -2064,6 +2065,9 @@ act_nv_near_chk:
         ldr r3, r3, 1
         bl dun_dist
         st r0, act_nv_cdist
+        ld r0, act_nv_penalty
+        cmp r0, 0
+        brz act_nv_near_cmp
         ldr r0, r4, E_TYPE
         bl act_type_info
         cmp r0, 0
@@ -2072,7 +2076,7 @@ act_nv_near_chk:
         cmp r1, AI_WORKER
         brne act_nv_near_cmp
         ld r0, act_nv_cdist
-        ld r1, act_c_worker_pen
+        ld r1, act_nv_penalty
         add r0, r0, r1
         st r0, act_nv_cdist
 act_nv_near_cmp:
@@ -2092,6 +2096,244 @@ act_nv_near_next:
         br act_nv_near_lp
 
 act_nv_ret:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; Resolve an index only if its robot is alive and currently visible.
+act_visible_enemy:
+        push r1
+        push r2
+        push lr
+        cmp r0, 0
+        brn act_ve_no
+        mov r1, MAX_ENEMIES-1
+        cmp r0, r1
+        brgt act_ve_no
+        sll r0, ENEMY_SHIFT
+        lea r2, st_enemies
+        add r2, r2, r0
+        ldr r0, r2, E_TYPE
+        cmp r0, EN_NONE
+        brz act_ve_no
+        ldr r0, r2, E_HP
+        cmp r0, 0
+        brp act_ve_check
+        br act_ve_no
+act_ve_check:
+        ldr r0, r2, E_X
+        ldr r1, r2, E_Y
+        bl fov_visible
+        cmp r0, 0
+        brz act_ve_no
+        mov r0, r2
+        br act_ve_ret
+act_ve_no:
+        mov r0, 0
+act_ve_ret:
+        pop lr
+        pop r2
+        pop r1
+        ret
+
+act_hostile_visible:
+        push r1
+        push lr
+        mov r1, 0
+act_hv_loop:
+        mov r0, r1
+        bl act_visible_enemy
+        cmp r0, 0
+        brz act_hv_next
+        ldr r0, r0, E_TYPE
+        bl act_type_info
+        cmp r0, 0
+        brz act_hv_next
+        ldr r0, r0, ET_AI
+        cmp r0, AI_WORKER
+        brne act_hv_yes
+act_hv_next:
+        add r1, r1, 1
+        mov r0, MAX_ENEMIES
+        cmp r1, r0
+        brlt act_hv_loop
+        mov r0, 0
+        br act_hv_ret
+act_hv_yes:
+        mov r0, 1
+act_hv_ret:
+        pop lr
+        pop r1
+        ret
+
+; ---- player navigation -----------------------------------------------------
+; Each visited cell holds the first step from the player, encoded as index+1.
+; Zero is unvisited; -1 marks the source and visible robot tiles. Walking the
+; queue in order makes the first stairs/frontier result a shortest path.
+act_pp_first_ptr: .word act_path_first
+act_pp_queue_ptr: .word act_path_queue
+act_pp_fov_ptr:   .word st_fov
+act_pp_map_ptr:   .word st_map
+act_pp_dx_ptr:    .word act_dx
+act_pp_dy_ptr:    .word act_dy
+act_pp_size:      .word MAP_SIZE
+act_pp_goal:      .word 0
+act_pp_head:      .word 0
+act_pp_tail:      .word 0
+act_pp_x:         .word 0
+act_pp_y:         .word 0
+act_pp_step:      .word 0
+
+act_player_path:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        st r0, act_pp_goal
+        ld r0, act_pp_first_ptr
+        mov r1, 0
+        ld r2, act_pp_size
+act_pp_clear:
+        str r1, r0, 0
+        str r1, r0, 1
+        str r1, r0, 2
+        str r1, r0, 3
+        add r0, r0, 4
+        sub r2, r2, 4
+        brp act_pp_clear
+
+        ; Keep visible creatures out of the route. The mover separately
+        ; checks actual occupancy immediately before stepping.
+        mov r3, 0
+act_pp_robots:
+        mov r0, r3
+        bl act_visible_enemy
+        cmp r0, 0
+        brz act_pp_robot_next
+        ldr r1, r0, E_X
+        ldr r0, r0, E_Y
+        sll r0, MAP_SHIFT
+        add r0, r0, r1
+        ld r1, act_pp_first_ptr
+        add r0, r0, r1
+        mov r1, -1
+        str r1, r0, 0
+act_pp_robot_next:
+        add r3, r3, 1
+        mov r0, MAX_ENEMIES
+        cmp r3, r0
+        brlt act_pp_robots
+
+        ld r0, st_py
+        sll r0, MAP_SHIFT
+        ld r1, st_px
+        add r0, r0, r1
+        ld r1, act_pp_first_ptr
+        add r1, r1, r0
+        mov r2, -1
+        str r2, r1, 0
+        ld r1, act_pp_queue_ptr
+        str r0, r1, 0
+        st r1, act_pp_head
+        add r1, r1, 1
+        st r1, act_pp_tail
+
+act_pp_node:
+        ld r0, act_pp_head
+        ld r1, act_pp_tail
+        cmp r0, r1
+        bre act_pp_none
+        ldr r4, r0, 0          ; tile index
+        add r0, r0, 1
+        st r0, act_pp_head
+        ld r0, act_pp_first_ptr
+        add r0, r0, r4
+        ldr r0, r0, 0
+        st r0, act_pp_step
+        ld r1, act_pp_goal
+        cmp r4, r1
+        bre act_pp_found
+        mov r1, MAP_XMASK
+        and r0, r4, r1
+        st r0, act_pp_x
+        mov r0, r4
+        srl r0, MAP_SHIFT
+        st r0, act_pp_y
+        mov r3, 0              ; direction index in act_dx/dy
+
+act_pp_neighbour:
+        ld r0, act_pp_dx_ptr
+        add r0, r0, r3
+        ldr r0, r0, 0
+        ld r1, act_pp_x
+        add r0, r0, r1
+        brn act_pp_next
+        mov r1, MAP_W-1
+        cmp r0, r1
+        brgt act_pp_next
+        ld r1, act_pp_dy_ptr
+        add r1, r1, r3
+        ldr r1, r1, 0
+        ld r2, act_pp_y
+        add r1, r1, r2
+        brn act_pp_next
+        mov r2, MAP_H-1
+        cmp r1, r2
+        brgt act_pp_next
+        sll r1, MAP_SHIFT
+        add r4, r1, r0         ; neighbour index
+        ld r2, act_pp_first_ptr
+        add r2, r2, r4
+        ldr r0, r2, 0
+        cmp r0, 0
+        brnz act_pp_next
+        ld r1, act_pp_fov_ptr
+        add r1, r1, r4
+        ldr r0, r1, 0
+        and r0, r0, FOV_KNOWN
+        brz act_pp_unknown
+        ld r1, act_pp_map_ptr
+        add r1, r1, r4
+        ldr r0, r1, 0
+        and r0, r0, 5          ; walkable kinds, see defs.ap map invariants
+        brz act_pp_next
+
+        ld r0, act_pp_step
+        cmp r0, 0
+        brp act_pp_enqueue
+        add r0, r4, 1          ; first hop from the source
+act_pp_enqueue:
+        str r0, r2, 0
+        ld r1, act_pp_tail
+        str r4, r1, 0
+        add r1, r1, 1
+        st r1, act_pp_tail
+        br act_pp_next
+act_pp_unknown:
+        ld r0, act_pp_goal
+        cmp r0, -1
+        brne act_pp_next
+        ld r0, act_pp_step
+        cmp r0, 0              ; already standing at the source: seek a different tile
+        brp act_pp_found
+act_pp_next:
+        add r3, r3, 1
+        cmp r3, 8
+        brlt act_pp_neighbour
+        br act_pp_node
+
+act_pp_found:
+        cmp r0, 0
+        brn act_pp_none
+        sub r0, r0, 1
+        br act_pp_ret
+act_pp_none:
+        mov r0, -1
+act_pp_ret:
         pop lr
         pop r4
         pop r3
@@ -2290,3 +2532,5 @@ act_drop_tinker:
 ; Private BFS arrays (3072 words, budgeted in DESIGN.md)
 act_dist:       .zero MAP_SIZE
 act_queue:      .zero MAP_SIZE
+act_path_first: .zero MAP_SIZE
+act_path_queue: .zero MAP_SIZE

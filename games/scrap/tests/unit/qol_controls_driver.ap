@@ -1,0 +1,204 @@
+; Controlled corridor with a real game turn/frame flow for keyboard scenarios.
+; The first byte chooses the setup, and subsequent input goes to ply_handle.
+        .include "../../main.ap"
+        .start drv_start
+
+drv_start:
+        lea r0, st_screen
+        bl video_bind
+        bl prt_init
+        bl ply_init
+        bl ui_init
+        mov r0, GAME_PLAY
+        st r0, st_game_state
+        mov r0, START_DEPTH
+        st r0, st_depth
+        mov r0, 10
+        st r0, st_px
+        st r0, st_py
+
+        mov r1, 10
+        mov r2, T_FLOOR
+drv_floor:
+        bl dun_set
+        add r0, r0, 1
+        cmp r0, 15
+        brlt drv_floor
+        bre drv_floor
+        mov r2, T_STAIRS
+        bl dun_set
+        st r0, st_stairs_x
+        st r1, st_stairs_y
+        bl fov_reset
+        nbain r0
+        mov r4, r0             ; setup selector
+        mov r1, 'r'
+        cmp r4, r1
+        brz drv_rest
+        mov r1, 'p'
+        cmp r4, r1
+        brz drv_repair
+        mov r1, 'd'
+        cmp r4, r1
+        brz drv_door
+        mov r1, 'i'
+        cmp r4, r1
+        brz drv_door
+        mov r1, 'b'
+        cmp r4, r1
+        brz drv_door
+        mov r1, 't'
+        cmp r4, r1
+        brz drv_known_goal
+        mov r1, 'a'
+        cmp r4, r1
+        brz drv_auto_cap
+        mov r1, 'v'
+        cmp r4, r1
+        brz drv_branch
+        mov r1, 'n'
+        cmp r4, r1
+        brz drv_neutral
+        mov r1, 'x'
+        cmp r4, r1
+        brz drv_hidden_hostile
+
+        ; The combat setup supplies a visible stationary target.
+        mov r0, EN_WATCHER
+        mov r1, 11
+        bl drv_spawn
+        mov r0, 0
+        st r0, st_energy
+        br drv_begin
+
+drv_rest:
+        ld r0, st_energy_max
+        ld r1, st_regen
+        add r1, r1, r1
+        sub r0, r0, r1          ; two waits needed to top up
+        st r0, st_energy
+        mov r0, CORE_MAX-1
+        st r0, st_core_hp
+        br drv_begin
+
+drv_repair:
+        mov r0, PT_PATCH_DRONE
+        bl prt_info
+        ldr r1, r0, P_MAXHP
+        sub r1, r1, 1
+        mov r0, PT_PATCH_DRONE
+        bl prt_inv_add
+        bl prt_attach
+        mov r0, CORE_MAX-1
+        st r0, st_core_hp
+        br drv_begin
+
+drv_door:
+        mov r0, 11
+        mov r1, 10
+        mov r2, T_DOOR_OPEN
+        bl dun_set
+        mov r3, 'd'
+        cmp r4, r3
+        brz drv_begin
+        mov r3, 'b'
+        cmp r4, r3
+        brz drv_door_robot
+        mov r2, PT_RIVET_GUN
+        mov r3, 5
+        bl itm_place
+        br drv_begin
+drv_door_robot:
+        mov r0, EN_WATCHER
+        mov r1, 11
+        bl drv_spawn
+        br drv_begin
+
+drv_branch:
+        mov r0, 12
+        mov r1, 9
+        mov r2, T_FLOOR
+        bl dun_set
+        br drv_begin
+
+drv_neutral:
+        mov r0, EN_TINKER
+        mov r1, 11
+        bl drv_spawn
+        br drv_begin
+
+drv_hidden_hostile:
+        mov r0, 1
+        st r0, st_sight
+        mov r0, EN_WATCHER
+        mov r1, 12
+        bl drv_spawn
+        br drv_begin
+
+drv_known_goal:
+        ; The stairs are remembered, with unexplored tiles in between.
+        ; Narrow sight leaves that gap even after the initial FOV update.
+        mov r0, 1
+        st r0, st_sight
+        lea r1, st_fov
+        ld r0, drv_stairs_index
+        add r1, r1, r0
+        mov r0, FOV_KNOWN
+        str r0, r1, 0
+        br drv_begin
+
+drv_auto_cap:
+        mov r0, 0
+        st r0, st_energy
+        mov r0, AUTO_REST
+        st r0, st_auto
+        mov r0, AUTO_MAX_STEPS-1
+        st r0, st_auto_steps
+
+drv_begin:
+        bl fov_update
+        mov r0, 12
+        mov r1, 10
+        bl fov_visible
+        st r0, drv_initial_sight
+drv_loop:
+        bl ply_handle
+        cmp r0, PR_ACTED
+        brne drv_draw
+        bl main_turn
+        bl ply_auto_finish
+drv_draw:
+        mov r0, 12
+        mov r1, 10
+        bl fov_visible
+        st r0, drv_sight
+        mov r0, 11
+        bl dun_get
+        st r0, drv_tile
+        lea r0, st_slots
+        ldr r0, r0, SLOT_UTIL0*SLOT_SIZE+S_HP
+        st r0, drv_repair_hp
+        bl ren_draw
+        bl ui_draw
+        bl video_present
+        mov r0, FRAME_MS
+        sleep r0
+        br drv_loop
+
+; r0 = robot type, r1 = column; schedule beyond the tests that use it.
+drv_spawn:
+        push lr
+        mov r2, 10
+        bl act_spawn
+        lea r1, st_enemies
+        ld r0, drv_enemy_time
+        str r0, r1, E_NEXT
+        pop lr
+        ret
+
+drv_stairs_index: .word 10*MAP_W+16
+drv_enemy_time:   .word 1000
+drv_initial_sight: .word -1
+drv_sight:        .word -1
+drv_tile:         .word -1
+drv_repair_hp:    .word -1

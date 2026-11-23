@@ -3,32 +3,44 @@
 ; keys queued this frame and dispatches them by st_mode (MODE_*):
 ;   MODE_MAP    hjkl yubn / arrows move or bump-attack, '.' or space wait,
 ;               g pick up, e equip menu, r remove menu, x drop menu,
-;               f targeting, '<' stairs, ? help, Q quit prompt
+;               f targeting, F quick fire, '<' stairs, ? help, Q quit prompt,
+;               ; look, m message history, w hold fire, c close door
+;               Shift+vi-key run, z rest, t travel to stairs, o explore
 ;   MODE_TARGET Tab or ] next target, [ previous, f or Enter fire, Esc cancel
 ;   MODE_EQUIP  1-4 attach that inventory part, Esc cancel
 ;   MODE_REMOVE 1-8 detach that loadout slot, Esc cancel
 ;   MODE_DROP   1-4 drop that inventory part, Esc cancel
 ;   MODE_HELP   any key closes
 ;   MODE_QUIT   y / Y quits, any other key cancels
+;   MODE_LOOK   vi-keys/arrows move cursor, Shift+vi moves eight tiles,
+;               Tab or ] next robot, [ previous, f or Enter targets, ;/Esc exits
+;   MODE_LOG    any key closes
+;   MODE_TOGGLE 1-3 toggle hold fire on that weapon slot, Esc cancels
+;   MODE_CLOSE  vi-key or arrow picks a door to close, Esc cancels
 ; Every action adds its TU cost to st_ply_next (ply_spend); main_turn then
 ; lets the world catch up. At most one action per frame: ply_handle stops
 ; draining after an action, so later keys wait for the next frame.
 ; Menus return to MODE_MAP after a choice or Esc.
+; Automatic actions take one step per frame, starting on the command frame.
+; Input during an automatic action is consumed as a stop command. A visible
+; hostile prevents starting or continuing, and a new message stops the action
+; after the world has caught up. Run stops on doors/stairs, item messages,
+; obstacles, and newly walkable side exits perpendicular to the run direction.
 ; All routines: args r0..r4, result r0, all other registers preserved.
 ;
-;; ply_init          ()            -> -        new game: st_mode = MODE_MAP, st_target = -1, clear pushback
-;; ply_handle        ()            -> r0=PR_*  consume pushback then nbain keys one by one into ply_key until one returns PR_ACTED / PR_QUIT, or no key is left (PR_NONE)
-;; ply_key           r0=key        -> r0=PR_*  dispatch one key by st_mode. KEY_ESC reads the next byte with nbain: KEY_CSI → arrow code (65..68) 4-way move (MODE_MAP only);
-;;                   any other byte → cancel mode and push back non-zero byte for ply_handle
-;; ply_move          r0=dx r1=dy   -> r0=PR_*  enemy on the target tile → cbt_player_melee, cost TIME_MELEE; walkable and free → move (T_DOOR becomes T_DOOR_OPEN), cost
-;;                   st_move_cost, message naming an item on the new tile; blocked → PR_NONE, no time
+;; ply_init          ()            -> -        new game: MODE_MAP, no target, clear pushback, automatic actions and hold-fire bits
+;; ply_handle        ()            -> r0=PR_*  drain input until one action, quit or no key; with auto active, consume a key to stop or take one step on an empty frame
+;; ply_key           r0=key        -> r0=PR_*  dispatch by st_mode. KEY_ESC reads a CSI arrow for map/look/close, or cancels and pushes a following non-CSI byte back
+;; ply_auto_finish   ()            -> -       after an automatic step and world update, stop on safety conditions, full rest or stairs arrival
+;; ply_move          r0=dx r1=dy   -> r0=PR_*  enemy on the target tile → manual bump attack (TIME_MELEE) or automatic stop. Walkable and free → move (opens a closed door),
+;;                   cost st_move_cost, message naming any item on the new tile. Blocked → PR_NONE, no time.
 ;; ply_spend         r0=TU         -> -        st_ply_next += TU (the action's cost)
 ;; ply_pickup        ()            -> r0=PR_*  item on the player's tile → prt_inv_add, itm_remove, message, TIME_PICKUP; nothing / inventory full → message, PR_NONE
 ;; ply_equip         r0=inv index  -> r0=PR_*  prt_attach; attached → message, TIME_SWAP; empty entry → PR_NONE
 ;; ply_remove        r0=slot       -> r0=PR_*  prt_detach; detached → message, TIME_SWAP; empty slot / inventory full → message, PR_NONE
 ;; ply_drop          r0=inv index  -> r0=PR_*  itm_place on the player's tile (or nearby), prt_inv_clear, message, TIME_DROP; empty entry / no room → PR_NONE
-;; ply_target        r0=dir        -> -        st_target = act_next_visible(st_target, dir); entering MODE_TARGET starts from -1 (nearest); no visible enemy → message, back to MODE_MAP
-;; ply_fire          ()            -> r0=PR_*  cbt_player_fire(st_target); >0 fired → MODE_MAP, TIME_FIRE; -1 → "Not enough energy.", 0 → "Nothing can fire.", stay in MODE_TARGET, PR_NONE
+;; ply_target        r0=dir        -> -        st_target = act_next_visible(st_target, dir); no visible enemy → message, back to MODE_MAP
+;; ply_fire          ()            -> r0=PR_*  cbt_player_fire(st_target); >0 fired → MODE_MAP, TIME_FIRE; -1 → "Not enough energy.", 0 → "Nothing can fire.", leave the current mode as-is, PR_NONE
 ;; ply_stairs        ()            -> r0=PR_*  on T_STAIRS → st_climb = 1, TIME_STAIRS; else message, PR_NONE
 ; ---------------------------------------------------------------------
 
@@ -80,8 +92,14 @@ ply_init:
         str r0, r1, PLY_ST_MODE
         mov r0, -1
         str r0, r1, PLY_ST_TARGET
+        st r0, ply_tgt_prev
         mov r0, 0
         st r0, ply_pushback
+        st r0, st_auto
+        st r0, st_auto_dx
+        st r0, st_auto_dy
+        st r0, st_auto_steps
+        st r0, st_wpn_off
         pop r1
         pop r0
         ret
@@ -101,13 +119,34 @@ ply_handle_lp:
 ply_handle_read:
         nbain r0
         cmp r0, 0
-        brz ply_handle_ret
+        brz ply_handle_idle
 ply_handle_got:
+        ld r1, st_auto
+        cmp r1, AUTO_NONE
+        brnz ply_handle_stop
         bl ply_key
         cmp r0, PR_NONE
         brz ply_handle_lp
         br ply_handle_out
-ply_handle_ret:
+ply_handle_idle:
+        bl ply_auto_step
+        br ply_handle_out
+ply_handle_stop:
+        mov r1, AUTO_NONE
+        st r1, st_auto
+        ; Consume all bytes of an arrow; preserve a separate key after Esc.
+        mov r1, KEY_ESC
+        cmp r0, r1
+        brne ply_handle_none
+        nbain r1
+        mov r2, KEY_CSI
+        cmp r1, r2
+        brz ply_handle_arrow
+        st r1, ply_pushback
+        br ply_handle_none
+ply_handle_arrow:
+        nbain r1
+ply_handle_none:
         mov r0, PR_NONE
 ply_handle_out:
         pop lr
@@ -137,10 +176,10 @@ ply_key:
         ldr r3, r4, PLY_ST_MODE
         cmp r3, MODE_HELP
         brz ply_k_cancel
+        cmp r3, MODE_LOG
+        brz ply_k_cancel
         cmp r3, MODE_QUIT
         brz ply_k_cancel
-        cmp r3, MODE_MAP
-        brnz ply_k_none
         ; KEY_ARR_UP..LEFT are contiguous 65..68
         mov r1, KEY_ARR_UP
         sub r2, r2, r1
@@ -154,15 +193,21 @@ ply_k_arr_go:
         add r3, r3, r2
         ldr r0, r3, 0
         ldr r1, r3, 1
-        bl ply_move
-        br ply_k_ret
+        ldr r3, r4, PLY_ST_MODE
+        cmp r3, MODE_LOOK
+        brz ply_k_look_move
+        cmp r3, MODE_CLOSE
+        brz ply_k_close_dir
+        cmp r3, MODE_MAP
+        brz ply_k_move
+        br ply_k_none
 
 ply_k_esc:
         st r1, ply_pushback     ; keep non-CSI byte (0 if none)
         ldr r3, r4, PLY_ST_MODE
         cmp r3, MODE_TARGET
         brnz ply_k_cancel
-        mov r1, -1
+        ld r1, ply_tgt_prev     ; cancel the selection: restore the previous target
         str r1, r4, PLY_ST_TARGET
 ply_k_cancel:
         mov r1, MODE_MAP
@@ -174,7 +219,7 @@ ply_k_modes:
         ldr r1, r4, PLY_ST_MODE
         cmp r1, 0
         brn ply_k_cancel
-        cmp r1, MODE_QUIT+1
+        cmp r1, MODE_LAST+1
         brlt ply_k_mdisp
         br ply_k_cancel
 ply_k_mdisp:
@@ -197,7 +242,7 @@ ply_k_do_quit:
         mov r0, PR_QUIT
         br ply_k_ret
 
-; ---- MODE_EQUIP / MODE_REMOVE / MODE_DROP: digit '1'..max -------------------
+; ---- MODE_EQUIP / REMOVE / DROP / TOGGLE: digit '1'..max -------------------
 ply_k_equip:
         mov r2, NUM_INV
         lea r3, ply_equip
@@ -209,6 +254,10 @@ ply_k_remove:
 ply_k_drop:
         mov r2, NUM_INV
         lea r3, ply_drop
+        br ply_k_digit
+ply_k_toggle:
+        mov r2, NUM_WEAP
+        lea r3, ply_toggle
 ply_k_digit:
         mov r1, '1'
         sub r0, r0, r1
@@ -254,23 +303,103 @@ ply_kt_fire:
         bl ply_fire
         br ply_k_ret
 
+; ---- MODE_LOOK --------------------------------------------------------------
+ply_k_look:
+        mov r1, KEY_LOOK
+        cmp r0, r1
+        brz ply_k_cancel
+        mov r1, KEY_TAB
+        cmp r0, r1
+        brz ply_k_look_next
+        mov r1, KEY_NEXT
+        cmp r0, r1
+        brz ply_k_look_next
+        mov r1, KEY_PREV
+        cmp r0, r1
+        brz ply_k_look_prev
+        mov r1, KEY_FIRE
+        cmp r0, r1
+        brz ply_k_look_target
+        mov r1, KEY_ENTER
+        cmp r0, r1
+        brz ply_k_look_target
+        cmp r0, 13              ; CR on raw TTY
+        brz ply_k_look_target
+
+        mov r2, r0
+        mov r1, KEY_SHIFT
+        or r0, r1
+        bl ply_vi_find
+        cmp r0, 0
+        brz ply_k_none
+        ldr r3, r0, 0
+        ldr r1, r0, 2
+        ldr r0, r0, 1
+        cmp r2, r3
+        brz ply_k_look_move
+        sll r0, 3
+        sll r1, 3
+ply_k_look_move:
+        bl ply_look_move
+        br ply_k_none
+
+ply_k_look_next:
+        mov r2, 1
+        br ply_k_look_cycle
+ply_k_look_prev:
+        mov r2, -1
+ply_k_look_cycle:
+        bl ply_look_under
+        mov r1, r2
+        bl act_next_visible
+        bl ply_look_robot
+        br ply_k_none
+ply_k_look_target:
+        bl ply_look_under
+        cmp r0, 0
+        brn ply_k_none
+        ldr r1, r4, PLY_ST_TARGET
+        st r1, ply_tgt_prev
+        str r0, r4, PLY_ST_TARGET
+        mov r1, MODE_TARGET
+        str r1, r4, PLY_ST_MODE
+        br ply_k_none
+
+; ---- MODE_CLOSE -------------------------------------------------------------
+ply_k_close:
+        bl ply_vi_find
+        cmp r0, 0
+        brz ply_k_none
+        ldr r1, r0, 2
+        ldr r0, r0, 1
+ply_k_close_dir:
+        mov r2, MODE_MAP
+        str r2, r4, PLY_ST_MODE
+        bl ply_close
+        br ply_k_ret
+
 ; ---- MODE_MAP ---------------------------------------------------------------
 ply_k_map:
-        ; Check 8-way vi-key movement table: (key, dx, dy), terminated by 0
-        lea r3, ply_vi_tbl
-ply_km_vilp:
-        ldr r1, r3, 0
-        cmp r1, 0
-        brz ply_km_modes
-        cmp r0, r1
-        brz ply_km_vimv
-        add r3, r3, 3
-        br ply_km_vilp
-ply_km_vimv:
-        ldr r0, r3, 1
-        ldr r1, r3, 2
+        mov r2, r0
+        mov r1, KEY_SHIFT
+        or r0, r1
+        bl ply_vi_find
+        cmp r0, 0
+        brz ply_km_restore
+        ldr r3, r0, 0
+        ldr r1, r0, 2
+        ldr r0, r0, 1
+        cmp r2, r3
+        brz ply_k_move
+        st r0, st_auto_dx
+        st r1, st_auto_dy
+        mov r0, AUTO_RUN
+        br ply_km_auto
+ply_k_move:
         bl ply_move
         br ply_k_ret
+ply_km_restore:
+        mov r0, r2
 
 ply_km_modes:
         ; Table of simple mode-entry keys: (key, new_mode), terminated by 0
@@ -311,15 +440,54 @@ ply_km_get:
 ply_km_fi:
         mov r1, KEY_FIRE
         cmp r0, r1
-        brnz ply_km_st
+        brnz ply_km_qfire
+        ldr r1, r4, PLY_ST_TARGET
+        st r1, ply_tgt_prev
+        bl ply_choose_target
+        cmp r0, 0
+        brn ply_km_notgt
         mov r1, MODE_TARGET
         str r1, r4, PLY_ST_MODE
-        mov r1, -1
-        str r1, r4, PLY_ST_TARGET
-        mov r0, 1
-        bl ply_target
         br ply_k_none
-
+ply_km_notgt:
+        lea r0, ply_s_notgt
+        bl ply_fail_msg
+        br ply_k_ret
+ply_km_qfire:
+        mov r1, KEY_QFIRE
+        cmp r0, r1
+        brnz ply_km_look
+        bl ply_choose_target
+        bl ply_fire
+        br ply_k_ret
+ply_km_look:
+        mov r1, KEY_LOOK
+        cmp r0, r1
+        brnz ply_km_rest
+        bl ply_look_start
+        mov r1, MODE_LOOK
+        str r1, r4, PLY_ST_MODE
+        br ply_k_none
+ply_km_rest:
+        mov r1, KEY_REST
+        cmp r0, r1
+        brnz ply_km_travel
+        mov r0, AUTO_REST
+        br ply_km_auto
+ply_km_travel:
+        mov r1, KEY_TRAVEL
+        cmp r0, r1
+        brnz ply_km_explore
+        mov r0, AUTO_TRAVEL
+        br ply_km_auto
+ply_km_explore:
+        mov r1, KEY_EXPLORE
+        cmp r0, r1
+        brnz ply_km_st
+        mov r0, AUTO_EXPLORE
+ply_km_auto:
+        bl ply_auto_start
+        br ply_k_ret
 ply_km_st:
         mov r1, KEY_STAIRS
         cmp r0, r1
@@ -332,6 +500,561 @@ ply_k_none:
 ply_k_ret:
         pop lr
         pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; Find a lowercase vi-key's (key, dx, dy) record, or zero.
+ply_vi_find:
+        push r1
+        push r2
+        lea r2, ply_vi_tbl
+ply_vi_find_loop:
+        ldr r1, r2, 0
+        cmp r1, 0
+        brz ply_vi_find_none
+        cmp r0, r1
+        bre ply_vi_find_hit
+        add r2, r2, 3
+        br ply_vi_find_loop
+ply_vi_find_hit:
+        mov r0, r2
+        br ply_vi_find_ret
+ply_vi_find_none:
+        mov r0, 0
+ply_vi_find_ret:
+        pop r2
+        pop r1
+        ret
+
+; ---- hold-fire selection ----------------------------------------------------
+; r0 is the weapon menu index 0..NUM_WEAP-1.
+ply_toggle:
+        push r1
+        push r2
+        push r3
+        push lr
+        lea r2, ply_hold_bits
+        add r2, r2, r0
+        ldr r2, r2, 0
+        add r0, r0, SLOT_WEAP0
+        sll r0, SLOT_SHIFT
+        lea r1, st_slots
+        add r1, r1, r0
+        ldr r0, r1, S_PART
+        cmp r0, PART_NONE
+        brz ply_toggle_empty
+
+        ld r3, st_wpn_off
+        xor r3, r2
+        st r3, st_wpn_off
+        bl prt_name
+        bl ui_msg
+        and r3, r3, r2
+        lea r0, ply_s_fire_ready
+        brz ply_toggle_message
+        lea r0, ply_s_fire_held
+ply_toggle_message:
+        bl ui_msg_add
+        mov r0, PR_NONE
+        br ply_toggle_ret
+ply_toggle_empty:
+        lea r0, ply_s_slotemp
+        bl ply_fail_msg
+ply_toggle_ret:
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; ---- look cursor -----------------------------------------------------------
+ply_look_start:
+        push lr
+        ld r0, st_target
+        bl act_visible_enemy
+        cmp r0, 0
+        brnz ply_look_start_robot
+        bl act_nearest_visible
+        cmp r0, 0
+        brn ply_look_start_player
+        bl act_visible_enemy
+ply_look_start_robot:
+        bl ply_look_record
+        br ply_look_start_ret
+ply_look_start_player:
+        ld r0, st_px
+        st r0, st_look_x
+        ld r0, st_py
+        st r0, st_look_y
+ply_look_start_ret:
+        pop lr
+        ret
+
+; Move the cursor to a visible index if it exists.
+ply_look_robot:
+        push lr
+        bl act_visible_enemy
+        cmp r0, 0
+        brz ply_look_robot_ret
+        bl ply_look_record
+ply_look_robot_ret:
+        pop lr
+        ret
+
+ply_look_record:
+        push r1
+        ldr r1, r0, E_X
+        st r1, st_look_x
+        ldr r1, r0, E_Y
+        st r1, st_look_y
+        pop r1
+        ret
+
+; Return the visible enemy index under the cursor, or -1.
+ply_look_under:
+        push r1
+        push r2
+        push lr
+        ld r0, st_look_x
+        ld r1, st_look_y
+        bl act_at
+        mov r2, r0
+        bl act_visible_enemy
+        cmp r0, 0
+        brz ply_look_under_none
+        mov r0, r2
+        br ply_look_under_ret
+ply_look_under_none:
+        mov r0, -1
+ply_look_under_ret:
+        pop lr
+        pop r2
+        pop r1
+        ret
+
+ply_look_move:
+        push r1
+        push r2
+        push lr
+        mov r2, r1
+        ld r1, st_look_x
+        add r0, r0, r1
+        mov r1, MAP_W-1
+        bl ply_clamp
+        st r0, st_look_x
+        ld r0, st_look_y
+        add r0, r0, r2
+        mov r1, MAP_H-1
+        bl ply_clamp
+        st r0, st_look_y
+        pop lr
+        pop r2
+        pop r1
+        ret
+
+; Clamp r0 to [0, r1].
+ply_clamp:
+        cmp r0, 0
+        brn ply_clamp_low
+        cmp r0, r1
+        brgt ply_clamp_high
+        ret
+ply_clamp_low:
+        mov r0, 0
+        ret
+ply_clamp_high:
+        mov r0, r1
+        ret
+
+; ---- manual door closing ---------------------------------------------------
+ply_close:
+        push r1
+        push r2
+        push r3
+        push lr
+        ld r2, st_px
+        add r2, r2, r0
+        ld r3, st_py
+        add r3, r3, r1
+        mov r0, r2
+        mov r1, r3
+        bl dun_get
+        cmp r0, T_DOOR_OPEN
+        brne ply_close_missing
+        mov r0, r2
+        bl act_at
+        cmp r0, 0
+        brn ply_close_check_item
+        br ply_close_blocked
+ply_close_check_item:
+        mov r0, r2
+        bl itm_at
+        cmp r0, 0
+        brn ply_close_shut
+        br ply_close_blocked
+ply_close_shut:
+        mov r0, r2
+        mov r2, T_DOOR
+        bl dun_set
+        lea r0, ply_s_door_closed
+        bl ui_msg
+        mov r0, TIME_CLOSE
+        bl ply_act
+        br ply_close_ret
+ply_close_missing:
+        lea r0, ply_s_no_door
+        br ply_close_fail
+ply_close_blocked:
+        lea r0, ply_s_door_blocked
+ply_close_fail:
+        bl ply_fail_msg
+ply_close_ret:
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; ---- automatic actions -----------------------------------------------------
+ply_auto_start:
+        st r0, st_auto
+        mov r0, 0
+        st r0, st_auto_steps
+        br ply_auto_step
+
+ply_auto_step:
+        push r1
+        push r2
+        push lr
+        ld r0, st_auto
+        cmp r0, AUTO_NONE
+        brz ply_auto_step_ret
+        bl ply_auto_validate
+        cmp r0, AUTO_NONE
+        brz ply_auto_step_ret
+
+        ld r1, st_msg_head
+        st r1, ply_auto_head
+        cmp r0, AUTO_RUN
+        brz ply_auto_run
+        cmp r0, AUTO_REST
+        brz ply_auto_rest
+        cmp r0, AUTO_TRAVEL
+        brz ply_auto_travel
+        cmp r0, AUTO_EXPLORE
+        brz ply_auto_explore
+        br ply_auto_step_stop
+
+ply_auto_run:
+        bl ply_run_step
+        br ply_auto_result
+
+ply_auto_rest:
+        bl ply_rest_done
+        cmp r0, 0
+        brz ply_auto_wait
+        lea r0, ply_s_rested    ; completion after a real step is handled below
+        br ply_auto_step_msg
+ply_auto_wait:
+        mov r0, TIME_WAIT
+        bl ply_act
+        br ply_auto_result
+
+ply_auto_travel:
+        ld r2, st_stairs_x
+        ld r1, st_stairs_y
+        mov r0, r2
+        bl fov_known
+        cmp r0, 0
+        brz ply_auto_unknown
+        bl ply_at_stairs
+        cmp r0, 0
+        brnz ply_auto_step_stop
+        mov r0, r1
+        sll r0, MAP_SHIFT
+        add r0, r0, r2
+        bl act_player_path
+        cmp r0, 0
+        brn ply_auto_no_path
+        br ply_auto_path_move
+ply_auto_unknown:
+        lea r0, ply_s_stairs_unknown
+        br ply_auto_step_msg
+ply_auto_no_path:
+        lea r0, ply_s_no_path
+        br ply_auto_step_msg
+
+ply_auto_explore:
+        mov r0, -1
+        bl act_player_path
+        cmp r0, 0
+        brn ply_auto_explored
+ply_auto_path_move:
+        mov r2, MAP_XMASK
+        and r2, r2, r0
+        ld r1, st_px
+        sub r2, r2, r1          ; dx
+        srl r0, MAP_SHIFT
+        ld r1, st_py
+        sub r1, r0, r1          ; dy
+        mov r0, r2
+        bl ply_move
+        br ply_auto_result
+ply_auto_explored:
+        lea r0, ply_s_explored
+ply_auto_step_msg:
+        bl ui_msg
+        br ply_auto_step_stop
+
+ply_auto_result:
+        cmp r0, PR_ACTED
+        brne ply_auto_step_stop
+        ld r1, st_auto_steps
+        add r1, r1, 1
+        st r1, st_auto_steps
+        br ply_auto_step_ret
+ply_auto_step_stop:
+        mov r0, AUTO_NONE
+        st r0, st_auto
+        mov r0, PR_NONE
+ply_auto_step_ret:
+        pop lr
+        pop r2
+        pop r1
+        ret
+
+; Return the current mode if an automatic step is safe, otherwise stop.
+ply_auto_validate:
+        push r1
+        push lr
+        ld r0, st_game_state
+        cmp r0, GAME_PLAY
+        brne ply_auto_invalid
+        ld r0, st_mode
+        cmp r0, MODE_MAP
+        brne ply_auto_invalid
+        ld r0, st_auto
+        cmp r0, AUTO_REST       ; rest ends on its own (energy and repairs always progress)
+        brz ply_auto_check_hostile
+        ld r0, st_auto_steps
+        mov r1, AUTO_MAX_STEPS
+        cmp r0, r1
+        brlt ply_auto_check_hostile
+        br ply_auto_invalid
+ply_auto_check_hostile:
+        bl act_hostile_visible
+        cmp r0, 0
+        brz ply_auto_valid
+        ld r0, st_auto_steps
+        cmp r0, 0
+        brnz ply_auto_invalid
+        bl ply_hostile_is_newest ; don't repeat it while it is still the newest message
+        cmp r0, 0
+        brnz ply_auto_invalid
+        lea r0, ply_s_auto_hostile
+        bl ui_msg
+ply_auto_invalid:
+        mov r0, AUTO_NONE
+        st r0, st_auto
+ply_auto_valid:
+        ld r0, st_auto
+        pop lr
+        pop r1
+        ret
+
+; ply_hostile_is_newest () -> r0=1 if the newest message is ply_s_auto_hostile, else 0
+ply_hostile_is_newest:
+        push r1
+        push r2
+        push r3
+        ld r1, st_msg_head
+        and r1, r1, MSG_COUNT-1
+        sll r1, MSG_SHIFT
+        lea r2, st_msg_text
+        add r1, r1, r2
+        lea r2, ply_s_auto_hostile
+ply_hin_lp:
+        ldr r0, r1, 0
+        ldr r3, r2, 0
+        cmp r0, r3
+        brnz ply_hin_no
+        add r1, r1, 1
+        add r2, r2, 1
+        cmp r0, 0
+        brnz ply_hin_lp
+        mov r0, 1
+        br ply_hin_ret
+ply_hin_no:
+        mov r0, 0
+ply_hin_ret:
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; Called after main_turn, so messages, FOV and repair reflect the whole step.
+ply_auto_finish:
+        push r0
+        push r1
+        push lr
+        ld r0, st_auto
+        cmp r0, AUTO_NONE
+        brz ply_auto_finish_ret
+        ld r0, st_msg_head
+        ld r1, ply_auto_head
+        cmp r0, r1
+        brne ply_auto_finish_stop
+        bl ply_auto_validate
+        cmp r0, AUTO_REST
+        brz ply_auto_finish_rest
+        cmp r0, AUTO_TRAVEL
+        brne ply_auto_finish_ret
+        bl ply_at_stairs
+        br ply_auto_finish_done
+ply_auto_finish_rest:
+        bl ply_rest_done
+ply_auto_finish_done:
+        cmp r0, 0
+        brz ply_auto_finish_ret
+ply_auto_finish_stop:
+        mov r0, AUTO_NONE
+        st r0, st_auto
+ply_auto_finish_ret:
+        pop lr
+        pop r1
+        pop r0
+        ret
+
+; Stop on a door or stairs, or if a new perpendicular exit opens up.
+; Item stops use the normal movement message (checked after the turn).
+ply_run_step:
+        push r1
+        push r2
+        push lr
+        ld r0, st_auto_dx
+        ld r1, st_auto_dy
+        mov r2, r0
+        bl ply_run_sides
+        push r0                ; walkable sides before moving
+        mov r0, r2
+        bl ply_move
+        pop r2
+        cmp r0, PR_ACTED
+        brne ply_run_ret
+        ld r0, st_px
+        ld r1, st_py
+        bl dun_get
+        cmp r0, T_DOOR_OPEN    ; ply_move opened any closed door it entered
+        brz ply_run_stop
+        cmp r0, T_STAIRS
+        brz ply_run_stop
+        ld r0, st_auto_dx
+        ld r1, st_auto_dy
+        bl ply_run_sides
+        not r2, r2
+        and r0, r0, r2         ; sides walkable now that were blocked before
+        brz ply_run_acted
+ply_run_stop:
+        mov r0, AUTO_NONE
+        st r0, st_auto
+ply_run_acted:
+        mov r0, PR_ACTED
+ply_run_ret:
+        pop lr
+        pop r2
+        pop r1
+        ret
+
+; Return a mask of the walkable sides at (+dy,-dx) and (-dy,+dx).
+ply_run_sides:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        mov r2, r0
+        mov r3, r1
+        ld r0, st_px
+        add r0, r0, r3
+        ld r1, st_py
+        sub r1, r1, r2
+        bl dun_walkable
+        mov r4, r0
+        ld r0, st_px
+        sub r0, r0, r3
+        ld r1, st_py
+        add r1, r1, r2
+        bl dun_walkable
+        sll r0, 1
+        or r0, r4
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+ply_at_stairs:
+        push r1
+        push r2
+        ld r0, st_px
+        ld r1, st_stairs_x
+        cmp r0, r1
+        brne ply_at_stairs_no
+        ld r0, st_py
+        ld r2, st_stairs_y
+        cmp r0, r2
+        brne ply_at_stairs_no
+        mov r0, 1
+        br ply_at_stairs_ret
+ply_at_stairs_no:
+        mov r0, 0
+ply_at_stairs_ret:
+        pop r2
+        pop r1
+        ret
+
+; Full energy and, with an attached repair part, no integrity to restore.
+ply_rest_done:
+        push r1
+        push r2
+        push r3
+        push lr
+        ld r0, st_energy
+        ld r1, st_energy_max
+        cmp r0, r1
+        brlt ply_rest_pending
+        ld r0, st_repair_turns
+        cmp r0, 0
+        brz ply_rest_full
+        ld r0, st_core_hp
+        mov r1, CORE_MAX
+        cmp r0, r1
+        brlt ply_rest_pending
+        lea r2, st_slots
+        mov r3, NUM_SLOTS
+ply_rest_slot:
+        ldr r0, r2, S_PART
+        bl prt_info
+        cmp r0, 0
+        brz ply_rest_next
+        ldr r0, r0, P_MAXHP
+        ldr r1, r2, S_HP
+        cmp r1, r0
+        brlt ply_rest_pending
+ply_rest_next:
+        add r2, r2, SLOT_SIZE
+        sub r3, r3, 1
+        brp ply_rest_slot
+ply_rest_full:
+        mov r0, 1
+        br ply_rest_ret
+ply_rest_pending:
+        mov r0, 0
+ply_rest_ret:
+        pop lr
         pop r3
         pop r2
         pop r1
@@ -350,12 +1073,15 @@ ply_move:
         ldr r3, r4, PLY_ST_PY
         add r3, r3, r1          ; r3 = ny
 
-        ; Enemy on target tile -> bump melee attack
+        ; Enemy on target tile: bump only for manual movement.
         mov r0, r2
         mov r1, r3
         bl act_at
         cmp r0, 0
         brn ply_mv_walk
+        ld r1, st_auto
+        cmp r1, AUTO_NONE
+        brnz ply_mv_blocked
         bl cbt_player_melee
         mov r0, TIME_MELEE
         bl ply_act
@@ -477,6 +1203,7 @@ ply_equip:
         bl prt_attach           ; r0 = slot 0..NUM_SLOTS-1, or -1
         cmp r0, 0
         brn ply_eq_empty
+        bl ply_clear_hold
         sll r0, SLOT_SHIFT
         lea r1, st_slots
         add r1, r1, r0
@@ -494,13 +1221,40 @@ ply_eq_ret:
         pop r1
         ret
 
+; ply_clear_hold (r0=slot) -> clear that slot's st_wpn_off bit; registers preserved
+ply_clear_hold:
+        push r0
+        push r1
+        push r2
+        mov r1, 1
+        cmp r0, 0
+        brz ply_ch_mask
+ply_ch_shift:
+        add r1, r1, r1
+        sub r0, r0, 1
+        brp ply_ch_shift
+ply_ch_mask:
+        not r1, r1
+        ld r2, st_wpn_off
+        and r2, r2, r1
+        st r2, st_wpn_off
+        pop r2
+        pop r1
+        pop r0
+        ret
+
 ; ---- remove (detach) loadout slot into inventory ----------------------------
 ply_remove:
         push r1
         push lr
+        mov r1, r0              ; r1 = slot
         bl prt_detach           ; r0 = inv idx (>=0), -1 empty, -2 inv full
         cmp r0, 0
         brn ply_rm_fail
+        push r0
+        mov r0, r1
+        bl ply_clear_hold
+        pop r0
         sll r0, SLOT_SHIFT
         lea r1, st_inv
         add r1, r1, r0
@@ -575,6 +1329,30 @@ ply_dr_ret:
         ret
 
 ; ---- target selection / cycling ---------------------------------------------
+; Keep the tracked robot if it is still living and visible, else use the
+; existing nearest-target policy (hostile first).
+ply_choose_target:
+        push r1
+        push r2
+        push lr
+        ld r2, st_target
+        mov r0, r2
+        bl act_visible_enemy
+        cmp r0, 0
+        brz ply_choose_nearest
+        mov r0, r2
+        br ply_choose_ret
+ply_choose_nearest:
+        mov r0, -1
+        mov r1, 1
+        bl act_next_visible
+        st r0, st_target
+ply_choose_ret:
+        pop lr
+        pop r2
+        pop r1
+        ret
+
 ply_target:
         push r0
         push r1
@@ -670,6 +1448,10 @@ ply_mode_jt:
         .word ply_k_drop
         .word ply_k_cancel
         .word ply_k_quit
+        .word ply_k_look
+        .word ply_k_cancel      ; MODE_LOG
+        .word ply_k_toggle
+        .word ply_k_close
 
 ply_arr_tbl:
         .word 0                 ; 65 KEY_ARR_UP
@@ -692,6 +1474,12 @@ ply_mode_tbl:
         .word MODE_HELP
         .word KEY_QUIT
         .word MODE_QUIT
+        .word KEY_LOG
+        .word MODE_LOG
+        .word KEY_TOGGLE
+        .word MODE_TOGGLE
+        .word KEY_CLOSE
+        .word MODE_CLOSE
         .word 0
 
 ply_vi_tbl:
@@ -721,7 +1509,14 @@ ply_vi_tbl:
         .word 1
         .word 0
 
+ply_hold_bits:
+        .word 1<<SLOT_WEAP0
+        .word 1<<(SLOT_WEAP0+1)
+        .word 1<<(SLOT_WEAP0+2)
+
 ply_pushback:   .word 0
+ply_tgt_prev:   .word -1            ; st_target before targeting began (Esc restores it)
+ply_auto_head:  .word 0
 
 ply_s_see:      .string "You see "
 ply_s_picked:   .string "Picked up "
@@ -738,3 +1533,13 @@ ply_s_notgt:    .string "No targets in sight."
 ply_s_nofire:   .string "Nothing can fire."
 ply_s_noenergy: .string "Not enough energy."
 ply_s_nostairs: .string "No stairs here."
+ply_s_fire_held:    .string " on hold."
+ply_s_fire_ready:   .string " ready."
+ply_s_door_closed:  .string "Door closed."
+ply_s_no_door:      .string "No open door there."
+ply_s_door_blocked: .string "Doorway blocked."
+ply_s_auto_hostile: .string "Hostile in view."
+ply_s_rested:       .string "Nothing to restore."
+ply_s_stairs_unknown: .string "Stairs not found yet."
+ply_s_no_path:      .string "No known path to stairs."
+ply_s_explored:     .string "Nothing left to explore."

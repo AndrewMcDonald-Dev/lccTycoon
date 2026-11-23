@@ -19,6 +19,7 @@
 ;; player     st_px st_py st_ply_next st_core_hp st_energy      W: player (pos/time), parts (hp/energy), combat
 ;; derived    st_move_cost st_regen st_energy_max st_sight st_acc_bonus st_evade st_repair_turns  W: prt_recalc only
 ;; game       st_game_state st_mode st_depth st_turn st_time st_kills st_target st_climb st_death_cause
+;; controls   st_auto st_auto_dx st_auto_dy st_auto_steps st_look_x st_look_y st_wpn_off  W: player (st_wpn_off also parts, when a slot is emptied)
 ; =====================================================================
 
 ; ---- game / loop -------------------------------------------------------
@@ -80,3 +81,12 @@ st_screen:      .word SCR_COLS      ; header: cols, rows, top, left
                 .word 0
                 .word 0
 st_cells:       .zero SCR_CELLS     ; cell = glyph | fg | bg ; regions in defs.ap
+
+; ---- quality-of-life controls (appended last so earlier offsets stay fixed) -----------------
+st_auto:        .word AUTO_NONE     ; AUTO_* automatic action in progress — W: player
+st_auto_dx:     .word 0             ; AUTO_RUN direction -1..1 — W: player
+st_auto_dy:     .word 0
+st_auto_steps:  .word 0             ; steps taken by the current automatic action — W: player
+st_look_x:      .word 0             ; MODE_LOOK cursor tile — W: player
+st_look_y:      .word 0
+st_wpn_off:     .word 0             ; bit i set = loadout slot i holds fire (weapon slots 3-5) — W: player, parts (slot emptied); read: combat, ui

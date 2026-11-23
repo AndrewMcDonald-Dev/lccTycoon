@@ -7,10 +7,10 @@
 ; All routines: args r0..r4, result r0, all other registers preserved.
 ;
 ;; cbt_hit_chance    r0=accuracy% r1=distance   -> r0=accuracy - HIT_DIST_PEN×(distance-1), clamped HIT_MIN..HIT_MAX
-;; cbt_player_fire   r0=enemy index             -> r0=number of weapons fired (>0), -1 if in-range ranged weapon(s) lacked energy, 0 otherwise (target not visible, no ranged
-;;                   or out of range; caller spends no time). Checks fov_visible(E_X, E_Y), then fires every ranged weapon slot (P_W_MELEE 0) in slot order: spend P_W_ENERGY,
+;; cbt_player_fire   r0=enemy index             -> r0=number of weapons fired (>0), -1 if unheld in-range ranged weapon(s) lacked energy, 0 otherwise (target not visible, no usable ranged
+;;                   or out of range; caller spends no time). Checks fov_visible(E_X, E_Y), then fires every unheld ranged weapon slot (P_W_MELEE 0) in slot order: spend P_W_ENERGY,
 ;;                   roll hit (P_W_ACC + st_acc_bonus), damage rng_range(DMIN..DMAX) via cbt_damage_enemy; message per shot; stops once the target is destroyed.
-;; cbt_player_melee  r0=enemy index             -> -        bump attack with every melee weapon slot (each spends P_W_ENERGY if it can, else is skipped); with none usable, a
+;; cbt_player_melee  r0=enemy index             -> -        bump attack with every unheld melee weapon slot (each spends P_W_ENERGY if it can, else is skipped); with none usable, a
 ;;                   core ram RAM_DMIN..RAM_DMAX at RAM_ACC. Messages.
 ;; cbt_enemy_attack  r0=enemy index             -> -        that enemy attacks the player: hit = cbt_hit_chance(ET_ACC, dist) - st_evade (>= HIT_MIN); damage
 ;;                   rng_range(ET_DMIN..ET_DMAX) → prt_damage; message "<name> hits <part|core> for N." (A_BAD), followed by "<part> destroyed!" (A_BAD) if prt_damage destroyed a part,
@@ -49,6 +49,21 @@ cbt_ep_ok:
         brz cbt_ep_bad
         pop r1
         ret
+
+; r0 = number of weapon slots remaining (NUM_WEAP..1) -> nonzero if held
+cbt_held_mask:
+        push r1
+        lea r1, cbt_hold_bits
+        add r1, r1, r0
+        ldr r1, r1, -1
+        ld r0, st_wpn_off
+        and r0, r0, r1
+        pop r1
+        ret
+cbt_hold_bits:
+        .word 1<<(SLOT_WEAP0+2)
+        .word 1<<(SLOT_WEAP0+1)
+        .word 1<<SLOT_WEAP0
 
 ; cbt_msg_for_dmg (r0=obj_str, r1=dmg) -> appends "<obj> for <dmg>."
 cbt_msg_for_dmg:
@@ -239,6 +254,10 @@ cbt_player_fire:
         mov r0, NUM_WEAP
         str r0, fp, -6
 cbt_pf_lp:
+        ldr r0, fp, -6          ; remaining slots: 3, 2, 1
+        bl cbt_held_mask
+        cmp r0, 0
+        brnz cbt_pf_next
         ldr r4, fp, -5
         ldr r0, r4, S_PART
         cmp r0, PART_NONE
@@ -343,6 +362,10 @@ cbt_player_melee:
         mov r0, NUM_WEAP
         str r0, fp, -5
 cbt_pm_lp:
+        ldr r0, fp, -5          ; remaining slots: 3, 2, 1
+        bl cbt_held_mask
+        cmp r0, 0
+        brnz cbt_pm_next
         ldr r4, fp, -4
         ldr r0, r4, S_PART
         cmp r0, PART_NONE

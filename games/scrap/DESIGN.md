@@ -68,9 +68,10 @@ cols 0-63                                                         cols 64-99
 |                                                                | 19 Rifler                          |
 |                                                                | 20 ██████░░░░ 9/14                 |
 |                                                                | 21 Hit 64%  Dist 5                 |
+|                                                                | 22 1 hostile in view               |
 |                                                                | 23 Here: Hex Armor [U a2]          |
 +----------------------------------------------------------------+------------------------------------+
-| rows 24-28 MESSAGES: 5 newest of an 8-slot ring, oldest at top, newest at row 28, colored per msg   |
+| rows 24-28 MESSAGES: 5 newest of a 16-slot ring, oldest at top, newest at row 28, colored per msg   |
 | row 29 HELP: key help for the current st_mode (A_HELP, black on white)                              |
 +-----------------------------------------------------------------------------------------------------+
 ```
@@ -78,15 +79,29 @@ cols 0-63                                                         cols 64-99
 Region rectangles are defines: `VIEW_*`, `PANEL_*`, `MSG_ROW/MSG_ROWS`, `HELP_ROW`, and the
 panel rows `PR_*`. Loadout rows: kind letter at panel col 1 (`P` propulsion, `E` power, `W`
 weapon, `U` utility), name at col 3 (≤ 12 chars), integrity bar (width 8) at col 16,
-number at col 25. Carried rows show digit `1`-`4`, kind letter, name, compact key stat
-(weapon damage/range/energy per shot, e.g. `4-7 r8 e4` or `2-5 mel e0`, propulsion move
-cost, power regen, utility effect), and `hp/max` at panel col 30;
-`Here:` shows the floor part name with `[<kind> <stat>]`. In MODE_EQUIP/DROP the inventory
-rows show their digit highlighted `A_SELECT`; in MODE_REMOVE the loadout rows show digits
-1-8. Target row 21 shows `Hit NN%  Dist N` for the best in-range weapon the player can
-afford; `Low energy  Dist N` (A_WARN) when in-range ranged weapons exist but none has
-enough energy; else `Out of range` / `No ranged`. MODE_HELP draws a key list box over the viewport. On reaching the surface, the panel
-and win screen display `Surface` instead of `Depth 0`.
+number at col 25. Weapons whose `st_wpn_off` bit is set are dimmed (`A_DIM`) and tagged
+`[HOLD]` (`A_WARN`) at col 28 in every mode. Carried rows show digit `1`-`4`, kind letter,
+name, compact key stat (weapon damage/range/energy per shot, e.g. `4-7 r8 e4` or
+`2-5 mel e0`, propulsion move cost, power regen, utility effect), and `hp/max` at panel
+col 30; `Here:` shows the floor part name with `[<kind> <stat>]`. In MODE_EQUIP/DROP the
+inventory rows show their digit highlighted `A_SELECT`; in MODE_REMOVE the loadout rows
+show digits 1-8; in MODE_TOGGLE the weapon rows (slots 3-5) show digits 1-3 highlighted
+`A_SELECT`. Target row 21 shows `Hit NN%  Dist N` for the best active (non-held) in-range
+weapon the player can afford; `Low energy  Dist N` (`A_WARN`) when active in-range ranged
+weapons exist but none has enough energy; `Out of range  Dist N` when active ranged weapons
+are too short; `Weapons held  Dist N` (`A_WARN`) when all ranged weapons are holding fire;
+else `No ranged  Dist N`. In MODE_LOOK the viewport highlights `(st_look_x, st_look_y)`
+with `A_LOOK_BG` (preserving glyph/fg) and rows 18-21 switch header to `-- Look --` to
+inspect what is under the cursor: a visible robot (same name/HP/hit preview as Target),
+else a floor item on a known tile (name, `[<kind> <stat>]  hp/max`, tile kind + distance),
+else a known tile kind (`Floor`, `Wall`, `Closed door`, `Open door`, `Stairs up`, `Rubble`,
+plus `You (core)` on the player or `Remembered` off-LOS), else `Unexplored`. Panel row 22
+is a status line showing the active auto-action (`Running...` / `Resting...` /
+`Traveling...` / `Exploring... (any key stops)` in `A_LABEL`), or else the count of
+visible hostile robots (`N hostile(s) in view` in `A_WARN`), or blank. MODE_HELP draws a
+key list box over the viewport; MODE_LOG draws a full 16-message history box over the
+viewport oldest→newest in each message's stored `st_msg_attr` color. On reaching the
+surface, the panel and win screen display `Surface` instead of `Depth 0`.
 
 ## Controls
 
@@ -98,14 +113,27 @@ Every key can be written in the harness key script (`tools/lib/keys.js`): letter
 | `h j k l` | map | move/bump W S N E |
 | `y u b n` | map | move/bump NW NE SW SE |
 | `<up> <down> <left> <right>` | map | move/bump N S W E (arrives as 27 91 65..68) |
+| `H J K L Y U B N` (`Shift+vi-key`) | map | run in direction (`AUTO_RUN`) until blocked, door, junction, item, hostile, message, or key |
 | `.` or `<space>` | map | wait (TIME_WAIT) |
+| `z` | map | rest (`AUTO_REST`) until energy full and repairs done (stops on hostile, message, or key) |
+| `o` | map | auto-explore (`AUTO_EXPLORE`) toward nearest unexplored tile |
+| `t` | map | auto-travel (`AUTO_TRAVEL`) toward known `<` stairs |
+| `c` then direction | map → close | close an adjacent open door (`TIME_CLOSE`) |
 | `g` | map | pick up the part on your tile into the inventory |
 | `e` then `1`-`4` | map → equip | attach that inventory part (swaps if its slots are full) |
 | `r` then `1`-`8` | map → remove | detach that slot into the inventory |
 | `x` then `1`-`4` | map → drop | drop that inventory part on the floor |
-| `f` | map → target | targeting: nearest visible hostile robot selected (Tinkers only if no hostiles visible) |
+| `w` then `1`-`3` | map → toggle | toggle hold-fire (`st_wpn_off`) on weapon slot 3-5 (held weapons do not fire or swing) |
+| `f` | map → target | targeting: reuses current target if still visible, else nearest visible hostile (Tinkers only if no hostiles visible) |
+| `F` | map | quick-fire at once at the last / nearest visible target |
 | `<tab>` or `]` / `[` | target | next / previous visible robot |
-| `f` or `<enter>` | target | fire every ranged weapon that reaches and has energy |
+| `f` or `<enter>` | target | fire every active (non-held) ranged weapon that reaches and has energy |
+| `;` | map → look | enter look mode with cursor at player (`st_look_x/y`) |
+| `hjkl/yubn/arrows` (`Shift+vi-key` ×8) | look | move look cursor (Shift jumps 8 tiles) |
+| `<tab>` or `]` / `[` | look | jump look cursor between visible robots |
+| `f` or `<enter>` | look | target the visible robot under the cursor (enters target mode) |
+| `<esc>` or `;` | look | exit look mode back to map mode |
+| `m` | map → log | message history overlay (all 16 ring messages); any key closes |
 | `<esc>` | any menu | cancel back to map mode |
 | `<lt>` | map | take the stairs up (on a `<` tile) |
 | `?` | map → help | help overlay; any key closes |
@@ -153,12 +181,15 @@ the robot types are `act_types` in actors.ap.
   `st_energy` (0..st_energy_max), regen/repair accumulators.
 - **Derived stats** (written only by `prt_recalc`): `st_move_cost`, `st_regen`,
   `st_energy_max`, `st_sight`, `st_acc_bonus`, `st_evade`, `st_repair_turns`.
-- **Game** `st_game_state` (GAME_TITLE/PLAY/DEAD/WON), `st_mode` (MODE_*), `st_depth`
-  (10..1), `st_depth_best`, `st_turn` (player actions), `st_time` (scheduler clock, TU),
-  `st_kills`, `st_target` (enemy index or -1), `st_climb`, `st_death_cause` (EN_*),
-  `st_seed`, `st_frame`.
-- **Messages** `st_msg_text` MSG_COUNT 8 × MSG_LEN 64 (copied, NUL-terminated, so a
-  message can contain names and numbers), `st_msg_attr[8]`, `st_msg_head`. Written only
+- **Game** `st_game_state` (GAME_TITLE/PLAY/DEAD/WON), `st_mode` (MODE_MAP..MODE_CLOSE,
+  incl. MODE_LOOK/LOG/TOGGLE/CLOSE), `st_depth` (10..1), `st_depth_best`, `st_turn`
+  (player actions), `st_time` (scheduler clock, TU), `st_kills`, `st_target` (enemy index
+  or -1), `st_climb`, `st_death_cause` (EN_*), `st_seed`, `st_frame`.
+- **QoL controls** `st_auto` (AUTO_NONE/RUN/REST/TRAVEL/EXPLORE), `st_auto_dx/dy`,
+  `st_auto_steps`, `st_look_x/y` (MODE_LOOK cursor), `st_wpn_off` (bit i set = loadout
+  slot i holds fire, weapon slots 3-5). Written by player; read by combat, ui, render.
+- **Messages** `st_msg_text` MSG_COUNT 16 × MSG_LEN 64 (copied, NUL-terminated, so a
+  message can contain names and numbers), `st_msg_attr[16]`, `st_msg_head`. Written only
   by `ui_msg*`.
 - **Display** `st_screen`: header (100, 30, 0, 0) plus `st_cells` (3000).
 

@@ -126,6 +126,7 @@
         .define TIME_SWAP       150     ; attach (equip) or detach (remove) a part
         .define TIME_DROP       50      ; 'x'
         .define TIME_STAIRS     100     ; '<'
+        .define TIME_CLOSE      100     ; 'c' close a door
         .define TIME_REBASE     16384   ; act_run subtracts this from all times when st_time reaches it
 ; player movement cost by propulsion (P_M_COST in the catalog); no propulsion:
         .define CRAWL_COST      250     ; core dragging itself
@@ -336,8 +337,8 @@
         .define GAME_WON        3
 ; st_mode: which input mode the player is in (W: player; read: ui, render)
 ; NOTE: player.ap (ply_mode_jt, ~line 178) and ui.ap (ui_help_tbl, ~line 1318)
-; jump/lookup tables follow MODE_* order and bounds-check against MODE_QUIT+1.
-; Keep MODE_MAP..MODE_QUIT contiguous starting at 0.
+; jump/lookup tables follow MODE_* order and bounds-check against MODE_LAST+1.
+; Keep MODE_MAP..MODE_LAST contiguous starting at 0.
         .define MODE_MAP        0       ; normal play
         .define MODE_TARGET     1       ; 'f': choosing a target (st_target)
         .define MODE_EQUIP      2       ; 'e': pick inventory 1-4 to attach
@@ -345,6 +346,19 @@
         .define MODE_DROP       4       ; 'x': pick inventory 1-4 to drop
         .define MODE_HELP       5       ; '?': help overlay, any key closes
         .define MODE_QUIT       6       ; 'Q': "Quit? y/n"
+        .define MODE_LOOK       7       ; ';': look cursor at (st_look_x, st_look_y); moves with vi-keys/arrows
+        .define MODE_LOG        8       ; 'm': message history overlay, any key closes
+        .define MODE_TOGGLE     9       ; 'w': pick weapon 1-3 (slots 3-5) to hold / release fire
+        .define MODE_CLOSE      10      ; 'c': pick a direction to close an adjacent open door
+        .define MODE_LAST       10      ; highest MODE_* (table bounds)
+; st_auto: multi-turn automatic action in progress (W: player). One step per frame;
+; any key, a visible hostile robot or a new message stops it.
+        .define AUTO_NONE       0
+        .define AUTO_RUN        1       ; Shift+direction: keep stepping st_auto_dx/dy
+        .define AUTO_REST       2       ; 'z': wait until energy full and repairs done
+        .define AUTO_TRAVEL     3       ; 't': walk to the known stairs
+        .define AUTO_EXPLORE    4       ; 'o': walk to the nearest unexplored area
+        .define AUTO_MAX_STEPS  200     ; safety cap on steps of run/travel/explore (rest ends on its own)
 ; ply_handle / ply_key results
         .define PR_NONE         0       ; no time passed
         .define PR_ACTED        1       ; player acted: st_ply_next advanced
@@ -353,7 +367,7 @@
         .define CAUSE_NONE      0
 
 ; ---- messages: st_msg_text ring of MSG_COUNT strings of MSG_LEN words ------------
-        .define MSG_COUNT       8       ; ring slots (MSG_ROWS newest are shown)
+        .define MSG_COUNT       16      ; ring slots (MSG_ROWS newest are shown)
         .define MSG_LEN         64      ; incl. NUL (63 chars max)
         .define MSG_SHIFT       6
 
@@ -382,6 +396,15 @@
         .define KEY_QUIT        'Q'
         .define KEY_YES         'y'
         .define KEY_YES2        'Y'
+        .define KEY_LOOK        ';'
+        .define KEY_LOG         'm'
+        .define KEY_TOGGLE      'w'
+        .define KEY_CLOSE       'c'
+        .define KEY_REST        'z'
+        .define KEY_TRAVEL      't'
+        .define KEY_EXPLORE     'o'
+        .define KEY_QFIRE       'F'     ; fire at once at the last / nearest target
+        .define KEY_SHIFT       32      ; run keys = vi-key - KEY_SHIFT (H J K L Y U B N)
         .define KEY_ESC         27
         .define KEY_CSI         91      ; '[' right after ESC: arrow sequence
         .define KEY_ARR_UP      65      ; ESC [ A
@@ -404,6 +427,7 @@
         .define A_STAIRS        FG_BYELLOW
         .define A_RUBBLE        FG_GRAY
         .define A_MEMORY        FG_BLUE         ; remembered (known, not visible) tiles, any kind
+        .define A_LOOK_BG       BG_BLUE         ; bg of the look cursor cell in MODE_LOOK
         .define A_TARGET_BG     BG_RED          ; bg of the targeted enemy in MODE_TARGET
         .define A_TEXT          FG_WHITE
         .define A_DIM           FG_GRAY
