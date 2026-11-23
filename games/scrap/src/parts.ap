@@ -1174,7 +1174,7 @@ prt_slot_kinds:
         .word PK_UTIL           ; 6
         .word PK_UTIL           ; 7
 
-; Part names (up to 13 chars including Barrier Field)
+; Part names (up to 12 chars, PART_NAME_MAX)
 prt_n_1:        .string "Stub Legs"
 prt_n_2:        .string "Strut Legs"
 prt_n_3:        .string "Caster Wheel"
@@ -1199,7 +1199,7 @@ prt_n_21:       .string "Optic Mast"
 prt_n_22:       .string "Patch Drone"
 prt_n_23:       .string "Aim Gyro"
 prt_n_24:       .string "Jolt Caster"
-prt_n_25:       .string "Barrier Field"
+prt_n_25:       .string "Barrier Grid"
 prt_n_26:       .string "Salvage Rig"
 
 ; ---- part catalog (PART_COUNT = 26 records × PART_SIZE = 16 words) ----------

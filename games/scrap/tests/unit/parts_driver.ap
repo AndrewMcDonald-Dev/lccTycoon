@@ -55,8 +55,7 @@ drv_main:
         ldr r0, r0, 0
         st r0, drv_name_none_ch ; '-' = 45
 
-        ; Verify every catalog entry and its name length.
-        ; Barrier Field uses one more cell than the original catalog limit.
+        ; Verify every catalog entry and its name length (<= PART_NAME_MAX).
         mov r1, 1
         mov r2, 1               ; drv_cat_ok = 1
 drv_cat_lp:
@@ -77,13 +76,7 @@ drv_cat_sl:
 drv_cat_sldone:
         cmp r4, 1
         brlt drv_cat_fail
-        mov r0, PART_NAME_MAX
-        mov r3, PT_BARRIER
-        cmp r1, r3
-        brnz drv_cat_len
-        mov r0, 13
-drv_cat_len:
-        cmp r4, r0
+        cmp r4, PART_NAME_MAX
         brgt drv_cat_fail
         add r1, r1, 1
         mov r0, PART_COUNT

@@ -10,7 +10,7 @@
         "memory": {
           "drv_b1_hp": 40,
           "drv_b1_e_ok": 1,
-          "drv_b1_msg": "Leech hits; barrier absorbs 1.",
+          "drv_b1_msg": "Leech hits. Barrier absorbs 1.",
           "drv_b2_energy": 13,
           "drv_b2_abs": 1,
           "drv_b2_msg": "Leech hits core for 1 (1 absorbed, -5 energy).",
@@ -19,7 +19,7 @@
           "drv_b3_dmg_ok": 1,
           "drv_b3_msg": "Bulwark hits core for 2 (3 absorbed).",
           "drv_b4_hp": 40,
-          "drv_b4_msg": "Blast absorbed by barrier (4).",
+          "drv_b4_msg": "Barrier absorbs blast (4).",
           "drv_b5_abs": 3,
           "drv_b5_energy": 34,
           "drv_b5_dmg_ok": 1,

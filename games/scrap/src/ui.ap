@@ -58,7 +58,7 @@
         .define UI_MSG_TEXT_OFF     1+MSG_COUNT
 ; Panel row 22: auto-action / visible hostiles status line
         .define UI_PR_STATUS        22
-        .define UI_PART_NAME_W      13      ; includes Barrier Field
+        .define UI_PART_NAME_W      PART_NAME_MAX
 
 ; =====================================================================
 ; Message ring: ui_init, ui_msg, ui_msg_add, ui_msg_addn, ui_msg_attr
@@ -3253,7 +3253,7 @@ ui_s_help_look:   .pstring "LOOK: move cursor  Shift+dir jump  Tab/]/[ robots  f
 ui_s_help_log:    .pstring "LOG: press any key to close"
 ui_s_help_toggle: .pstring "WEAPONS: 1-3 toggle hold-fire on weapon slot   Esc cancel"
 ui_s_help_close:  .pstring "CLOSE: direction (hjkl/yubn/arrows) to close door   Esc cancel"
-ui_s_help_recycle: .string "RECYCLE: 1-4 restore core integrity   Esc cancel"
+ui_s_help_recycle: .string "RECYCLE: 1-4 scrap carried part for core HP   Esc cancel"
 ui_s_alarm:        .string "Alarm "
 ui_c_alarm_empty:  .word G_LIGHT|A_DIM
 ui_s_title:       .pstring "SCRAPCORE"
@@ -3365,7 +3365,7 @@ ui_se_best:       .pstring "Shallowest Depth:"
 ui_se_kills:      .pstring "Robots Destroyed:"
 ui_se_turns:      .pstring "Turns Taken:     "
 ui_se_score:      .pstring "FINAL SCORE:     "
-ui_se_salvaged:   .string "Salvaged "
-ui_se_lost:       .string "  Lost "
-ui_se_recycled:   .string "  Recycled "
+ui_se_salvaged:   .string "Parts: salvaged "
+ui_se_lost:       .string ", lost "
+ui_se_recycled:   .string ", recycled "
 ui_se_prompt:     .pstring "  Press any key to play again  |  Q to quit  "
