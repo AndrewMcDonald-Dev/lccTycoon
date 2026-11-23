@@ -112,11 +112,11 @@
       }
     },
     {
-      "name": "automatic actions stop on their 200th step",
+      "name": "rest is not stopped by the 200-step cap",
       "clock": 7,
       "keys": "a _5",
       "expect": {
-        "memory": { "st_auto": 0, "st_auto_steps": 200, "st_turn": 1, "st_energy": 3 }
+        "memory": { "st_auto": 2, "st_auto_steps": 206, "st_turn": 7, "st_energy": 21 }
       }
     },
     {

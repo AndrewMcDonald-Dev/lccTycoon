@@ -178,12 +178,30 @@
       }
     },
     {
-      "name": "visible hostiles prevent all four automatic actions from starting",
+      "name": "visible hostiles prevent all four automatic actions from starting, with one message",
       "clock": 1000,
       "keys": "<enter> l*2 u k*4 y h*8 b j .*8 H z t o",
       "expect": {
         "memory": { "st_px": 7, "st_py": 16, "st_auto": 0, "st_auto_steps": 0, "st_turn": 26 },
-        "screen": { "matches": ["(?:Hostile in view\\.[ \\t]*\\n[ \\t]*){3}Hostile in view\\."] }
+        "screen": { "matches": ["^(?![\\s\\S]*Hostile in view[\\s\\S]*Hostile in view)[\\s\\S]*Flit spotted\\.\\s*\\n\\s*Hostile in view\\."] }
+      }
+    },
+    {
+      "name": "Esc out of targeting keeps the previous target, so F fires at the wounded Flit again",
+      "clock": 1000,
+      "keys": "<enter> l*2 u k*4 y h*8 b j .*8 f <tab> f f <esc> F",
+      "expect": {
+        "memory": { "st_target": 3, "st_mode": 0 },
+        "screen": { "contains": ["Rivet Gun hits Flit for 4.", "Rivet Gun misses Flit.", "2/6"] }
+      }
+    },
+    {
+      "name": "re-attaching a part to a held weapon slot clears its hold",
+      "clock": 1000,
+      "keys": "<enter> w 1 r 4 e 1",
+      "expect": {
+        "memory": { "st_wpn_off": 0 },
+        "screen": { "contains": ["Attached Rivet Gun."], "notContains": ["[HOLD]"] }
       }
     }
   ]

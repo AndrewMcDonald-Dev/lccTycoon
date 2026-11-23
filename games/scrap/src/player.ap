@@ -92,6 +92,8 @@ ply_init:
         str r0, r1, PLY_ST_MODE
         mov r0, -1
         str r0, r1, PLY_ST_TARGET
+        st r0, ply_tgt_prev
+        st r0, ply_hostile_head
         mov r0, 0
         st r0, ply_pushback
         st r0, st_auto
@@ -206,7 +208,7 @@ ply_k_esc:
         ldr r3, r4, PLY_ST_MODE
         cmp r3, MODE_TARGET
         brnz ply_k_cancel
-        mov r1, -1
+        ld r1, ply_tgt_prev     ; cancel the selection: restore the previous target
         str r1, r4, PLY_ST_TARGET
 ply_k_cancel:
         mov r1, MODE_MAP
@@ -357,6 +359,8 @@ ply_k_look_target:
         bl ply_look_under
         cmp r0, 0
         brn ply_k_none
+        ldr r1, r4, PLY_ST_TARGET
+        st r1, ply_tgt_prev
         str r0, r4, PLY_ST_TARGET
         mov r1, MODE_TARGET
         str r1, r4, PLY_ST_MODE
@@ -438,6 +442,8 @@ ply_km_fi:
         mov r1, KEY_FIRE
         cmp r0, r1
         brnz ply_km_qfire
+        ldr r1, r4, PLY_ST_TARGET
+        st r1, ply_tgt_prev
         bl ply_choose_target
         cmp r0, 0
         brn ply_km_notgt
@@ -830,6 +836,9 @@ ply_auto_validate:
         ld r0, st_mode
         cmp r0, MODE_MAP
         brne ply_auto_invalid
+        ld r0, st_auto
+        cmp r0, AUTO_REST       ; rest ends on its own (energy and repairs always progress)
+        brz ply_auto_check_hostile
         ld r0, st_auto_steps
         mov r1, AUTO_MAX_STEPS
         cmp r0, r1
@@ -842,8 +851,14 @@ ply_auto_check_hostile:
         ld r0, st_auto_steps
         cmp r0, 0
         brnz ply_auto_invalid
+        ld r0, st_msg_head      ; don't repeat it while it is still the newest message
+        ld r1, ply_hostile_head
+        cmp r0, r1
+        brz ply_auto_invalid
         lea r0, ply_s_auto_hostile
         bl ui_msg
+        ld r0, st_msg_head
+        st r0, ply_hostile_head
 ply_auto_invalid:
         mov r0, AUTO_NONE
         st r0, st_auto
@@ -1162,6 +1177,7 @@ ply_equip:
         bl prt_attach           ; r0 = slot 0..NUM_SLOTS-1, or -1
         cmp r0, 0
         brn ply_eq_empty
+        bl ply_clear_hold
         sll r0, SLOT_SHIFT
         lea r1, st_slots
         add r1, r1, r0
@@ -1179,13 +1195,40 @@ ply_eq_ret:
         pop r1
         ret
 
+; ply_clear_hold (r0=slot) -> clear that slot's st_wpn_off bit; registers preserved
+ply_clear_hold:
+        push r0
+        push r1
+        push r2
+        mov r1, 1
+        cmp r0, 0
+        brz ply_ch_mask
+ply_ch_shift:
+        add r1, r1, r1
+        sub r0, r0, 1
+        brp ply_ch_shift
+ply_ch_mask:
+        not r1, r1
+        ld r2, st_wpn_off
+        and r2, r2, r1
+        st r2, st_wpn_off
+        pop r2
+        pop r1
+        pop r0
+        ret
+
 ; ---- remove (detach) loadout slot into inventory ----------------------------
 ply_remove:
         push r1
         push lr
+        mov r1, r0              ; r1 = slot
         bl prt_detach           ; r0 = inv idx (>=0), -1 empty, -2 inv full
         cmp r0, 0
         brn ply_rm_fail
+        push r0
+        mov r0, r1
+        bl ply_clear_hold
+        pop r0
         sll r0, SLOT_SHIFT
         lea r1, st_inv
         add r1, r1, r0
@@ -1271,6 +1314,15 @@ ply_choose_target:
         bl act_visible_enemy
         cmp r0, 0
         brz ply_choose_nearest
+        ldr r0, r0, E_TYPE      ; a remembered worker yields when a hostile is in view
+        bl act_type_info
+        ldr r0, r0, ET_AI
+        cmp r0, AI_WORKER
+        brnz ply_choose_keep
+        bl act_hostile_visible
+        cmp r0, 0
+        brnz ply_choose_nearest
+ply_choose_keep:
         mov r0, r2
         br ply_choose_ret
 ply_choose_nearest:
@@ -1446,6 +1498,8 @@ ply_hold_bits:
         .word 1<<(SLOT_WEAP0+2)
 
 ply_pushback:   .word 0
+ply_tgt_prev:   .word -1            ; st_target before targeting began (Esc restores it)
+ply_hostile_head: .word -1          ; st_msg_head right after the last hostile-in-view refusal
 ply_auto_head:  .word 0
 
 ply_s_see:      .string "You see "
