@@ -712,6 +712,19 @@ prt_dmg_d_clr:
         mov r2, PART_NONE
         str r2, r4, S_PART
         str r2, r4, S_HP        ; PART_NONE == 0
+        mov r1, 1               ; the empty slot no longer holds fire: clear st_wpn_off bit r3
+        mov r2, r3
+prt_dmg_hold_lp:
+        cmp r2, 0
+        brz prt_dmg_hold_clr
+        add r1, r1, r1
+        sub r2, r2, 1
+        br prt_dmg_hold_lp
+prt_dmg_hold_clr:
+        not r1, r1
+        ld r2, st_wpn_off
+        and r2, r2, r1
+        st r2, st_wpn_off
         bl prt_recalc
         mov r0, r3
         br prt_dmg_out

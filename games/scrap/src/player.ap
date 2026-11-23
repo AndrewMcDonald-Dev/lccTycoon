@@ -93,7 +93,6 @@ ply_init:
         mov r0, -1
         str r0, r1, PLY_ST_TARGET
         st r0, ply_tgt_prev
-        st r0, ply_hostile_head
         mov r0, 0
         st r0, ply_pushback
         st r0, st_auto
@@ -851,20 +850,47 @@ ply_auto_check_hostile:
         ld r0, st_auto_steps
         cmp r0, 0
         brnz ply_auto_invalid
-        ld r0, st_msg_head      ; don't repeat it while it is still the newest message
-        ld r1, ply_hostile_head
-        cmp r0, r1
-        brz ply_auto_invalid
+        bl ply_hostile_is_newest ; don't repeat it while it is still the newest message
+        cmp r0, 0
+        brnz ply_auto_invalid
         lea r0, ply_s_auto_hostile
         bl ui_msg
-        ld r0, st_msg_head
-        st r0, ply_hostile_head
 ply_auto_invalid:
         mov r0, AUTO_NONE
         st r0, st_auto
 ply_auto_valid:
         ld r0, st_auto
         pop lr
+        pop r1
+        ret
+
+; ply_hostile_is_newest () -> r0=1 if the newest message is ply_s_auto_hostile, else 0
+ply_hostile_is_newest:
+        push r1
+        push r2
+        push r3
+        ld r1, st_msg_head
+        and r1, r1, MSG_COUNT-1
+        sll r1, MSG_SHIFT
+        lea r2, st_msg_text
+        add r1, r1, r2
+        lea r2, ply_s_auto_hostile
+ply_hin_lp:
+        ldr r0, r1, 0
+        ldr r3, r2, 0
+        cmp r0, r3
+        brnz ply_hin_no
+        add r1, r1, 1
+        add r2, r2, 1
+        cmp r0, 0
+        brnz ply_hin_lp
+        mov r0, 1
+        br ply_hin_ret
+ply_hin_no:
+        mov r0, 0
+ply_hin_ret:
+        pop r3
+        pop r2
         pop r1
         ret
 
@@ -1314,15 +1340,6 @@ ply_choose_target:
         bl act_visible_enemy
         cmp r0, 0
         brz ply_choose_nearest
-        ldr r0, r0, E_TYPE      ; a remembered worker yields when a hostile is in view
-        bl act_type_info
-        ldr r0, r0, ET_AI
-        cmp r0, AI_WORKER
-        brnz ply_choose_keep
-        bl act_hostile_visible
-        cmp r0, 0
-        brnz ply_choose_nearest
-ply_choose_keep:
         mov r0, r2
         br ply_choose_ret
 ply_choose_nearest:
@@ -1499,7 +1516,6 @@ ply_hold_bits:
 
 ply_pushback:   .word 0
 ply_tgt_prev:   .word -1            ; st_target before targeting began (Esc restores it)
-ply_hostile_head: .word -1          ; st_msg_head right after the last hostile-in-view refusal
 ply_auto_head:  .word 0
 
 ply_s_see:      .string "You see "

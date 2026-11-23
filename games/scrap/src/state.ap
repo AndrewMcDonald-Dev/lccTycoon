@@ -89,4 +89,4 @@ st_auto_dy:     .word 0
 st_auto_steps:  .word 0             ; steps taken by the current automatic action — W: player
 st_look_x:      .word 0             ; MODE_LOOK cursor tile — W: player
 st_look_y:      .word 0
-st_wpn_off:     .word 0             ; bit i set = loadout slot i holds fire (weapon slots 3-5) — W: player; read: combat, ui
+st_wpn_off:     .word 0             ; bit i set = loadout slot i holds fire (weapon slots 3-5) — W: player, parts (slot emptied); read: combat, ui

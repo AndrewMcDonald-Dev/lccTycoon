@@ -203,6 +203,24 @@
         "memory": { "st_wpn_off": 0 },
         "screen": { "contains": ["Attached Rivet Gun."], "notContains": ["[HOLD]"] }
       }
+    },
+    {
+      "name": "a held weapon destroyed in combat leaves no hold on its empty slot",
+      "clock": 1000,
+      "keys": "<enter> w 1 l*2 u k*4 y h*8 b j .*3 j*2 .*65",
+      "expect": {
+        "memory": { "st_wpn_off": 0 },
+        "screen": { "matches": ["W -"], "notContains": ["[HOLD]"] }
+      }
+    },
+    {
+      "name": "a refused auto-action still says why after 16 other messages wrap the ring",
+      "clock": 1000,
+      "keys": "<enter> l*2 u k*4 y h*8 b j .*8 H g*16 z",
+      "expect": {
+        "memory": { "st_auto": 0 },
+        "screen": { "matches": ["Nothing here to pick up\\.\\s*\\n\\s*Hostile in view\\."] }
+      }
     }
   ]
 }

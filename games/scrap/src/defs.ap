@@ -358,7 +358,7 @@
         .define AUTO_REST       2       ; 'z': wait until energy full and repairs done
         .define AUTO_TRAVEL     3       ; 't': walk to the known stairs
         .define AUTO_EXPLORE    4       ; 'o': walk to the nearest unexplored area
-        .define AUTO_MAX_STEPS  200     ; safety cap on steps of one automatic action
+        .define AUTO_MAX_STEPS  200     ; safety cap on steps of run/travel/explore (rest ends on its own)
 ; ply_handle / ply_key results
         .define PR_NONE         0       ; no time passed
         .define PR_ACTED        1       ; player acted: st_ply_next advanced
