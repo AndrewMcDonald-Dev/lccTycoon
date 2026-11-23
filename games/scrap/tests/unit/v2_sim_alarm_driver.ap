@@ -581,6 +581,119 @@ drv_t8_x:
         st r0, drv_ew_alarm     ; expect 100
         lea r0, drv_ew_msg
         bl drv_copy_head_msg    ; expect "Sentinel" (no alarm msg posted)
+
+        ; ============================================================
+        ; T9. EF_REINF wave robot tracks player around wall via BFS
+        ;     after player steps 1 tile (does not get stranded)
+        ; ============================================================
+        mov r0, 1
+        sleep r0
+        bl drv_make_detour_map
+        bl act_clear
+        mov r0, 0
+        st r0, drv_cbt_calls
+        mov r0, 5
+        st r0, st_px
+        mov r0, 10
+        st r0, st_py
+        mov r0, 8
+        st r0, st_sight
+        mov r0, 5
+        st r0, st_depth
+        bl fov_reset
+        bl fov_update
+        mov r0, 0
+        st r0, st_time
+        st r0, st_ply_next
+        st r0, st_alarm_acc
+        st r0, st_alarm_waves
+        mov r0, ALARM_MAX
+        st r0, st_alarm
+        bl act_run              ; spawns 2 EF_REINF robots in far room (x=17..20,y=8..12)
+        ; Player steps 1 tile east to (6,10) so E_TX/E_TY != player
+        mov r0, 6
+        st r0, st_px
+        bl fov_update
+        ; Wait up to 45 turns: wave robot must path around wall via north corridor and attack
+        mov r3, 45
+drv_t9_lp:
+        mov r0, 0
+        st r0, st_alarm         ; suppress further waves
+        ld r0, st_ply_next
+        mov r1, 100
+        add r0, r0, r1
+        st r0, st_ply_next
+        bl act_run
+        ld r0, drv_cbt_calls
+        cmp r0, 0
+        brp drv_t9_hit
+        sub r3, r3, 1
+        brp drv_t9_lp
+drv_t9_hit:
+        ld r0, drv_cbt_calls
+        mov r1, 0
+        cmp r0, 0
+        brp drv_t9_hit_ok
+        br drv_t9_store
+drv_t9_hit_ok:
+        mov r1, 1
+drv_t9_store:
+        st r1, drv_tr_hit       ; expect 1 (wave robot reached & attacked player!)
+        lea r2, st_enemies
+        ldr r0, r2, E_TX
+        st r0, drv_tr_tx        ; expect 6 (updated to player's new x)
+        ldr r0, r2, E_TY
+        st r0, drv_tr_ty        ; expect 10
+
+        ; ============================================================
+        ; T10. Normal (non-EF_REINF) hunting robot does NOT track player
+        ;      through walls when player steps away from E_TX/E_TY
+        ; ============================================================
+        bl act_clear
+        mov r0, 0
+        st r0, drv_cbt_calls
+        st r0, st_time
+        st r0, st_ply_next
+        st r0, st_alarm
+        st r0, st_alarm_acc
+        mov r0, 6
+        st r0, st_px
+        mov r0, 10
+        st r0, st_py
+        bl fov_update
+        mov r0, EN_SCUTTLER
+        mov r1, 17
+        mov r2, 10
+        bl act_spawn            ; slot 0 (normal robot, no EF_REINF)
+        lea r2, st_enemies
+        mov r0, ES_HUNT
+        str r0, r2, E_STATE
+        mov r0, 5
+        str r0, r2, E_TX        ; old player position before 1-tile step
+        mov r0, 10
+        str r0, r2, E_TY
+        mov r0, ALERT_TURNS
+        str r0, r2, E_ALERT
+        mov r0, 0
+        str r0, r2, E_NEXT
+        mov r3, 15
+drv_t10_lp:
+        ld r0, st_ply_next
+        mov r1, 100
+        add r0, r0, r1
+        st r0, st_ply_next
+        bl act_run
+        sub r3, r3, 1
+        brp drv_t10_lp
+        lea r2, st_enemies
+        ldr r0, r2, E_TX
+        st r0, drv_nt_tx        ; expect 5 (never updated to 6)
+        ldr r0, r2, E_TY
+        st r0, drv_nt_ty        ; expect 10
+        ldr r0, r2, E_STATE
+        st r0, drv_nt_state     ; expect 0 (ES_IDLE after alert expired)
+        ld r0, drv_cbt_calls
+        st r0, drv_nt_cbt       ; expect 0 (never reached/attacked player)
         halt
 
 ; ---- Helpers --------------------------------------------------------
@@ -696,8 +809,86 @@ drv_head_attr:
         pop r1
         ret
 
+; Two rooms (x=4..8,y=8..12) and (x=17..20,y=8..12) separated by a solid wall,
+; linked only by a north detour corridor (x=5,y=4..7)-(x=5..19,y=4)-(x=19,y=5..7).
+drv_make_detour_map:
+        push r0
+        push r1
+        push r2
+        push r3
+        push lr
+        bl drv_fill_walls
+        mov r0, 0
+        st r0, st_room_count
+        ; Player room: x=4..8, y=8..12
+        mov r1, 8
+drv_mdm_ry1:
+        mov r0, 4
+drv_mdm_rx1:
+        mov r2, T_FLOOR
+        bl dun_set
+        add r0, r0, 1
+        cmp r0, 9
+        brlt drv_mdm_rx1
+        add r1, r1, 1
+        cmp r1, 13
+        brlt drv_mdm_ry1
+        ; Far room: x=17..20, y=8..12
+        mov r1, 8
+drv_mdm_ry2:
+        mov r0, 17
+drv_mdm_rx2:
+        mov r2, T_FLOOR
+        bl dun_set
+        add r0, r0, 1
+        mov r3, 21
+        cmp r0, r3
+        brlt drv_mdm_rx2
+        add r1, r1, 1
+        cmp r1, 13
+        brlt drv_mdm_ry2
+        ; West shaft: x=5, y=4..7
+        mov r1, 4
+drv_mdm_ws:
+        mov r0, 5
+        mov r2, T_FLOOR
+        bl dun_set
+        add r1, r1, 1
+        cmp r1, 8
+        brlt drv_mdm_ws
+        ; Top corridor: x=5..19, y=4
+        mov r0, 5
+drv_mdm_tc:
+        mov r1, 4
+        mov r2, T_FLOOR
+        bl dun_set
+        add r0, r0, 1
+        mov r3, 20
+        cmp r0, r3
+        brlt drv_mdm_tc
+        ; East shaft: x=19, y=5..7
+        mov r1, 5
+drv_mdm_es:
+        mov r0, 19
+        mov r2, T_FLOOR
+        bl dun_set
+        add r1, r1, 1
+        cmp r1, 8
+        brlt drv_mdm_es
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
 ; Stub cbt_* so Watcher sighting test doesn't damage player and ui.ap links
 cbt_enemy_attack:
+        push r0
+        ld r0, drv_cbt_calls
+        add r0, r0, 1
+        st r0, drv_cbt_calls
+        pop r0
         ret
 cbt_hit_chance:
         mov r0, 70
@@ -757,6 +948,14 @@ drv_ew_waves:   .word 99
 drv_ew_alarm:   .word 99
 drv_ew_msg:     .zero MSG_LEN
 drv_s_sentinel: .string "Sentinel"
+drv_cbt_calls:  .word 0
+drv_tr_hit:     .word 99
+drv_tr_tx:      .word 99
+drv_tr_ty:      .word 99
+drv_nt_tx:      .word 99
+drv_nt_ty:      .word 99
+drv_nt_state:   .word 99
+drv_nt_cbt:     .word 99
 
         .include "../../src/state.ap"
         .include "../../src/rng.ap"

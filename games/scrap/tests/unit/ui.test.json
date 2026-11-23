@@ -13,7 +13,7 @@
             "SCRAPCORE  Depth 10  Turn 123",
             "Core   ██████████ 40/40",
             "Energy ██████░░░░ 12/20",
-            "Move 100  Sight 8  Kills 3",
+            "Move 100  Sight 8  Score Kills 3",
             "-- Loadout --",
             "P Stub Legs    ████████ 20",
             "E Cell Pack    ██████░░ 13",
@@ -257,7 +257,7 @@
             "LOG: press any key to close"
           ],
           "lines": {
-            "3": "║ Log entry 1 (good)                                           ║│Move 100  Sight 8  Kills 3",
+            "3": "║ Log entry 1 (good)                                           ║│Move 100  Sight 8  Score Kills 3",
             "5": "║ Log entry 3 (warn)                                           ║│P Stub Legs    ████████ 20",
             "8": "║ Log entry 6 (bad)                                            ║│W Rivet Gun    ████████ 12",
             "10": "║ Log entry 8 (newest good)                                    ║│W -"
@@ -265,7 +265,7 @@
         },
         "colors": {
           "lines": {
-            "3": "C GGGGGGGGGGGGGGGGGG                                           CKwwwwwwwwwwwwwwwwwwwwwwwwww",
+            "3": "C GGGGGGGGGGGGGGGGGG                                           CKwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww",
             "5": "C YYYYYYYYYYYYYYYYYY                                           CKC wwwwwwwww    GGGGGGGG ww",
             "8": "C RRRRRRRRRRRRRRRRR                                            CKC wwwwwwwww    GGGGGGGG ww",
             "10": "C GGGGGGGGGGGGGGGGGGGGGGGGG                                    CKK K"
@@ -460,7 +460,7 @@
             "CORE DESTROYED",
             "Destroyed by: Rifler at Depth 6",
             "Shallowest Depth:",
-            "Robots Destroyed:",
+            "Score Kills:",
             "Turns Taken:",
             "FINAL SCORE:",
             "450"

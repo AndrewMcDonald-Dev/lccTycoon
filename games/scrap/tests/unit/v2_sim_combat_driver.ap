@@ -683,6 +683,175 @@ drv_salv_next:
         st r0, drv_sc_kills     ; expect 1
         ld r0, st_alarm
         st r0, drv_sc_alarm     ; expect 50
+
+        ; ============================================================
+        ; T11. Stun across TIME_REBASE at exact player/enemy tie:
+        ;      E_NEXT shifted, EF_STUNNED still blocks second delay,
+        ;      clears when the robot acts
+        ; ============================================================
+        mov r0, 1
+        sleep r0
+        bl drv_make_open_room
+        bl drv_strip_loadout
+        lea r1, st_slots
+        add r1, r1, SLOT_WEAP0*SLOT_SIZE
+        mov r0, PT_JOLT_CASTER
+        str r0, r1, S_PART
+        mov r0, 14
+        str r0, r1, S_HP
+        bl prt_recalc
+        mov r0, 30
+        st r0, st_acc_bonus
+        mov r0, 40
+        st r0, st_energy
+        st r0, st_core_hp
+        mov r0, 10
+        st r0, st_px
+        st r0, st_py
+        mov r0, 8
+        st r0, st_sight
+        bl fov_reset
+        bl fov_update
+        bl act_clear
+        mov r0, 0
+        st r0, st_alarm
+        st r0, st_alarm_acc
+        st r0, st_alarm_waves
+        ld r0, drv_k_16284
+        st r0, st_time
+        st r0, st_ply_next
+        mov r0, EN_BULWARK
+        mov r1, 12
+        mov r2, 10
+        bl act_spawn            ; slot 0 (HP 40, dist 2)
+        lea r2, st_enemies
+        ld r0, drv_k_16284
+        str r0, r2, E_NEXT      ; exact tie with player before stun
+        mov r0, 0
+        str r0, r2, E_FLAGS
+        ; Hit 1: stuns Bulwark -> E_NEXT = 16384 (= TIME_REBASE), EF_STUNNED set
+        bl drv_fire_until_hit
+        lea r2, st_enemies
+        ldr r0, r2, E_NEXT
+        st r0, drv_sr_n1        ; expect 16384
+        ldr r0, r2, E_FLAGS
+        and r0, r0, EF_STUNNED
+        st r0, drv_sr_f1        ; expect 8
+        ; Player spends 100 TU -> st_ply_next = 16384 (exact player/enemy tie at TIME_REBASE!)
+        ld r0, drv_k_16384
+        st r0, st_ply_next
+        bl act_run              ; tie goes to player; rebases 16384 -> 0
+        ld r0, st_time
+        st r0, drv_sr_rb_t      ; expect 0
+        ld r0, st_ply_next
+        st r0, drv_sr_rb_pn     ; expect 0
+        lea r2, st_enemies
+        ldr r0, r2, E_NEXT
+        st r0, drv_sr_rb_en     ; expect 0 (shifted from 16384)
+        ldr r0, r2, E_X
+        st r0, drv_sr_rb_x      ; expect 12 (did not act on tie)
+        ldr r0, r2, E_FLAGS
+        and r0, r0, EF_STUNNED
+        st r0, drv_sr_rb_fl     ; expect 8 (still stunned across rebase)
+        ; Hit 2 before robot acts: EF_STUNNED blocks second delay -> stays 0
+        bl drv_fire_until_hit
+        lea r2, st_enemies
+        ldr r0, r2, E_NEXT
+        st r0, drv_sr_n2        ; expect 0
+        ldr r0, r2, E_FLAGS
+        and r0, r0, EF_STUNNED
+        st r0, drv_sr_f2        ; expect 8
+        ; Player waits 100 TU -> Bulwark acts (0 < 100), steps west, clears EF_STUNNED, E_NEXT=150
+        mov r0, 100
+        st r0, st_ply_next
+        bl act_run
+        lea r2, st_enemies
+        ldr r0, r2, E_X
+        st r0, drv_sr_act_x     ; expect 11
+        ldr r0, r2, E_NEXT
+        st r0, drv_sr_act_en    ; expect 150
+        ldr r0, r2, E_FLAGS
+        and r0, r0, EF_STUNNED
+        st r0, drv_sr_act_fl    ; expect 0 (cleared on action)
+        ; Hit 3 after robot acted: stuns again -> E_NEXT = 250, EF_STUNNED = 8
+        bl drv_fire_until_hit
+        lea r2, st_enemies
+        ldr r0, r2, E_NEXT
+        st r0, drv_sr_n3        ; expect 250
+        ldr r0, r2, E_FLAGS
+        and r0, r0, EF_STUNNED
+        st r0, drv_sr_f3        ; expect 8
+
+        ; ============================================================
+        ; T12. 24-Sapper chain reaction: terminates, sp restored,
+        ;      st_target cleared, freed slot reusable
+        ; ============================================================
+        mov r0, 1
+        sleep r0
+        bl act_clear
+        bl itm_clear
+        mov r0, 0
+        st r0, st_kills
+        st r0, st_alarm
+        mov r0, 40
+        st r0, st_core_hp
+        mov r0, 5
+        st r0, st_px
+        st r0, st_py
+        mov r3, 0
+drv_c24_sp_lp:
+        mov r0, EN_SAPPER
+        mov r1, 10
+        add r1, r1, r3
+        mov r2, 10
+        bl act_spawn
+        add r3, r3, 1
+        mov r0, MAX_ENEMIES
+        cmp r3, r0
+        brlt drv_c24_sp_lp
+        mov r0, MAX_ENEMIES-1
+        st r0, st_target        ; target last Sapper in the 24-long chain
+        mov r0, sp
+        st r0, drv_c24_sp0
+        mov r0, 0
+        mov r1, 10
+        bl cbt_damage_enemy
+        mov r0, sp
+        ld r1, drv_c24_sp0
+        mov r2, 0
+        cmp r0, r1
+        brne drv_c24_sp_st
+        mov r2, 1
+drv_c24_sp_st:
+        st r2, drv_c24_sp_ok    ; expect 1 (stack pointer restored)
+        ; Count living enemies (expect 0)
+        mov r0, 0
+        lea r2, st_enemies
+        mov r3, MAX_ENEMIES
+drv_c24_cnt:
+        ldr r1, r2, E_TYPE
+        cmp r1, EN_NONE
+        brz drv_c24_cntn
+        add r0, r0, 1
+drv_c24_cntn:
+        add r2, r2, 8
+        add r2, r2, 8
+        sub r3, r3, 1
+        brp drv_c24_cnt
+        st r0, drv_c24_alive    ; expect 0
+        ld r0, st_kills
+        st r0, drv_c24_kills    ; expect 24
+        ld r0, st_alarm
+        st r0, drv_c24_alarm    ; expect 600 (24 * 25)
+        ld r0, st_target
+        st r0, drv_c24_tgt      ; expect -1
+        ld r0, cbt_blast_depth
+        st r0, drv_c24_depth    ; expect 0
+        mov r0, EN_FLIT
+        mov r1, 10
+        mov r2, 10
+        bl act_spawn
+        st r0, drv_c24_reuse    ; expect 0 (freed slot reusable)
         halt
 
 ; ---- Helpers --------------------------------------------------------
@@ -801,6 +970,8 @@ drv_head_attr:
 drv_k_mapsize:   .word MAP_SIZE
 drv_k_260:       .word 260
 drv_k_500:       .word 500
+drv_k_16284:     .word TIME_REBASE-100
+drv_k_16384:     .word TIME_REBASE
 
 drv_lch_e1:      .word 99
 drv_lch_e2:      .word 99
@@ -882,6 +1053,28 @@ drv_sc_s0:       .word 99
 drv_sc_s1:       .word 99
 drv_sc_kills:    .word 99
 drv_sc_alarm:    .word 99
+drv_sr_n1:       .word 99
+drv_sr_f1:       .word 99
+drv_sr_rb_t:     .word 99
+drv_sr_rb_pn:    .word 99
+drv_sr_rb_en:    .word 99
+drv_sr_rb_x:     .word 99
+drv_sr_rb_fl:    .word 99
+drv_sr_n2:       .word 99
+drv_sr_f2:       .word 99
+drv_sr_act_x:    .word 99
+drv_sr_act_en:   .word 99
+drv_sr_act_fl:   .word 99
+drv_sr_n3:       .word 99
+drv_sr_f3:       .word 99
+drv_c24_sp0:     .word 0
+drv_c24_sp_ok:   .word 99
+drv_c24_alive:   .word 99
+drv_c24_kills:   .word 99
+drv_c24_alarm:   .word 99
+drv_c24_tgt:     .word 99
+drv_c24_depth:   .word 99
+drv_c24_reuse:   .word 99
 
         .include "../../src/state.ap"
         .include "../../src/rng.ap"

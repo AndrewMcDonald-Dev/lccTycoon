@@ -202,3 +202,4 @@ tests go red by design (PART_COUNT 26 changes loot rolls); fixed in WP12/WP13.
 **Status:** done (Neon).
 **Log:**
 - 2026-11-22 done (Neon): `act_alarm_wave` refreshes FOV (`fov_update`) and BFS before spawn, spawns only reachable tiles with `E_ALERT = REINF_ALERT` and `EF_REINF` (no `st_kills`/drop; Sapper still detonates), and posts the alarm message only if ≥1 spawned; `cbt_blast` suppresses `act_alert` on surviving collateral via `cbt_blast_depth`; armed Sapper steps pay `ET_ATK_TIME`; Watcher alarm uses once-per-Watcher `EF_ALARMED`; `ui_se_salvaged` renamed to `"Parts: picked up "`; DESIGN.md/WORKPLAN.md synced.
+- 2026-11-22 WP16 (Neon, finished by Opus): council R2 — EF_REINF wave robots track the player while alerted (BFS), early exit when the pool is full, help overlay spacing, "Score Kills" labels, stun-across-rebase / 24-Sapper chain / prt_damage(0) / recycle over-max / barrier+armor tests; DESIGN scope and module table synced.

@@ -55,7 +55,14 @@
           "drv_ew_cnt": 0,
           "drv_ew_waves": 1,
           "drv_ew_alarm": 100,
-          "drv_ew_msg": "Sentinel"
+          "drv_ew_msg": "Sentinel",
+          "drv_tr_hit": 1,
+          "drv_tr_tx": 6,
+          "drv_tr_ty": 10,
+          "drv_nt_tx": 5,
+          "drv_nt_ty": 10,
+          "drv_nt_state": 0,
+          "drv_nt_cbt": 0
         }
       }
     }

@@ -20,7 +20,8 @@
 ;;                   no turrets/workers, >= REINF_MIN_DIST, not fov-visible), post alarm (A_BAD) if any spawned, st_alarm_waves++, st_alarm = ALARM_MAX - REINF_AFTER
 ;; act_think        r0=index            -> -        one action of that enemy, adds its cost (ET_SPEED for a step, ET_ATK_TIME for an attack or armed Sapper step, TIME_WAIT otherwise) to E_NEXT.
 ;;                   Sight: dist <= ET_SIGHT and fov_los → ES_HUNT, E_TX/TY = player, E_ALERT = ALERT_TURNS, first sighting while fov_visible posts "<name> spotted."; Watcher sighting
-;;                   without EF_ALARMED sets EF_ALARMED and adds ALARM_WATCHER to st_alarm once. AI_MELEE: adjacent → attack, else chase. AI_SAPPER: hunts like melee (never flees);
+;;                   without EF_ALARMED sets EF_ALARMED and adds ALARM_WATCHER to st_alarm once. While EF_REINF is hunting (E_ALERT > 0), E_TX/TY refreshes to player each action (BFS tracking);
+;;                   normal robots keep the no-omniscience rule. AI_MELEE: adjacent → attack, else chase. AI_SAPPER: hunts like melee (never flees);
 ;;                   adjacent unarmed → set EF_ARMED, warning (A_WARN), spend ET_ATK_TIME; adjacent armed → detonate via cbt_enemy_attack; stepping while EF_ARMED spends ET_ATK_TIME.
 ;;                   AI_RANGED: in range with LOS → attack; dist <= 2 → step away. AI_TURRET: never moves. AI_WORKER: never attacks, flees when it sees the player.
 ;;                   hp < FLEE_PCT% → ES_FLEE (not turrets/sappers). Idle: random walk. Steps open T_DOOR.
@@ -1337,9 +1338,24 @@ act_aw_ret:
         ret
 
 ; Find a T_FLOOR tile >= REINF_MIN_DIST from player, not fov-visible, unoccupied.
-; Returns packed tile index (y<<MAP_SHIFT)|x or -1.
+; Internal: act_find_reinf_tile/act_reinf_tile_ok clobber r1-r4 and rely on act_alarm_wave saving them.
+; Returns packed tile index (y<<MAP_SHIFT)|x or -1 (also returns -1 early if enemy pool is full).
 act_find_reinf_tile:
         push lr
+        lea r2, st_enemies
+        mov r3, -MAX_ENEMIES
+act_frt_pool:
+        ldr r4, r2, E_TYPE
+        cmp r4, EN_NONE
+        bre act_frt_has_slot
+        add r2, r2, 8
+        add r2, r2, 8
+        add r3, r3, 1
+        brn act_frt_pool
+        mov r0, -1
+        pop lr
+        ret
+act_frt_has_slot:
         mov r0, 48
         st r0, act_aw_tries
 act_frt_rand:
@@ -1468,6 +1484,7 @@ act_frt_found:
         ret
 
 ; Check if (r0=x, r1=y) is a valid reinforcement tile -> r0=1|0
+; Internal: act_find_reinf_tile/act_reinf_tile_ok clobber r1-r4 and rely on act_alarm_wave saving them.
 act_reinf_tile_ok:
         push lr
         st r0, act_aw_chkx
@@ -1724,6 +1741,19 @@ act_th_decay:
         br act_th_act
 act_th_al_keep:
         str r1, r4, E_ALERT
+        ; Floor alarm keeps hunting EF_REINF robots informed so they keep using BFS
+        ldr r0, r4, E_FLAGS
+        mov r1, EF_REINF
+        and r0, r0, r1
+        brz act_th_act
+        ldr r0, r4, E_STATE
+        cmp r0, ES_HUNT
+        brne act_th_act
+        ld r1, act_p_px5
+        ldr r0, r1, 0
+        str r0, r4, E_TX
+        ldr r0, r1, 1
+        str r0, r4, E_TY
 
         ; --- Choose & perform action ---
 act_th_act:

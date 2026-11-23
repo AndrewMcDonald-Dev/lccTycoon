@@ -17,8 +17,8 @@ from any existing game.
 | No file I/O | No save games (permadeath fits the genre anyway) |
 | Single assembly unit | Modules via `.include`, per-module label prefixes, far references handled by the build |
 
-Verdict: viable. Procedural floors, FOV with memory, a time-unit scheduler, ~23 parts and
-7 robot types fit well inside the budget. Out of reach for v1: heat, hacking, factions,
+Verdict: viable. Procedural floors, FOV with memory, a time-unit scheduler, 26 parts and
+9 robot types fit well inside the budget. Out of reach for v1: heat, hacking, factions,
 allies, saving. Estimate 5–8K lines of assembly, 11 work packages + QA, 5 waves.
 
 ## Pitch
@@ -35,10 +35,10 @@ to fight and when to sneak past, and which part to swap in.
 
 - In: title screen; procedurally generated floors (rooms + corridors, doors, stairs),
   10 depths; FOV radius ~8 with remembered tiles; time-unit scheduler (propulsion sets
-  your speed); 8 slots (2 propulsion, 1 power, 3 weapon, 2 utility) + 4 inventory; 23
+  your speed); 8 slots (2 propulsion, 1 power, 3 weapon, 2 utility) + 4 inventory; 26
   parts in 3 tiers; energy (power regen, weapons cost energy); ranged fire mode with
-  target cycling, bump melee; damage spread over parts and the core; 7 robot types with
-  simple AI (wander, hunt, keep distance, turret, flee); drops; message log; death and
+  target cycling, bump melee; damage spread over parts and the core; 9 robot types with
+  simple AI (wander, hunt, keep distance, turret, flee, sapper); drops; message log; death and
   win screens with score; help overlay.
 - Out (v1): save/load, heat, hacking, factions, allies, part mass/carry limits, item
   stacking, more than one item per tile, sound beyond optional beeps.
@@ -51,7 +51,7 @@ cols 0-63                                                         cols 64-99
 | VIEWPORT rows 0-23 = the whole 64x24 floor (tile x,y = cell y,x)| 0  SCRAPCORE  Depth 10  Turn 123   |
 |                                                                | 1  Core   ██████████ 40/40         |
 |   #########                                                    | 2  Energy ██████░░░░ 12/20         |
-|   #·····@·+········                                            | 3  Move 100  Sight 8  Kills 3      |
+|   #·····@·+········                                            | 3  Move 100  Sight 8  Score Kills 3|
 |   #··/····#                         (unknown = blank,          | 4  -- Loadout --  Alarm ░░░░░░░░░░ |
 |   #···r···#                          remembered = A_MEMORY,    | 5  P Stub Legs    ████████ 20      |
 |   ####+####                          visible = palette)        | 6  P Stub Legs    ████████ 20      |
@@ -304,8 +304,10 @@ player action (private to actors, 1536 words + queue).
 - **Losing the player:** a hunting enemy that can't see the player walks greedily toward
   E_TX/E_TY; if that step is blocked it waits. It uses the player-seeded distance field
   (BFS) only while it sees the player or when E_TX/E_TY equals the player's position,
-  so it never tracks the player through walls. E_ALERT counts down, and at 0 it goes
-  back to ES_IDLE.
+  so normal robots never track the player through walls. Reinforcement-wave robots
+  (`EF_REINF`) are the exception: while hunting (`E_ALERT > 0`), the floor alarm refreshes
+  their `E_TX/E_TY` to the player's position each action so they keep pathing via BFS
+  until their alert expires. E_ALERT counts down, and at 0 it goes back to ES_IDLE.
 - **Hit by the player:** a robot that survives player damage is alerted (`act_alert`):
   E_TX/E_TY = player, E_ALERT = ALERT_TURNS, ES_IDLE → ES_HUNT (AI_WORKER → ES_FLEE),
   so sniping from beyond ET_SIGHT wakes it.
@@ -377,13 +379,13 @@ preserved.
 | src/rng.ap | rng_ | architect | uniform random ranges from the RNG's high bits | rng_range | lcc-simulation |
 | src/dungeon.ap | dun_ | WP1 | generator, tiles, walkable/opaque, random floor, distance | dun_generate dun_get dun_set dun_walkable dun_opaque dun_random_floor dun_room_of dun_dist | lcc-simulation |
 | src/fov.ap | fov_ | WP2 | visibility + memory, line of sight | fov_reset fov_update fov_visible fov_known fov_los | lcc-simulation |
-| src/parts.ap | prt_ | WP3 | catalog, slots, inventory, derived stats, energy, repair, damage spread | prt_init prt_recalc prt_info prt_name prt_kind prt_slot_kind prt_attach prt_detach prt_inv_add prt_inv_clear prt_damage prt_tick prt_spend_energy prt_random_part prt_free_slots | lcc-simulation |
+| src/parts.ap | prt_ | WP3 | catalog, slots, inventory, derived stats, energy, repair, damage spread | prt_init prt_recalc prt_info prt_name prt_kind prt_slot_kind prt_attach prt_detach prt_inv_add prt_inv_clear prt_recycle prt_damage prt_tick prt_spend_energy prt_random_part prt_free_slots | lcc-simulation |
 | src/ui.ap | ui_ | WP4 | panel, bars, messages, help row, menus, help overlay, title/end screens | ui_init ui_title ui_draw ui_end_screen ui_msg ui_msg_add ui_msg_addn ui_msg_attr ui_bar ui_score | lcc-text-graphics |
 | src/render.ap | ren_ | WP5 | map viewport layers | ren_draw ren_tile_cell | lcc-text-graphics |
 | src/items.ap | itm_ | WP6 | floor item pool, per-floor loot | itm_clear itm_place itm_at itm_remove itm_spawn_floor | lcc-simulation |
 | src/actors.ap | act_ | WP7 | robot types, pool, spawning, scheduler, AI, target cycling | act_init act_clear act_spawn_floor act_spawn act_at act_run act_think act_type_info act_name act_kill act_alert act_next_visible | lcc-simulation |
-| src/combat.ap | cbt_ | WP8 | hit chance, fire, melee, enemy attacks, destruction, drops | cbt_hit_chance cbt_player_fire cbt_player_melee cbt_enemy_attack cbt_damage_enemy | lcc-simulation |
-| src/player.ap | ply_ | WP9 | input modes, player actions | ply_init ply_handle ply_key ply_move ply_spend ply_pickup ply_equip ply_remove ply_drop ply_target ply_fire ply_stairs | lcc-game-dev |
+| src/combat.ap | cbt_ | WP8 | hit chance, fire, melee, enemy attacks, destruction, drops | cbt_hit_chance cbt_player_fire cbt_player_melee cbt_enemy_attack cbt_damage_enemy cbt_blast | lcc-simulation |
+| src/player.ap | ply_ | WP9 | input modes, player actions | ply_init ply_handle ply_key ply_move ply_spend ply_pickup ply_equip ply_remove ply_drop ply_recycle ply_target ply_fire ply_stairs | lcc-game-dev |
 
 Dependency direction (who calls whom): main → everything. player → dungeon, items,
 parts, actors, combat, ui. actors → dungeon, fov, combat, ui. combat → parts, items,
@@ -513,8 +515,11 @@ it. Spare parts now double as emergency repair material: carry, attach, or scrap
   and spawns up to `REINF_COUNT` depth-eligible hostile robots (by `ET_WEIGHT`, excluding
   `AI_TURRET` and `AI_WORKER`) on reachable floor tiles (finite BFS distance from the
   player) ≥ `REINF_MIN_DIST` from the player and outside FOV — already in `ES_HUNT`
-  targeting the player with `E_ALERT = REINF_ALERT` and flagged `EF_REINF`. Destroying an
-  `EF_REINF` robot still posts `<Name> destroyed.` (and an `EF_REINF` Sapper still
+  targeting the player with `E_ALERT = REINF_ALERT` and flagged `EF_REINF`. While an
+  `EF_REINF` robot stays in `ES_HUNT` (`E_ALERT > 0`), the floor alarm keeps its
+  `E_TX/E_TY` updated to the player's position each action so it continues pathing via BFS
+  even if the player moves out of sight (normal robots keep the no-omniscience rule).
+  Destroying an `EF_REINF` robot still posts `<Name> destroyed.` (and an `EF_REINF` Sapper still
   detonates), but grants no `st_kills` credit and no part drop. `Floor alarm!
   Reinforcements incoming!` (`A_BAD`) is posted only if at least one robot spawned (if the
   pool is full or no qualifying tile exists, no message is posted, while `st_alarm_waves`

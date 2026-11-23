@@ -1913,9 +1913,9 @@ ui_draw_help_overlay:
         push r3
         push r4
         push lr
-        mov r0, 1
+        mov r0, 0
         mov r1, 3
-        mov r2, 22
+        mov r2, 24
         mov r3, 58
         mov r4, G_SPACE
         bl ui_fast_fill
@@ -1924,12 +1924,6 @@ ui_draw_help_overlay:
         bl ui_dbox
         lea r4, ui_help_lines
         bl ui_draw_ptbl
-        mov r0, 13
-        mov r1, 5
-        lea r2, ui_sh_recycle
-        mov r3, A_TEXT>>8
-        sll r3, 8
-        bl video_text
         pop lr
         pop r4
         pop r3
@@ -2982,39 +2976,42 @@ ui_panel_hdrs:
 
 ; Help overlay table: (row*SCR_COLS + col, attr, pstr)
 ui_help_lines:
-        .word 1*SCR_COLS+17
+        .word 0*SCR_COLS+17
         .word A_TITLE
         .word ui_sh_title
-        .word 2*SCR_COLS+5
+        .word 1*SCR_COLS+5
         .word A_LABEL
         .word ui_sh_l1
-        .word 3*SCR_COLS+5
+        .word 2*SCR_COLS+5
         .word A_TEXT
         .word ui_sh_l2
-        .word 4*SCR_COLS+5
+        .word 3*SCR_COLS+5
         .word A_TEXT
         .word ui_sh_l3
-        .word 5*SCR_COLS+5
+        .word 4*SCR_COLS+5
         .word A_TEXT
         .word ui_sh_l4
-        .word 6*SCR_COLS+5
+        .word 5*SCR_COLS+5
         .word A_TEXT
         .word ui_sh_l5
-        .word 7*SCR_COLS+5
+        .word 6*SCR_COLS+5
         .word A_TEXT
         .word ui_sh_l5b
-        .word 9*SCR_COLS+5
+        .word 8*SCR_COLS+5
         .word A_LABEL
         .word ui_sh_l6
-        .word 10*SCR_COLS+5
+        .word 9*SCR_COLS+5
         .word A_TEXT
         .word ui_sh_l7
-        .word 11*SCR_COLS+5
+        .word 10*SCR_COLS+5
         .word A_TEXT
         .word ui_sh_l8
-        .word 12*SCR_COLS+5
+        .word 11*SCR_COLS+5
         .word A_TEXT
         .word ui_sh_l9
+        .word 12*SCR_COLS+5
+        .word A_TEXT
+        .word ui_sh_recycle
         .word 14*SCR_COLS+5
         .word A_LABEL
         .word ui_sh_l11
@@ -3030,13 +3027,13 @@ ui_help_lines:
         .word 18*SCR_COLS+5
         .word A_TEXT
         .word ui_sh_l14b
-        .word 19*SCR_COLS+5
-        .word A_DIM
-        .word ui_sh_l15
         .word 20*SCR_COLS+5
         .word A_DIM
-        .word ui_sh_l16
+        .word ui_sh_l15
         .word 21*SCR_COLS+5
+        .word A_DIM
+        .word ui_sh_l16
+        .word 22*SCR_COLS+5
         .word A_TITLE
         .word ui_sh_l17
         .word -1
@@ -3264,7 +3261,7 @@ ui_s_core:        .pstring "Core"
 ui_s_energy:      .pstring "Energy"
 ui_s_move:        .pstring "Move "
 ui_s_sight:       .pstring "  Sight "
-ui_s_kills:       .pstring "  Kills "
+ui_s_kills:       .pstring "  Score Kills "
 ui_s_load:        .pstring "-- Loadout --"
 ui_s_inv:         .pstring "-- Carried --"
 ui_s_tgt:         .pstring "-- Target --"
@@ -3318,7 +3315,7 @@ ui_sh_l6:         .pstring "PARTS & SALVAGE"
 ui_sh_l7:         .pstring "  g                  Pick up part on your tile"
 ui_sh_l8:         .pstring "  e 1-4 / r 1-8      Equip carried / Remove slot"
 ui_sh_l9:         .pstring "  x 1-4 / w 1-3      Drop carried / Hold weapon fire"
-ui_sh_recycle:    .string "  R 1-4              Recycle carried part for core HP"
+ui_sh_recycle:    .pstring "  R 1-4              Recycle carried part for core HP"
 ui_sh_l11:        .pstring "COMBAT & SYSTEM"
 ui_sh_l12:        .pstring "  f / F              Target robot / Quick-fire"
 ui_sh_l13:        .pstring "  Tab / ] / [        Cycle visible robots"
@@ -3362,7 +3359,7 @@ ui_se_won_sub:    .pstring "You escaped the buried complex and broke through to 
 ui_se_escaped:    .pstring "VICTORY -- CORE ONLINE ON SURFACE"
 ui_se_sum_hdr:    .pstring " RUN SUMMARY "
 ui_se_best:       .pstring "Shallowest Depth:"
-ui_se_kills:      .pstring "Robots Destroyed:"
+ui_se_kills:      .pstring "Score Kills:     "
 ui_se_turns:      .pstring "Turns Taken:     "
 ui_se_score:      .pstring "FINAL SCORE:     "
 ui_se_salvaged:   .string "Parts: picked up "

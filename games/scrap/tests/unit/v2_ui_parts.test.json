@@ -17,9 +17,12 @@
           "drv_lost_part": 25,
           "drv_shield_remaining": 3,
           "drv_salvage_duplicate": 25,
+          "drv_dmg0_res": [-1, -1, 0, 39],
+          "drv_arm_res": [6, -1, 3, 4, 48],
+          "drv_arm_kill": [6, 20, 3, 4, 0],
           "st_shield": 0,
           "st_salvage": 0,
-          "st_stat_lost": 3
+          "st_stat_lost": 4
         }
       }
     },
@@ -28,7 +31,7 @@
       "expect": {
         "status": "halted",
         "memory": {
-          "drv_recycle_results": [3, 13, 0, 0, 7, 17, 0, 0, 6, 16, 0, 0, 11, 21, 0, 0, 6, 16, 0, 0, 15, 25, 0, 0, 1, 40, 0, 0, -1, 40, 25, 7, 0, 40, 0, 0],
+          "drv_recycle_results": [3, 13, 0, 0, 7, 17, 0, 0, 6, 16, 0, 0, 11, 21, 0, 0, 6, 16, 0, 0, 15, 25, 0, 0, 1, 40, 0, 0, -1, 40, 25, 7, 0, 40, 0, 0, -1, 45, 25, 7],
           "st_stat_recycled": 7
         }
       }

@@ -77,7 +77,28 @@
           "drv_sc_s0": 0,
           "drv_sc_s1": 0,
           "drv_sc_kills": 1,
-          "drv_sc_alarm": 50
+          "drv_sc_alarm": 50,
+          "drv_sr_n1": 16384,
+          "drv_sr_f1": 8,
+          "drv_sr_rb_t": 0,
+          "drv_sr_rb_pn": 0,
+          "drv_sr_rb_en": 0,
+          "drv_sr_rb_x": 12,
+          "drv_sr_rb_fl": 8,
+          "drv_sr_n2": 0,
+          "drv_sr_f2": 8,
+          "drv_sr_act_x": 11,
+          "drv_sr_act_en": 150,
+          "drv_sr_act_fl": 0,
+          "drv_sr_n3": 250,
+          "drv_sr_f3": 8,
+          "drv_c24_sp_ok": 1,
+          "drv_c24_alive": 0,
+          "drv_c24_kills": 24,
+          "drv_c24_alarm": 600,
+          "drv_c24_tgt": -1,
+          "drv_c24_depth": 0,
+          "drv_c24_reuse": 0
         }
       }
     }

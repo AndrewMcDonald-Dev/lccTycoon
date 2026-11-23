@@ -47,8 +47,8 @@ drv_hit_loop:
         add r4, r4, 5
         add r3, r3, 2
         ldr r0, r3, 0
-        cmp r0, 0
-        brp drv_hit_loop
+        cmp r0, -1
+        brnz drv_hit_loop
 
         ; A second Barrier must not stack. Destroy one and retain the other.
         mov r0, PT_BARRIER
@@ -88,6 +88,77 @@ drv_hit_loop:
         bl prt_damage
         mov r0, 10
         bl prt_damage
+
+        ; prt_damage(0) counts as 1 (not -2) without a barrier
+        mov r0, 1
+        st r0, drv_force_core
+        mov r0, CORE_MAX
+        st r0, st_core_hp
+        mov r0, 10
+        st r0, st_energy
+        mov r0, 0
+        lea r1, drv_destroyed
+        mov r2, 99
+        str r2, r1, 0
+        bl prt_damage
+        lea r4, drv_dmg0_res
+        str r0, r4, 0           ; expect -1 (core hit, not -2)
+        ldr r0, r1, 0
+        str r0, r4, 1           ; expect -1
+        ld r0, st_absorbed
+        str r0, r4, 2           ; expect 0
+        ld r0, st_core_hp
+        str r0, r4, 3           ; expect 39
+
+        ; Barrier + UT_ARMOR partial-absorb hit on armor part, then partial-absorb destruction
+        mov r0, PT_HEX_ARMOR
+        mov r1, SLOT_UTIL0
+        bl drv_attach_util
+        mov r0, PT_BARRIER
+        mov r1, SLOT_UTIL0+1
+        bl drv_attach_util
+        mov r0, 0
+        st r0, drv_force_core
+        mov r0, 10
+        st r0, st_energy
+        mov r0, 7
+        lea r1, drv_destroyed
+        bl prt_damage           ; absorbs 3 (energy 10->4), rem 4, Hex Armor -2 -> 2 dmg (HP 50->48)
+        lea r4, drv_arm_res
+        str r0, r4, 0           ; expect 6 (SLOT_UTIL0)
+        ldr r0, r1, 0
+        str r0, r4, 1           ; expect -1 (survived)
+        ld r0, st_absorbed
+        str r0, r4, 2           ; expect 3
+        ld r0, st_energy
+        str r0, r4, 3           ; expect 4
+        lea r2, st_slots
+        add r2, r2, SLOT_UTIL0*SLOT_SIZE
+        ldr r0, r2, S_HP
+        str r0, r4, 4           ; expect 48
+        ; Now lower Hex Armor to HP 2: partial-absorb hit destroys it
+        mov r0, 2
+        str r0, r2, S_HP
+        mov r0, 10
+        st r0, st_energy
+        mov r0, 7
+        lea r1, drv_destroyed
+        bl prt_damage           ; absorbs 3, rem 4, armor -2 -> 2 dmg -> destroyed!
+        lea r4, drv_arm_kill
+        str r0, r4, 0           ; expect 6
+        ldr r0, r1, 0
+        str r0, r4, 1           ; expect PT_HEX_ARMOR (20)
+        ld r0, st_absorbed
+        str r0, r4, 2           ; expect 3
+        ld r0, st_energy
+        str r0, r4, 3           ; expect 4
+        ldr r0, r2, S_PART
+        str r0, r4, 4           ; expect 0 (slot cleared)
+        ; Remove remaining Barrier so final st_shield == 0
+        mov r0, PART_NONE
+        str r0, r2, SLOT_SIZE+S_PART
+        str r0, r2, SLOT_SIZE+S_HP
+        bl prt_recalc
 
         ; Return, core HP, inventory id and inventory integrity after each call.
         lea r3, drv_recycle_inputs
@@ -155,7 +226,7 @@ drv_hits:
         .word 3
         .word 3
         .word 1
-        .word 0
+        .word -1
 drv_recycle_inputs:
         .word PT_STUB_LEGS
         .word 9
@@ -184,6 +255,9 @@ drv_recycle_inputs:
         .word PART_NONE
         .word 0
         .word CORE_MAX
+        .word PT_BARRIER
+        .word 7
+        .word CORE_MAX+5
         .word -1
 drv_force_core:         .word 1
 drv_destroyed:          .word 99
@@ -198,7 +272,10 @@ drv_lost_part:          .word -1
 drv_shield_remaining:   .word -1
 drv_salvage_duplicate:  .word -1
 drv_hit_results:        .zero 4*5
-drv_recycle_results:    .zero 9*4
+drv_dmg0_res:           .zero 4
+drv_arm_res:            .zero 5
+drv_arm_kill:           .zero 5
+drv_recycle_results:    .zero 10*4
 
         .include "../../src/state.ap"
         .include "../../src/parts.ap"
