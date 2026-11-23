@@ -59,6 +59,7 @@ prt_init:
         ; zero st_slots + st_inv (contiguous in state.ap)
         lea r0, st_slots
         mov r1, 0
+        st r1, st_absorbed
         mov r2, (NUM_SLOTS+NUM_INV)*SLOT_SIZE
 prt_init_z:
         str r1, r0, 0

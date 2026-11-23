@@ -353,7 +353,7 @@
         .define BLAST_DMAX      8
         .define BLAST_ROBOT     10      ; blast damage to each other robot in the radius
 
-; ---- floor alarm / reinforcements (W: actors) -----------------------------------
+; ---- floor alarm / reinforcements (W: actors, combat) -----------------------------------
         .define ALARM_MAX       250     ; st_alarm at which a reinforcement wave arrives
         .define ALARM_PER_TURN  1       ; + per TIME_TURN of world time on the floor
         .define ALARM_WATCHER   40      ; + when a Watcher spots the player (once per Watcher, EF_ALARMED)

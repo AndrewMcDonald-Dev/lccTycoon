@@ -2,7 +2,7 @@
   "game": "v2_ui_render_driver.ap",
   "scenarios": [
     {
-      "name": "armed Sapper gains a yellow background and targeting overrides it with red",
+      "name": "armed Sapper gains a magenta background and targeting overrides it with red",
       "keys": "_ _",
       "expect": {
         "status": "halted",

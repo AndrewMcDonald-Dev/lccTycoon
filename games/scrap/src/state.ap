@@ -43,8 +43,8 @@ st_seed:        .word 0             ; RNG seed used for this game (millis) — W
 st_px:          .word 0             ; player tile x 0..MAP_W-1 — W: dungeon (floor start), player (moves)
 st_py:          .word 0             ; player tile y 0..MAP_H-1
 st_ply_next:    .word 0             ; player's next-act time (TU); player acts when <= every E_NEXT — W: player (+cost), actors (rebase)
-st_core_hp:     .word CORE_MAX      ; core integrity 0..CORE_MAX; 0 = dead — W: parts (prt_damage, repair)
-st_energy:      .word CORE_ECAP     ; 0..st_energy_max — W: parts (regen, prt_spend_energy)
+st_core_hp:     .word CORE_MAX      ; core integrity 0..CORE_MAX; 0 = dead — W: parts (prt_damage, repair, prt_recycle)
+st_energy:      .word CORE_ECAP     ; 0..st_energy_max — W: parts (regen, prt_spend_energy, barrier), combat (Leech drain)
 st_regen_acc:   .word 0             ; TU accumulated toward the next TIME_TURN of regen/repair — W: parts
 st_repair_acc:  .word 0             ; turns counted toward the next self-repair point — W: parts
 
