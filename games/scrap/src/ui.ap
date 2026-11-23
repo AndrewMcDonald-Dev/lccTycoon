@@ -477,7 +477,7 @@ ui_draw_turn:
         ldr r2, r4, UI_ST_ENERGY_MAX
         bl ui_put_num
 
-        ; 5. Row PR_STATS (3): append cost, "  Sight ", sight, "  Kills ", kills
+        ; 5. Row PR_STATS (3): append cost, "  Sight ", sight, "  Score Kills ", kills
         ldr r0, fp, -1
         mov r1, 200
         add r0, r0, r1
@@ -558,6 +558,7 @@ ui_draw_done:
         ret
 
 ; ---- compact alarm meter at the right of the Loadout header ----------
+; Private: clobbers r0-r4 (its one caller in ui_draw reloads them from its frame).
 ui_draw_alarm:
         push lr
         mov r0, PR_LOAD_HDR

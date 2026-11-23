@@ -190,10 +190,10 @@ tests go red by design (PART_COUNT 26 changes loot rolls); fixed in WP12/WP13.
 **Log:** 2026-11-22 done (Sol): Barrier Grid absorption, shield/salvage recalc, `R` recycling, armed Sapper highlight, alarm meter, v2 part stats, run summary in parts/player/ui/render; 33.6K/40K words, v2_ui_* tests passing.
 
 ## WP13 — Wording pass (Neon) + replay re-record + QA (Sol)
-**Status:** active (WP13a/WP13c done; WP13b in progress).
+**Status:** done (WP13a-e).
 **Log:**
 - 2026-11-22 WP13a done (Neon): wording pass (`Barrier Field` → `Barrier Grid`).
-- 2026-11-22 WP13b active (Sol): re-recording replays (`play`/`qa1`/`qa2`/`qol_*`) and v2 balance pass.
+- 2026-11-22 WP13b done (Sol): re-recorded replays (`play`/`qa1`/`qa2`/`qol_*`) and v2 balance pass.
 - 2026-11-22 WP13c done (Neon): title screen updated for Leech `l`, Sapper `x`, and `R` recycle; DESIGN.md and WORKPLAN.md synced with v2.
 - 2026-11-22 QA (Sol) found the stun cap did not stop stun-lock → EF_STUNNED once-per-action rule (Opus); blast kill credit clarified.
 
