@@ -396,3 +396,89 @@ ranges gave only two values per game. `rng_range` takes the full 16-bit state
   answer is no: a weaponless core can only ram.
 - Balance (spawn counts, drop rates, energy costs) is WP10's job once the game is
   playable.
+
+## v2 features (WP11–WP13)
+
+Constants are in `src/defs.ap` (search `v2`, `ALARM_`, `BLAST_`, `UT_SHIELD`, `WFX_`,
+`RECYCLE_`, `MODE_RECYCLE`); state cells are appended at the end of `src/state.ap`.
+Placeholder text below is final only after the WP13 wording pass.
+
+### New parts (catalog ids 24-26, rows already in `prt_catalog`)
+
+| id | Name | Kind | Tier | HP | Cover | Stats |
+|---|---|---|---|---|---|---|
+| 24 | Jolt Caster | weapon | 2 | 14 | 3 | 1-3, range 5, energy 3, acc 75, P_W_FX = WFX_STUN |
+| 25 | Barrier Field | utility shield | 2 | 12 | 1 | absorbs up to 3 damage per hit, SHIELD_COST 2 energy per point |
+| 26 | Salvage Rig | utility salvage | 1 | 10 | 1 | +25% robot drop chance; drops at 75-100% integrity |
+
+- **Stun (WFX_STUN):** a player weapon hit that leaves the robot alive adds STUN_TU to its
+  E_NEXT, unless E_NEXT ≥ st_time + 2×STUN_TU already (no stun-lock). The shot message
+  says the robot is stunned.
+- **Barrier (UT_SHIELD):** `prt_recalc` sets `st_shield` = best attached P_U_VALUE (0
+  none). `prt_damage` first absorbs `a = min(damage, st_shield, st_energy / SHIELD_COST)`
+  points, spending `a × SHIELD_COST` energy, and stores `a` in `st_absorbed` (0 when
+  nothing was absorbed). The rest is applied as before. If nothing is left it returns
+  **-2** (fully absorbed: no part or core picked). Callers print the damage actually
+  dealt (rolled − `st_absorbed`) and mention the absorbed part of it.
+- **Salvage (UT_SALVAGE):** `prt_recalc` sets `st_salvage` = best attached P_U_VALUE.
+  When a robot with a non-empty drop list is destroyed, its drop chance is
+  ET_DROP_PCT + st_salvage (cap 100) and, with st_salvage > 0, the dropped part's
+  integrity is rng_range(SALVAGE_HP_MIN..100)% instead of DROP_HP_MIN..100.
+- Panel/Here/Look stat text for the new parts: Jolt shows its weapon stats plus a stun
+  marker, Barrier its absorb value, Salvage Rig its drop bonus.
+
+### Recycling (`R`, MODE_RECYCLE)
+
+`R` then `1`-`4` breaks down that inventory part into core integrity:
+heal = 1 + (RECYCLE_BASE + RECYCLE_TIER × tier) × hp / maxhp, capped at CORE_MAX.
+Costs TIME_RECYCLE, `st_stat_recycled++`, message names the part and the core gain.
+Empty entry → message, no time. Core already at CORE_MAX → message, no time, part kept.
+Esc cancels. Inventory digits are highlighted (A_SELECT) like MODE_EQUIP/DROP; help row
+and the `?` overlay list it. Spare parts are now healing: carry, attach, or scrap.
+
+### New robots (act_types ids 8-9)
+
+| id | Name | Glyph | HP | Step TU | Atk TU | Damage | Range | Acc | AI | Depths | Sight | Drop % | Drops | Weight |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 8 | Leech | `l` bright green | 10 | 70 | 100 | 1-3 | 1 | 70 | melee | 9-3 | 7 | 60 | 9, 10, 25 | like Scuttler |
+| 9 | Sapper | `x` bright yellow | 8 | 60 | 100 | BLAST | 1 | — | sapper | 8-1 | 8 | 0 | (none) | a bit below Rifler |
+
+- **Leech:** a hit also drains min(LEECH_DRAIN, st_energy) energy (say so in the hit
+  message). A Barrier fully absorbing the hit also blocks the drain.
+- **Sapper (AI_SAPPER):** hunts like AI_MELEE. When its action comes up adjacent to the
+  player: if not EF_ARMED → set EF_ARMED, post an arming warning (A_WARN), spend
+  ET_ATK_TIME. If already armed and adjacent → detonate. An armed Sapper that is not
+  adjacent keeps chasing and detonates the next time it acts adjacent. Render draws an
+  armed Sapper on a visible tile with bg A_ARMED_BG (glyph and fg kept; the target
+  highlight wins in MODE_TARGET).
+- **Blast** (`cbt_blast r0=x r1=y r2=cause`): message, `st_alarm += ALARM_BLAST`, the
+  player within BLAST_RADIUS (Chebyshev) takes one prt_damage hit of
+  rng_range(BLAST_DMIN..BLAST_DMAX) (never misses, evade does not apply; Barrier applies;
+  core death → st_death_cause = cause), and every other living robot within
+  BLAST_RADIUS takes BLAST_ROBOT damage through `cbt_damage_enemy` (destroyed ones count
+  as kills and drop normally). A Sapper destroyed by anything (player fire, melee, another
+  blast) detonates at its tile. EF_BLOWN guarantees each Sapper blasts at most once, so
+  chain reactions terminate. The detonating Sapper is destroyed with no drop and is not
+  counted as a kill when it blew itself up next to the player; it is a kill when the player
+  (or a chain started by the player) destroyed it.
+
+### Floor alarm and reinforcements
+
+- `act_spawn_floor` resets `st_alarm`, `st_alarm_acc`, `st_alarm_waves` to 0.
+- `act_run` adds ALARM_PER_TURN per TIME_TURN of world time elapsed (accumulated in
+  `st_alarm_acc`). A Watcher that spots the player (ES_IDLE → ES_HUNT by sighting) adds
+  ALARM_WATCHER. Each blast adds ALARM_BLAST.
+- When `st_alarm ≥ ALARM_MAX`: post an alarm message (A_BAD), spawn up to REINF_COUNT
+  hostile robots (depth-eligible, by ET_WEIGHT, never AI_TURRET or AI_WORKER) on random
+  floor tiles ≥ REINF_MIN_DIST from the player and not fov-visible, already ES_HUNT with
+  E_TX/E_TY = player position and E_ALERT = ALERT_TURNS; `st_alarm_waves++`;
+  `st_alarm = ALARM_MAX − REINF_AFTER`. Pool full → no spawn, still resets.
+- Panel shows the alarm level as a compact meter that turns A_WARN past half and A_BAD
+  after the first wave. Pressure: resting and slow exploration now have a cost, and
+  Watchers are priority targets.
+
+### Run summary
+
+Death and win screens add a line with parts salvaged (`st_stat_salvaged`, `g` pickups),
+parts lost (`st_stat_lost`, attached parts destroyed) and parts recycled
+(`st_stat_recycled`). `main_new_game` zeroes the three counters.

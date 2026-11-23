@@ -173,3 +173,16 @@ death screen with the right cause and score, performance under the frame budget 
 enemies, `check` green.
 
 - 2026-11-22 QA-2: qa1 replays re-recorded after the RNG fix; tests/qa2.test.json = recorded autoplayer win on clock 32 (989 turns, score 2430, no memory pokes) + play-again after win. 60-seed bot sweep after the fixes: deaths spread over depths 8..1, 1 win. check 295/295.
+
+## WP11a — Arch: v2 interface
+**Status:** done (Opus). defs/state/catalog rows 24-26/main counter reset; DESIGN.md "v2
+features". RNG-dependent replays (play/qa1/qa2/qol) and the actors/parts catalog unit
+tests go red by design (PART_COUNT 26 changes loot rolls); fixed in WP12/WP13.
+
+## WP11 — v2 simulation (Neon): Leech, Sapper + blasts, stun, salvage drops, alarm + reinforcements
+**Files:** src/actors.ap, src/combat.ap, tests/unit/actors*, tests/unit/combat*, tests/unit/v2_sim_*, tests/v2_sim.test.json
+
+## WP12 — v2 parts/player/UI (Sol): barrier, salvage/shield recalc, recycling, render armed Sapper, alarm meter, part stats, run summary
+**Files:** src/parts.ap, src/player.ap, src/ui.ap, src/render.ap, tests/unit/parts*, player*, render*, ui*, tests/unit/v2_ui_*, tests/v2_ui.test.json
+
+## WP13 — Wording pass (Neon) + replay re-record + QA (Sol)

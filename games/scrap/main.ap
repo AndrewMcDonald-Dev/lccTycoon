@@ -92,6 +92,9 @@ main_new_game:
         st r0, st_kills
         st r0, st_climb
         st r0, st_death_cause
+        st r0, st_stat_salvaged
+        st r0, st_stat_lost
+        st r0, st_stat_recycled
         mov r0, MODE_MAP
         st r0, st_mode
         mov r0, -1
