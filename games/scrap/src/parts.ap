@@ -640,6 +640,7 @@ prt_recycle:
         mov r3, CORE_MAX
         cmp r2, r3
         brz prt_recycle_full
+        brgt prt_recycle_full    ; core at or above CORE_MAX
 
         ldr r3, r0, P_TIER
         mov r2, RECYCLE_TIER
@@ -705,7 +706,8 @@ prt_dmg_noout:
         st r1, st_absorbed
         cmp r0, 0
         brp prt_dmg_shield
-        br prt_dmg_absorbed
+        mov r0, 1               ; damage <= 0 counts as 1 (never "absorbed" without a barrier)
+        str r0, fp, -1
 prt_dmg_shield:
         ld r1, st_shield
         cmp r1, 0

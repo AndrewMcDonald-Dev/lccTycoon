@@ -335,6 +335,8 @@
         .define EF_ARMED        2       ; Sapper: armed, detonates on its next action next to the player
         .define EF_BLOWN        4       ; Sapper: its blast already went off (never twice)
         .define EF_STUNNED      8       ; stunned since its last action: no further stun until it acts (act_think clears)
+        .define EF_REINF        16      ; reinforcement-wave robot: destroying it gives no kill credit and no drop
+        .define EF_ALARMED      32      ; Watcher: already raised ALARM_WATCHER (once per Watcher)
         .define ALERT_TURNS     12      ; E_ALERT on sighting
         .define FLEE_PCT        25      ; hp below this % of max → ES_FLEE (not turrets)
         .define SPAWN_BASE      4       ; enemies per floor = SPAWN_BASE + (11-depth)/2 (+ 1 worker)
@@ -359,6 +361,7 @@
         .define REINF_COUNT     2       ; hostile robots per wave (pool permitting)
         .define REINF_AFTER     150     ; after a wave st_alarm drops to ALARM_MAX - REINF_AFTER
         .define REINF_MIN_DIST  12      ; wave robots spawn at least this far from the player, out of view
+        .define REINF_ALERT     60      ; E_ALERT of a wave robot (long enough to cross the floor)
 
 ; ---- score -----------------------------------------------------------------------
         .define SCORE_DEPTH     100     ; per depth climbed above 10
@@ -467,7 +470,7 @@
         .define A_MEMORY        FG_BLUE         ; remembered (known, not visible) tiles, any kind
         .define A_LOOK_BG       BG_BLUE         ; bg of the look cursor cell in MODE_LOOK
         .define A_TARGET_BG     BG_RED          ; bg of the targeted enemy in MODE_TARGET
-        .define A_ARMED_BG      BG_YELLOW       ; bg of an armed Sapper (EF_ARMED) on a visible tile
+        .define A_ARMED_BG      BG_MAGENTA      ; bg of an armed Sapper (EF_ARMED) on a visible tile (contrasts its bright-yellow 'x')
         .define A_TEXT          FG_WHITE
         .define A_DIM           FG_GRAY
         .define A_TITLE         FG_BYELLOW
