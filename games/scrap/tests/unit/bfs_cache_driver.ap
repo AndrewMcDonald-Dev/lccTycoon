@@ -133,6 +133,8 @@ ui_msg:
         ret
 ui_msg_add:
         ret
+ui_msg_attr:
+        ret
 
 drv_c_300:        .word 300
 drv_step1_x:      .word 99

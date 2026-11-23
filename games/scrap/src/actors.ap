@@ -1142,21 +1142,6 @@ act_run_done:
         pop r0
         ret
 
-; Internal: set attribute r0 on the newest message in st_msg_attr.
-; Mirrors ui_msg_attr without introducing a new external link symbol into
-; minimal unit drivers (bfs_cache_driver, fov_cache_driver) that stub ui_msg*.
-act_set_msg_attr:
-        push r1
-        push r2
-        ld r1, st_msg_head
-        and r1, r1, MSG_COUNT-1
-        lea r2, st_msg_attr
-        add r2, r2, r1
-        str r0, r2, 0
-        pop r2
-        pop r1
-        ret
-
 ; Internal: trigger a floor reinforcement wave when st_alarm >= ALARM_MAX.
 ; Preserves all registers.
 act_aw_depth:   .word 0
@@ -1187,7 +1172,7 @@ act_alarm_wave:
         bl ui_msg
         mov r0, A_BAD>>8
         sll r0, 8
-        bl act_set_msg_attr
+        bl ui_msg_attr
 
         ld r0, st_alarm_waves
         add r0, r0, 1
@@ -1762,7 +1747,7 @@ act_th_sapper:
         bl ui_msg
         mov r0, A_WARN>>8
         sll r0, 8
-        bl act_set_msg_attr
+        bl ui_msg_attr
         ld r4, act_th_tptr
         ldr r0, r4, ET_ATK_TIME
         st r0, act_th_cost

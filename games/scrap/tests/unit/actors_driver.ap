@@ -1241,6 +1241,8 @@ ui_msg:
 
 ui_msg_add:
         ret
+ui_msg_attr:
+        ret
 
 ; ---- Constants & results --------------------------------------------
 drv_k_mapsize:      .word MAP_SIZE
