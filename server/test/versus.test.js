@@ -5,6 +5,7 @@ const assert = require('node:assert');
 const { Client, utils } = require('ssh2');
 const { startServer, buildGame } = require('../server');
 const { RaceGame, GAME } = require('../vm');
+const { Room } = require('../room');
 
 const game = buildGame();
 const hostKey = utils.generateKeyPairSync('ed25519').private;
@@ -22,6 +23,7 @@ function connect(port, username, extra = {}) {
   });
 }
 function shell(c, rows = 31, cols = 100) {
+  // ssh2 sends these as the pty-req uint32 sizes, so a client can claim any size.
   return new Promise((resolve, reject) => c.shell({ term: 'xterm-256color', rows, cols }, (err, s) => {
     if (err) return reject(err);
     s.out = '';
@@ -32,8 +34,12 @@ function shell(c, rows = 31, cols = 100) {
 
 function snapshot(g) {
   const sym = g.sym, mem = g.mem;
-  const words = (name, n) => Array.from(mem.slice(sym[name], sym[name] + n)).join(',');
-  return { map: words('st_map', 64 * 24), enemies: words('st_enemies', 24 * 16), items: words('st_items', 32 * 8), slots: words('st_slots', 16) };
+  const words = (name, n) => Array.from(mem.slice(sym[name], sym[name] + n));
+  const time = mem[sym.st_time];
+  // E_NEXT (word 4) is on the scheduler clock, which differs with turns played: compare it relative to st_time.
+  const raw = words('st_enemies', 24 * 16);
+  const enemies = raw.map((w, i) => (i % 16 === 4 && raw[i - 4] !== 0 ? (w - time) & 0xFFFF : w));
+  return { map: words('st_map', 64 * 24).join(), enemies: enemies.join(), items: words('st_items', 32 * 4).join(), slots: words('st_slots', 16).join() };
 }
 function runGame(seed) {
   const g = new RaceGame({ build: game, seed, race: true, onOutput: () => {}, onExit: () => {} });
@@ -52,12 +58,13 @@ test('racers with the same seed get the same loadout and floors even after playi
     await until(() => a.stats().state === GAME.PLAY && b.stats().state === GAME.PLAY);
     assert.deepStrictEqual(snapshot(a), snapshot(b), 'depth 10 differs');
     a.pushKeys('..j.k.h.l..');                 // a burns RNG draws that b does not
-    await until(() => a.stats().turns >= 6 || a.stats().state !== GAME.PLAY);
+    await until(() => a.keyQueue.length === 0 && a.stats().turns >= 6);
+    await wait(100);                            // let the last queued action finish
     await climb(a, 9);
     await climb(b, 9);
     const sa = snapshot(a), sb = snapshot(b);
     assert.strictEqual(sa.map, sb.map, 'depth 9 map differs');
-    assert.strictEqual(sa.enemies.split(',').length, sb.enemies.split(',').length);
+    assert.strictEqual(sa.enemies, sb.enemies, 'depth 9 robots differ');
     assert.strictEqual(sa.items, sb.items, 'depth 9 loot differs');
   } finally { a.stop(); b.stop(); }
 });
@@ -71,7 +78,7 @@ test('a different seed gives a different first floor', async () => {
 });
 
 test('four players race at once over SSH, see each other, and get ranked', async () => {
-  const srv = await startServer({ port: 0, host: '127.0.0.1', hostKey, build: game, maxPlayers: 8, countdownMs: 200, seed: () => 777 });
+  const srv = await startServer({ port: 0, host: '127.0.0.1', hostKey, build: game, maxPlayers: 8, countdownMs: 200, endScreenMs: 500, seed: () => 777 });
   const names = ['ann', 'bob', 'cat', 'dan'];
   const clients = [];
   try {
@@ -90,18 +97,18 @@ test('four players race at once over SSH, see each other, and get ranked', async
     const ls = await shell(late);
     await until(() => /ann/.test(ls.out) && /dan/.test(ls.out));
     assert.strictEqual(srv.room.race.racers.length, 4);
-    // finish: dan wins, bob is destroyed at depth 10, cat gives up, ann disconnects
+    // finish: dan wins, bob is destroyed at depth 10, cat gives up, ann disconnects.
+    // dan and bob then idle on their end screens; that must not hold up the next race.
     const [ann, bob, cat, dan] = srv.room.race.racers;
     dan.game.poke('st_game_state', GAME.WON);
     bob.game.poke('st_core_hp', 0); bob.game.poke('st_game_state', GAME.DEAD);
     await until(() => dan.result && bob.result);
     streams[2].write('\x03');
     clients[0].end();
-    await until(() => cat.result && ann.result);
-    assert.strictEqual(srv.room.phase, 'race', 'race lasts until finished racers leave their end screens');
-    dan.game.poke('st_game_state', GAME.TITLE);
-    bob.game.poke('st_game_state', GAME.TITLE);
+    await wait(250);
+    assert.ok(srv.room.phase === 'race' && dan.game && bob.game, 'finished racers keep their end screens for a while');
     await until(() => srv.room.phase === 'lobby');
+    assert.ok(!dan.game && !bob.game, 'finished racers idling on their end screens go back to the lobby');
     assert.deepStrictEqual(srv.room.lastResults.map(r => `${r.name}:${r.outcome}`), ['dan:won', 'ann:left', 'bob:dead', 'cat:quit']);
     assert.strictEqual(srv.room.members.length, 4);  // bob, cat, dan, eve
     late.end();
@@ -133,4 +140,54 @@ test('a password, when set, is required', async () => {
     const ok = await connect(srv.port, 'guest', { password: 'hunter2' });
     ok.end();
   } finally { srv.close(); }
+});
+
+test('finish order is the order racers finished, not the poll order', async () => {
+  const srv = await startServer({ port: 0, host: '127.0.0.1', hostKey, build: game, countdownMs: 0, endScreenMs: 0, seed: () => 99 });
+  const clients = [];
+  try {
+    for (const n of ['first', 'second']) clients.push(await connect(srv.port, n));
+    const streams = [];
+    for (const c of clients) streams.push(await shell(c));
+    await until(() => srv.room.members.length === 2);
+    for (const s of streams) s.write('\r');
+    await until(() => srv.room.phase === 'race' && srv.room.members.every(m => m.game && m.game.stats().state === GAME.PLAY));
+    const [a, b] = srv.room.race.racers;          // roster order: a, then b
+    b.game.poke('st_game_state', GAME.WON);       // b surfaces first ...
+    await until(() => b.game.endState === GAME.WON, 1000);
+    a.game.poke('st_game_state', GAME.WON);       // ... a a moment later, inside the same 250 ms poll
+    await until(() => srv.room.phase === 'lobby');
+    assert.deepStrictEqual(srv.room.lastResults.map(r => `${r.name}:${r.outcome}`), [`${b.name}:won`, `${a.name}:won`]);
+  } finally { for (const c of clients) c.end(); srv.close(); }
+});
+
+test('a guest claiming a huge terminal cannot crash the server or stall the lobby', async () => {
+  const srv = await startServer({ port: 0, host: '127.0.0.1', hostKey, build: game, countdownMs: 0 });
+  const clients = [];
+  try {
+    clients.push(await connect(srv.port, 'huge'));
+    const big = await shell(clients[0], 65535, 65535);
+    await until(() => srv.room.members.length === 1);
+    const m = srv.room.members[0];
+    assert.ok(m.conn.rows <= 200 && m.conn.cols <= 500, `size clamped, got ${m.conn.rows}x${m.conn.cols}`);
+    big.setWindow(0x7FFFFFFF, 0x7FFFFFFF, 0, 0);
+    clients.push(await connect(srv.port, 'normal'));
+    const ok = await shell(clients[1]);
+    await until(() => srv.room.members.length === 2);
+    big.write('\r'); ok.write('\r');
+    await until(() => srv.room.phase === 'race');
+  } finally { for (const c of clients) c.end(); srv.close(); }
+});
+
+test('the rival line keeps every rival readable with eight racers in 100 columns', () => {
+  const room = new Room({ build: game });
+  try {
+    const names = ['abcdefghijkl', 'mnopqrstuvwx', 'yzABCDEFGHIJ', 'KLMNOPQRSTUV', 'WXYZ01234567', 'robot_number', 'another-one1', 'me'];
+    const racers = names.map((name, i) => ({ name, result: null, game: { stats: () => ({ state: GAME.PLAY, depth: 10 - i, best: 10 - i, core: 40, kills: 0, turns: 5 }) } }));
+    room.phase = 'race';
+    room.race = { seed: 1, racers, startedAt: 0 };
+    const line = room.hudText(racers[7], 100);
+    assert.ok(line.length <= 100, `line is ${line.length} chars`);
+    for (let i = 0; i < 7; i++) assert.match(line, new RegExp(`D${10 - i} C40`), `rival ${i} keeps its status: ${line}`);
+  } finally { room.close(); }
 });

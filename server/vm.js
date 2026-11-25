@@ -32,6 +32,9 @@ class RaceGame extends InterpreterPlus {
     this.stopped = false;
     this.timer = null;
     this.generateStats = false;
+    this.endState = null;             // GAME.DEAD / GAME.WON once seen, with the time and stats then
+    this.endAt = 0;
+    this.endStats = null;
   }
 
   start() {
@@ -127,6 +130,17 @@ class RaceGame extends InterpreterPlus {
   }
 
   executeSleep() {
+    // Every frame sleeps, and the end screen runs right after the finishing frame,
+    // so this sees a finish at the moment it happens (finish order is exact).
+    if (this.endState === null) {
+      const st = this.peek('st_game_state');
+      if (st === GAME.DEAD || st === GAME.WON) {
+        const s = this.stats();
+        this.endState = st;
+        this.endAt = performance.now();
+        this.endStats = { depth: s.depth, best: s.best, core: s.core, kills: s.kills, turns: s.turns };
+      }
+    }
     this.running = false;
     this.timer = setTimeout(() => { this.timer = null; this.resume(); }, this.r[this.sr]);
   }

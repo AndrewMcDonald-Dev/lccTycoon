@@ -42,6 +42,7 @@ node tools/lccgame.js api   games/<name> [--lib]            # module contracts (
 node tools/lccgame.js glyphs                                # display glyph codes
 node tools/lccgame.js play  games/<name>                    # humans only (real TTY)
 node tools/selftest.js                                      # harness: fast core == upstream semantics
+cd server && npm install && npm start                       # SCRAPCORE SSH versus server (port 2222; npm test for tests)
 ```
 
 ## Layout
@@ -58,6 +59,7 @@ node tools/selftest.js                                      # harness: fast core
   (deterministic runner), `lib/fastcore.js` (fast interpreter step), `lib/display.js`
   (`present` trap, CP437), `lib/farops.js`, `lib/player.js` (interactive), `lib/vterm.js`,
   `lib/keys.js`, `lib/expr.js`; harness tests in `tools/tests/`.
+- `server/` — SCRAPCORE SSH versus-race server (Node + `ssh2`): `server.js` (SSH server, auth, no shell/exec/sftp/forwarding), `room.js` (lobby, countdown, standings, rival HUD), `vm.js` (per-player LCC+ VM), `text.js` (UI copy), `README.md` (host guide); tests in `server/test/`.
 - `vendor/lccjs/` — upstream toolchain snapshot (`vendor/VENDORED.md`); read-only reference.
   Its `CLAUDE.upstream.md` is about contributing to lccjs and does not apply here.
 

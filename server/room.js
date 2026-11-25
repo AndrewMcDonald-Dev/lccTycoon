@@ -12,13 +12,18 @@ const T = require('./text');
 const NEED_ROWS = 31;
 const NEED_COLS = 100;
 const HUD_ROW = 31;                   // 1-based terminal row under the 30-row game
+const MAX_ROWS = 200;                 // guests pick their terminal size; bound what we draw
+const MAX_COLS = 500;
+const clamp = (v, lo, hi, dflt) => (Number.isInteger(v) && v >= lo ? Math.min(v, hi) : dflt);
+const bigEnough = c => c.rows >= NEED_ROWS && c.cols >= NEED_COLS;
 
 class Room {
-  // opts: { build, countdownMs = 3000, pollMs = 250, maxPlayers = 8, seed() }
+  // opts: { build, countdownMs = 3000, endScreenMs = 20000, pollMs = 250, maxPlayers = 8, seed() }
   constructor(opts) {
     this.build = opts.build;
     this.countdownMs = opts.countdownMs === undefined ? 3000 : opts.countdownMs;
     this.pollMs = opts.pollMs || 250;
+    this.endScreenMs = opts.endScreenMs === undefined ? 20000 : opts.endScreenMs;
     this.maxPlayers = opts.maxPlayers || 8;
     this.nextSeed = opts.seed || (() => crypto.randomInt(0, 0x10000));
     this.members = [];                // { conn, name, ready, game, result }
@@ -27,12 +32,14 @@ class Room {
     this.lastResults = null;
     this.countdownTimer = null;
     this.countdownEnds = 0;
+    this.redrawTimer = null;
     this.poller = setInterval(() => this.tick(), this.pollMs);
     this.poller.unref();
   }
 
   close() {
     clearInterval(this.poller);
+    if (this.redrawTimer) clearTimeout(this.redrawTimer);
     this.cancelCountdown();
     for (const m of [...this.members]) this.leave(m);
   }
@@ -47,51 +54,51 @@ class Room {
   }
 
   join(conn) {
-    const m = { conn, name: this.uniqueName(conn.name), ready: false, game: null, result: null };
+    conn.rows = clamp(conn.rows, 1, MAX_ROWS, 24);
+    conn.cols = clamp(conn.cols, 1, MAX_COLS, 80);
+    const m = { conn, name: this.uniqueName(conn.name), ready: false, game: null, result: null, lobbyText: null };
     this.members.push(m);
     conn.write('\x1b[?1049h\x1b[?25l');
     if (this.phase === 'countdown') this.cancelCountdown();
-    this.drawLobbies();
+    this.requestLobbies();
     return m;
   }
 
   leave(m) {
     if (!this.members.includes(m)) return;
     console.log(`[versus] ${m.name} left (${this.members.length - 1} online)`);
-    if (m.game) {
-      const s = m.game.stats();
-      m.game.stop();
-      m.game = null;
-      if (!m.result) this.setResult(m, 'left', s);
-    }
+    this.stopGame(m, 'left');
     this.members = this.members.filter(x => x !== m);
     try { m.conn.write('\x1b[0m\x1b[?25h\x1b[?1049l'); m.conn.close(); } catch (_) { /* gone */ }
     this.maybeEndRace();
     this.maybeCountdown();
-    this.drawLobbies();
+    this.requestLobbies();
   }
 
   resize(m, rows, cols) {
-    m.conn.rows = rows;
-    m.conn.cols = cols;
-    if (m.game) { m.game.repaint(rows, cols); this.drawHud(m); } else this.drawLobby(m);
+    m.conn.rows = clamp(rows, 1, MAX_ROWS, m.conn.rows);
+    m.conn.cols = clamp(cols, 1, MAX_COLS, m.conn.cols);
+    if (m.game) { m.game.repaint(m.conn.rows, m.conn.cols); this.drawHud(m); return; }
+    if (m.ready && !bigEnough(m.conn)) { m.ready = false; this.cancelCountdown(); this.requestLobbies(); }
+    m.lobbyText = null;
+    this.drawLobby(m);
   }
 
   input(m, data) {
+    if (!this.members.includes(m)) return;
     const s = data.toString('utf8');
     if (m.game) {
       if (s.includes('\x03')) { this.forfeit(m); return; }   // Ctrl-C: give up, back to the lobby
       m.game.pushKeys(s);
       return;
     }
-    for (const ch of s) {
-      if (ch === 'q' || ch === 'Q' || ch === '\x03' || ch === '\x04') { this.leave(m); return; }
-      if ((ch === '\r' || ch === '\n' || ch === ' ') && this.phase !== 'race') {
-        m.ready = !m.ready;
-        if (!m.ready) this.cancelCountdown();
-        this.maybeCountdown();
-        this.drawLobbies();
-      }
+    if (/[qQ\x03\x04]/.test(s)) { this.leave(m); return; }
+    // One toggle per chunk: Enter may arrive as \r\n, and a pasted burst is one press.
+    if (/[\r\n ]/.test(s) && this.phase !== 'race' && (m.ready || bigEnough(m.conn))) {
+      m.ready = !m.ready;
+      if (!m.ready) this.cancelCountdown();
+      this.maybeCountdown();
+      this.requestLobbies();
     }
   }
 
@@ -103,7 +110,7 @@ class Room {
     const step = () => {
       if (this.phase !== 'countdown') return;
       if (Date.now() >= this.countdownEnds) { this.startRace(); return; }
-      this.drawLobbies();
+      this.requestLobbies();
       this.countdownTimer = setTimeout(step, Math.min(1000, Math.max(0, this.countdownEnds - Date.now())));
     };
     step();
@@ -132,59 +139,73 @@ class Room {
       });
       m.game.start();
     }
-    this.drawLobbies();
+    this.requestLobbies();
+  }
+
+  // Record the racer's result (if not yet) and stop their game. A finish the VM
+  // saw (destroyed / surfaced) wins over `fallback`, whatever happened after it.
+  stopGame(m, fallback) {
+    this.recordResult(m, fallback);
+    if (!m.game) return;
+    m.game.stop();
+    m.game = null;
+  }
+
+  recordResult(m, fallback) {
+    if (m.result || !m.game) return;
+    const g = m.game, s = g.stats();
+    if (g.endState === GAME.WON || g.endState === GAME.DEAD) {
+      m.result = { outcome: g.endState === GAME.WON ? 'won' : 'dead', ...g.endStats, at: g.endAt };
+    } else if (fallback) {
+      m.result = { outcome: fallback, depth: s.depth, best: s.best, core: s.core, kills: s.kills, turns: s.turns, at: performance.now() };
+    }
   }
 
   forfeit(m) {
-    if (!m.game) return;
-    const s = m.game.stats();
-    m.game.stop();
-    m.game = null;
-    if (!m.result) this.setResult(m, 'quit', s);
+    this.stopGame(m, 'quit');
     this.backToLobby(m);
   }
 
   gameExited(m, reason, detail) {
     if (!m.game) return;
-    const s = m.game.stats();
-    m.game = null;
     if (reason === 'error') console.error(`[versus] ${m.name}: game error: ${detail}`);
-    if (!m.result) this.setResult(m, reason === 'error' ? 'crashed' : 'quit', s);
+    this.stopGame(m, reason === 'error' ? 'crashed' : 'quit');
     this.backToLobby(m);
   }
 
   backToLobby(m) {
+    m.lobbyText = null;
     this.maybeEndRace();
-    this.drawLobbies();
+    this.requestLobbies();
   }
 
-  setResult(m, outcome, s) {
-    m.result = { outcome, depth: s.depth, best: s.best, core: s.core, kills: s.kills, turns: s.turns, at: Date.now() };
-  }
-
+  // The race is over once every racer has a result. Finished racers see their
+  // end screen until they press a key, or for endScreenMs once everyone is done,
+  // so one idle player cannot hold up the next race.
   maybeEndRace() {
     if (this.phase !== 'race') return;
-    if (this.race.racers.some(m => m.game || !m.result)) return;
+    if (this.race.racers.some(m => !m.result)) return;
+    const now = performance.now();
+    for (const m of this.race.racers) {
+      if (m.game && now - m.result.at >= this.endScreenMs) { this.stopGame(m); m.lobbyText = null; }
+    }
+    if (this.race.racers.some(m => m.game)) return;
     this.lastResults = this.standings();
     this.race = null;
     this.phase = 'lobby';
     for (const m of this.members) m.result = null;
     this.maybeCountdown();
+    this.requestLobbies();
   }
 
-  // Poll every racer's memory: record finishes, return finished racers who left
-  // the end screen, and refresh everyone's rival line.
+  // Poll: record finishes the VMs saw, and refresh rival lines and lobbies.
   tick() {
     if (this.phase !== 'race') return;
-    for (const m of this.race.racers) {
-      if (!m.game) continue;
-      const s = m.game.stats();
-      if (!m.result && (s.state === GAME.DEAD || s.state === GAME.WON)) this.setResult(m, s.state === GAME.WON ? 'won' : 'dead', s);
-      if (m.result && s.state === GAME.TITLE) { m.game.stop(); m.game = null; this.backToLobby(m); }
-    }
+    for (const m of this.race.racers) this.recordResult(m);
+    this.maybeEndRace();
     if (this.phase !== 'race') return;
     for (const m of this.race.racers) if (m.game) this.drawHud(m);
-    for (const m of this.members) if (!m.game && this.race && !this.race.racers.includes(m)) this.drawLobby(m);
+    this.drawLobbies();
   }
 
   // Standings: finished-on-the-surface first (earliest), then shallowest depth reached,
@@ -207,10 +228,17 @@ class Room {
   }
 
   // ---- drawing ----------------------------------------------------------------
+  // Lobby redraws are coalesced (bursts of joins / ready toggles draw once) and
+  // skipped when a member's lobby text has not changed.
+  requestLobbies() {
+    if (this.redrawTimer) return;
+    this.redrawTimer = setTimeout(() => { this.redrawTimer = null; this.drawLobbies(); }, 30);
+  }
+
   drawLobbies() { for (const m of this.members) if (!m.game) this.drawLobby(m); }
 
   drawLobby(m) {
-    const { rows = 24, cols = 80, colorMode } = m.conn;
+    const { rows, cols, colorMode } = m.conn;
     const lines = [T.title, ''];
     for (const p of T.pitch) lines.push(p);
     lines.push('');
@@ -234,27 +262,40 @@ class Room {
       for (const r of this.lastResults) lines.push(`  ${r.place}. ${T.standing(r)}`);
     }
     lines.push('', inRace && !m.game ? T.waitingKeys : T.lobbyKeys);
+    const key = `${rows}x${cols}\n${lines.join('\n')}`;
+    if (key === m.lobbyText) return;
+    m.lobbyText = key;
     const sgr = display.canvasSgr(colorMode);
     const accent = display.ansiSgr(11, 0, colorMode, ';1');
-    let out = display.fillCanvasAnsi(rows, cols, colorMode);
+    let out = '\x1b[?25l' + display.fillCanvasAnsi(rows, cols, colorMode);
     lines.slice(0, Math.max(1, rows - 1)).forEach((line, i) => {
       out += `\x1b[${i + 2};3H${i === 0 ? accent : sgr}${line.slice(0, Math.max(0, cols - 4))}`;
     });
     m.conn.write(out + sgr);
   }
 
-  hudText(m) {
+  // Rival line, at most `width` chars: every rival keeps its status; long names
+  // are shortened so seven rivals fit in 100 columns.
+  hudText(m, width = NEED_COLS) {
     const rivals = this.standings().filter(r => r.name !== m.name);
-    const body = rivals.length ? rivals.map(T.hudCell).join('  |  ') : T.hudNone;
-    return ` ${T.hudLabel}  ${body}`;
+    const head = ` ${T.hudLabel}  `;
+    if (!rivals.length) return (head + T.hudNone).slice(0, width);
+    const sep = ' | ';
+    const per = Math.floor((width - head.length - sep.length * (rivals.length - 1)) / rivals.length);
+    const cells = rivals.map(r => {
+      const tail = T.hudCell({ ...r, name: '' });
+      return T.hudCell({ ...r, name: r.name.slice(0, Math.max(1, per - tail.length)) });
+    });
+    return (head + cells.join(sep)).slice(0, width);
   }
 
   drawHud(m) {
-    const { rows = 24, cols = 80, colorMode } = m.conn;
+    const { rows, cols, colorMode } = m.conn;
     if (rows < HUD_ROW) return;
-    const text = this.hudText(m).slice(0, cols).padEnd(Math.min(cols, NEED_COLS));
+    const width = Math.min(cols, NEED_COLS);
+    const text = this.hudText(m, width).padEnd(width);
     m.conn.write(`\x1b7\x1b[${HUD_ROW};1H${display.ansiSgr(0, 3, colorMode)}${text}${display.canvasSgr(colorMode)}\x1b8`);
   }
 }
 
-module.exports = { Room, NEED_ROWS, NEED_COLS };
+module.exports = { Room, NEED_ROWS, NEED_COLS, MAX_ROWS, MAX_COLS };

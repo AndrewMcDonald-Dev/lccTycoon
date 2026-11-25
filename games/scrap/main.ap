@@ -5,7 +5,7 @@
 ; (node tools/lccgame.js api games/scrap).
 ;
 ; Flow:  title (ui_title) → main_new_game → frame loop → end screen
-;        (ui_end_screen) → title again, or quit.
+;        (ui_end_screen) → title again, or quit (versus race, st_race: always quit).
 ; Frame: ply_handle (input or one automatic step)
 ;        → [PR_ACTED: main_turn, ply_auto_finish] → ren_draw → ui_draw → video_present
 ;        → sleep FRAME_MS → [game over: end screen]
@@ -18,7 +18,7 @@
 ;; main_new_game   ()       reset game cells, ui_init prt_init act_init ply_init, depth START_DEPTH, first floor, GAME_PLAY
 ;; main_new_floor  ()       dun_generate(st_depth), act_clear, itm_clear, act_spawn_floor, itm_spawn_floor, fov_reset, fov_update; player acts first
 ;; main_turn       ()       advance the world after a player action (see above)
-;; main_race_seed  r0=salt  if st_race: srand(st_seed + salt*RACE_SALT) so every racer gets the same draws
+;; main_race_seed  r0=salt  if st_race: srand(st_seed + salt*RACE_SALT) so every racer gets the same draws (r0 clobbered)
 ; =====================================================================
         .lccplus
         .start main_start
@@ -71,6 +71,9 @@ main_render:
         brz main_loop
 main_end:
         bl ui_end_screen        ; dead or won: r0 = 1 play again, 0 quit
+        ld r1, st_race          ; versus race: one run per race, back to the server's lobby
+        cmp r1, 0
+        brnz main_quit
         cmp r0, 0
         brnz main_title
 main_quit:
