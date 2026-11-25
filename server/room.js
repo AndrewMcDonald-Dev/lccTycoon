@@ -16,6 +16,8 @@ const MAX_ROWS = 200;                 // guests pick their terminal size; bound 
 const MAX_COLS = 500;
 const clamp = (v, lo, hi, dflt) => (Number.isInteger(v) && v >= lo ? Math.min(v, hi) : dflt);
 const bigEnough = c => c.rows >= NEED_ROWS && c.cols >= NEED_COLS;
+// Shortened names keep their last character so robot, robot2, robot3 stay apart.
+const shorten = (name, n) => (name.length <= n ? name : name.slice(0, n - 1) + name.slice(-1));
 
 class Room {
   // opts: { build, countdownMs = 3000, endScreenMs = 20000, pollMs = 250, maxPlayers = 8, seed() }
@@ -76,12 +78,14 @@ class Room {
   }
 
   resize(m, rows, cols) {
-    m.conn.rows = clamp(rows, 1, MAX_ROWS, m.conn.rows);
-    m.conn.cols = clamp(cols, 1, MAX_COLS, m.conn.cols);
-    if (m.game) { m.game.repaint(m.conn.rows, m.conn.cols); this.drawHud(m); return; }
-    if (m.ready && !bigEnough(m.conn)) { m.ready = false; this.cancelCountdown(); this.requestLobbies(); }
-    m.lobbyText = null;
-    this.drawLobby(m);
+    rows = clamp(rows, 1, MAX_ROWS, m.conn.rows);
+    cols = clamp(cols, 1, MAX_COLS, m.conn.cols);
+    if (rows === m.conn.rows && cols === m.conn.cols) return;
+    m.conn.rows = rows;
+    m.conn.cols = cols;
+    if (m.game) { m.game.repaint(rows, cols); this.drawHud(m); return; }
+    if (m.ready && !bigEnough(m.conn)) { m.ready = false; this.cancelCountdown(); }
+    this.requestLobbies();          // lobbyText includes the size, so this member redraws
   }
 
   input(m, data) {
@@ -154,6 +158,7 @@ class Room {
   recordResult(m, fallback) {
     if (m.result || !m.game) return;
     const g = m.game, s = g.stats();
+    if (g.endState === null && (s.state === GAME.WON || s.state === GAME.DEAD)) g.markEnd();   // finished, not yet slept
     if (g.endState === GAME.WON || g.endState === GAME.DEAD) {
       m.result = { outcome: g.endState === GAME.WON ? 'won' : 'dead', ...g.endStats, at: g.endAt };
     } else if (fallback) {
@@ -180,8 +185,8 @@ class Room {
   }
 
   // The race is over once every racer has a result. Finished racers see their
-  // end screen until they press a key, or for endScreenMs once everyone is done,
-  // so one idle player cannot hold up the next race.
+  // end screen until they press a key, or (once everyone has a result) until
+  // endScreenMs after their own finish, so one idle player cannot hold up the next race.
   maybeEndRace() {
     if (this.phase !== 'race') return;
     if (this.race.racers.some(m => !m.result)) return;
@@ -284,7 +289,7 @@ class Room {
     const per = Math.floor((width - head.length - sep.length * (rivals.length - 1)) / rivals.length);
     const cells = rivals.map(r => {
       const tail = T.hudCell({ ...r, name: '' });
-      return T.hudCell({ ...r, name: r.name.slice(0, Math.max(1, per - tail.length)) });
+      return T.hudCell({ ...r, name: shorten(r.name, Math.max(2, per - tail.length)) });
     });
     return (head + cells.join(sep)).slice(0, width);
   }

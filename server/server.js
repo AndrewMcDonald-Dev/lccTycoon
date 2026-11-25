@@ -21,6 +21,7 @@ const { Room } = require('./room');
 const T = require('./text');
 
 const ADMIT_MS = 30000;          // connect → in the lobby, or the connection is dropped
+const IDLE_MS = 45000;           // raw socket silence (pre-handshake, or a dead peer; keepalives are every 15 s)
 const MAX_AUTH_FAILS = 5;
 const MAX_BUFFERED = 1 << 20;    // output queued for a guest who stopped reading: drop them
 const MIN_PACKET = 1024;         // ssh2 1.17 spins on a 0 max packet size (mscdex/ssh2#1517)
@@ -37,7 +38,7 @@ function parseArgs(argv) {
     const a = argv[i], v = argv[i + 1];
     if (a === '--port') { o.port = intArg(a, v, 0, 65535); i++; }
     else if (a === '--host') { o.host = v; i++; }
-    else if (a === '--max-players') { o.maxPlayers = intArg(a, v, 1, 64); i++; }
+    else if (a === '--max-players') { o.maxPlayers = intArg(a, v, 1, 8); i++; }   // the rival line fits 7 rivals
     else if (a === '--data-dir') { o.dataDir = path.resolve(v); i++; }
     else if (a === '--help' || a === '-h') { o.help = true; }
     else throw new Error(`unknown option ${a}`);
@@ -134,6 +135,10 @@ function startServer(opts) {
     client.on('error', e => { if (opts.verbose) console.error('[versus] client error:', e.message); });
   });
   server.maxConnections = Math.max(16, (opts.maxPlayers || 8) * 4);
+  // ssh2 creates its client only after the SSH identification line, so a socket
+  // that never sends one would hold a connection slot forever: time it out raw.
+  // (ssh2 is pinned; _srv is its net.Server.)
+  server._srv.prependListener('connection', sock => sock.setTimeout(IDLE_MS, () => sock.destroy()));
   return new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(opts.port, opts.host, () => {

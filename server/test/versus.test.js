@@ -86,7 +86,7 @@ test('four players race at once over SSH, see each other, and get ranked', async
     const streams = [];
     for (const c of clients) streams.push(await shell(c));
     await until(() => srv.room.members.length === 4);
-    assert.match(streams[0].out, /dan/, 'lobby lists later players');
+    await until(() => /dan/.test(streams[0].out));   // lobby lists later players
     for (const s of streams) s.write('\r');
     await until(() => srv.room.phase === 'race' && srv.room.members.every(m => m.game && m.game.stats().state === GAME.PLAY));
     assert.strictEqual(srv.room.race.racers.length, 4);
@@ -189,5 +189,9 @@ test('the rival line keeps every rival readable with eight racers in 100 columns
     const line = room.hudText(racers[7], 100);
     assert.ok(line.length <= 100, `line is ${line.length} chars`);
     for (let i = 0; i < 7; i++) assert.match(line, new RegExp(`D${10 - i} C40`), `rival ${i} keeps its status: ${line}`);
+    // look-alike names stay distinct when shortened
+    racers.forEach((r, i) => { r.name = i ? `robot${i + 1}` : 'robot'; });
+    const shortNames = room.hudText(racers[7], 100).replace(/^\s*RIVALS\s+/, '').split(' | ').map(c => c.split(' ')[0]);
+    assert.strictEqual(new Set(shortNames).size, 7, `distinct: ${shortNames}`);
   } finally { room.close(); }
 });

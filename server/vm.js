@@ -134,16 +134,18 @@ class RaceGame extends InterpreterPlus {
     // so this sees a finish at the moment it happens (finish order is exact).
     if (this.endState === null) {
       const st = this.peek('st_game_state');
-      if (st === GAME.DEAD || st === GAME.WON) {
-        const s = this.stats();
-        this.endState = st;
-        this.endAt = performance.now();
-        this.endStats = { depth: s.depth, best: s.best, core: s.core, kills: s.kills, turns: s.turns };
-      }
+      if (st === GAME.DEAD || st === GAME.WON) this.markEnd();
     }
     this.running = false;
     this.timer = setTimeout(() => { this.timer = null; this.resume(); }, this.r[this.sr]);
   }
+  markEnd() {
+    const s = this.stats();
+    this.endState = s.state;
+    this.endAt = performance.now();
+    this.endStats = { depth: s.depth, best: s.best, core: s.core, kills: s.kills, turns: s.turns };
+  }
+
   executeMillis() {
     // The first read seeds the RNG (main_start), so it is the match seed for every racer.
     if (!this.seedServed) { this.seedServed = true; this.r[this.dr] = this.opts.seed & 0xFFFF; return; }
