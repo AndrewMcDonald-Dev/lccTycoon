@@ -101,3 +101,21 @@ jobs:
           if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, out);
           else process.stdout.write(out);
           EOF
+
+  versus:
+    name: Versus server (SSH)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+
+      - name: Install server dependencies
+        working-directory: server
+        run: npm ci --no-audit --no-fund
+
+      - name: Run versus server tests (real SSH clients)
+        working-directory: server
+        run: npm test
