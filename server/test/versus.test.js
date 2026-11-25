@@ -193,5 +193,13 @@ test('the rival line keeps every rival readable with eight racers in 100 columns
     racers.forEach((r, i) => { r.name = i ? `robot${i + 1}` : 'robot'; });
     const shortNames = room.hudText(racers[7], 100).replace(/^\s*RIVALS\s+/, '').split(' | ').map(c => c.split(' ')[0]);
     assert.strictEqual(new Set(shortNames).size, 7, `distinct: ${shortNames}`);
+    // unrelated names that shorten alike, and a long status, still fit in full
+    ['robot', 'rust', 'rabbit', 'riot', 'root', 'rat', 'rot', 'me'].forEach((n, i) => { racers[i].name = n; });
+    racers[0].result = { outcome: 'won', depth: 0, best: 0, core: 40, kills: 0, turns: 9, at: 1 };
+    const mixed = room.hudText(racers[7], 100);
+    assert.ok(mixed.length <= 100 && /SURFACED/.test(mixed), mixed);
+    for (let i = 1; i < 7; i++) assert.match(mixed, new RegExp(`D${10 - i} C40`), mixed);
+    const labels = mixed.replace(/^\s*RIVALS\s+/, '').split(' | ').map(c => c.split(' ')[0]);
+    assert.strictEqual(new Set(labels).size, 7, `distinct: ${labels}`);
   } finally { room.close(); }
 });

@@ -75,7 +75,7 @@ function startServer(opts) {
     let authFails = 0;
     let sessionTaken = false;
     let member = null;
-    const admit = setTimeout(() => { if (!member) client.end(); }, ADMIT_MS);
+    const sock = client._sock;       // ssh2 1.17: the raw socket (deadline set on accept, below)
     client.on('authentication', ctx => {
       user = ctx.username;
       if (!opts.password) return ctx.accept();
@@ -116,14 +116,16 @@ function startServer(opts) {
             colorMode: display.detectColorMode({ TERM: term.term }),
             write: str => {
               if (!str || !stream.writable) return;
-              if (stream.writableLength > MAX_BUFFERED) { client.end(); return; }
+              // Guests who stop reading: bound both the channel queue and the TCP
+              // queue (a peer can advertise a huge window and never read).
+              if (stream.writableLength > MAX_BUFFERED || sock.writableLength > MAX_BUFFERED) { sock.destroy(); return; }
               stream.write(str);
             },
             close: () => { try { stream.write(T.bye); stream.exit(0); stream.end(); } catch (_) { /* gone */ } },
           };
           stream.on('close', () => { if (member) room.leave(member); client.end(); });
           member = room.join(conn);
-          clearTimeout(admit);
+          clearTimeout(sock.versusDeadline);
           console.log(`[versus] ${member.name} joined (${room.members.length} online)`);
           stream.on('data', d => room.input(member, d));
         });
@@ -131,14 +133,19 @@ function startServer(opts) {
       });
       // tcpip / streamlocal channels and global forwarding requests: no handler, rejected.
     });
-    client.on('close', () => { clearTimeout(admit); if (member) room.leave(member); });
+    client.on('close', () => { if (member) room.leave(member); });
     client.on('error', e => { if (opts.verbose) console.error('[versus] client error:', e.message); });
   });
   server.maxConnections = Math.max(16, (opts.maxPlayers || 8) * 4);
   // ssh2 creates its client only after the SSH identification line, so a socket
   // that never sends one would hold a connection slot forever: time it out raw.
-  // (ssh2 is pinned; _srv is its net.Server.)
-  server._srv.prependListener('connection', sock => sock.setTimeout(IDLE_MS, () => sock.destroy()));
+  // A socket also gets an absolute deadline to reach the lobby, so a trickle of
+  // bytes cannot hold a slot either. (ssh2 is pinned; _srv is its net.Server.)
+  server._srv.prependListener('connection', sock => {
+    sock.setTimeout(IDLE_MS, () => sock.destroy());
+    sock.versusDeadline = setTimeout(() => sock.destroy(), ADMIT_MS);
+    sock.once('close', () => clearTimeout(sock.versusDeadline));
+  });
   return new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(opts.port, opts.host, () => {
