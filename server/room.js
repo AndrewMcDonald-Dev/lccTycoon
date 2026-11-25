@@ -281,8 +281,8 @@ class Room {
 
   // Rival line, at most `width` chars: every rival keeps its full status; the
   // space left after statuses and separators is shared out as name width, and
-  // names that shorten to the same label get their racer number instead of
-  // their last letter (rt, r2, ...), so seven rivals fit in 100 columns.
+  // if any two names shorten to the same label, labels end in racer numbers
+  // instead of last letters (ro1, ro2, ...), so seven rivals fit in 100 columns.
   hudText(m, width = NEED_COLS) {
     const rivals = this.standings().filter(r => r.name !== m.name);
     const head = ` ${T.hudLabel}  `;
@@ -292,12 +292,12 @@ class Room {
     const room = width - head.length - sep.length * (rivals.length - 1) - tails.reduce((n, t) => n + t.length, 0);
     const w = Math.max(1, Math.floor(room / rivals.length));
     const labels = rivals.map(r => shorten(r.name, w));
+    // Any clash: every label ends in its racer number (1..8, unique), so all differ.
     const order = this.race ? this.race.racers.map(x => x.name) : [];
-    const seen = new Map();
-    for (const l of labels) seen.set(l, (seen.get(l) || 0) + 1);
+    const clash = new Set(labels).size < labels.length;
     const cells = rivals.map((r, i) => {
       let l = labels[i];
-      if (seen.get(l) > 1) { const n = String(order.indexOf(r.name) + 1); l = l.slice(0, Math.max(0, w - n.length)) + n; }
+      if (clash) { const n = String(order.indexOf(r.name) + 1); l = l.slice(0, Math.max(0, w - n.length)) + n; }
       return T.hudCell({ ...r, name: l });
     });
     return (head + cells.join(sep)).slice(0, width);

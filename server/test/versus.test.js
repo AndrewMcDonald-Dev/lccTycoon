@@ -201,5 +201,11 @@ test('the rival line keeps every rival readable with eight racers in 100 columns
     for (let i = 1; i < 7; i++) assert.match(mixed, new RegExp(`D${10 - i} C40`), mixed);
     const labels = mixed.replace(/^\s*RIVALS\s+/, '').split(' | ').map(c => c.split(' ')[0]);
     assert.strictEqual(new Set(labels).size, 7, `distinct: ${labels}`);
+    // numbered labels cannot clash with names that already look like them
+    for (const set of [['robot', 'rot', 'robot2', 'rust', 'riot', 'ro1', 'r2', 'me'], ['alice', 'robot', 'robot2', 'rust', 'rat', 'rot', 'rr', 'me']]) {
+      set.forEach((n, i) => { racers[i].name = n; });
+      const ls = room.hudText(racers[7], 100).replace(/^\s*RIVALS\s+/, '').split(' | ').map(c => c.split(' ')[0]);
+      assert.strictEqual(new Set(ls).size, 7, `distinct: ${ls}`);
+    }
   } finally { room.close(); }
 });
