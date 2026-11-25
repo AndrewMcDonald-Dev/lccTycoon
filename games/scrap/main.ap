@@ -18,6 +18,7 @@
 ;; main_new_game   ()       reset game cells, ui_init prt_init act_init ply_init, depth START_DEPTH, first floor, GAME_PLAY
 ;; main_new_floor  ()       dun_generate(st_depth), act_clear, itm_clear, act_spawn_floor, itm_spawn_floor, fov_reset, fov_update; player acts first
 ;; main_turn       ()       advance the world after a player action (see above)
+;; main_race_seed  r0=salt  if st_race: srand(st_seed + salt*RACE_SALT) so every racer gets the same draws
 ; =====================================================================
         .lccplus
         .start main_start
@@ -82,6 +83,8 @@ main_quit:
 main_new_game:
         push r0
         push lr
+        mov r0, 0               ; race: same starting loadout for every racer
+        bl main_race_seed
         mov r0, START_DEPTH
         st r0, st_depth
         st r0, st_depth_best
@@ -116,6 +119,8 @@ main_new_game:
 main_new_floor:
         push r0
         push lr
+        ld r0, st_depth         ; race: same floor, robots and loot for every racer
+        bl main_race_seed
         ld r0, st_depth
         bl dun_generate         ; sets st_px/st_py, stairs, rooms
         bl act_clear
@@ -132,6 +137,23 @@ main_new_floor:
         bl fov_update
         pop lr
         pop r0
+        ret
+
+; ---- race mode: reseed from the shared match seed -----------------------------
+; st_race is poked to 1 by the versus server (server/), never by the game, so
+; single-player runs keep one RNG stream from main_start.
+main_race_seed:
+        push r1
+        ld r1, st_race
+        cmp r1, 0
+        brz main_race_seed_ret
+        mov r1, RACE_SALT
+        mul r1, r0
+        ld r0, st_seed
+        add r0, r0, r1
+        srand r0
+main_race_seed_ret:
+        pop r1
         ret
 
 ; ---- advance the world after one player action -------------------------------

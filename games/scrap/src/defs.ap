@@ -368,6 +368,7 @@
         .define SCORE_KILL      10      ; per robot destroyed
         .define SCORE_WIN       1000    ; reaching the surface
         .define START_DEPTH     10
+        .define RACE_SALT       251     ; versus race: floor seed = st_seed + depth*RACE_SALT (main_race_seed)
 
 ; ---- game state / modes -------------------------------------------------------------
         .define GAME_TITLE      0

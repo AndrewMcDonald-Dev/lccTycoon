@@ -1,0 +1,13 @@
+{
+  "name": "scrapcore-versus-server",
+  "private": true,
+  "description": "SSH server for SCRAPCORE versus races: guests ssh in and get only the game.",
+  "engines": { "node": ">=18" },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/"
+  },
+  "dependencies": {
+    "ssh2": "1.17.0"
+  }
+}
