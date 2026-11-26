@@ -13,6 +13,10 @@ const display = require(path.join(ROOT, 'tools/lib/display'));
 const far = require(path.join(ROOT, 'tools/lib/farops'));
 
 const BATCH = 20000;
+const RECORD = 16;                    // PART_SIZE and ETYPE_SIZE words (games/scrap/src/defs.ap)
+const P_NAME = 1, ET_NAME = 0;
+const NUM_SLOTS = 8, SLOT_SIZE = 2;
+const PART_COUNT = 26, ETYPE_COUNT = 9;
 const GAME = { TITLE: 0, PLAY: 1, DEAD: 2, WON: 3 };
 
 class RaceGame extends InterpreterPlus {
@@ -35,11 +39,16 @@ class RaceGame extends InterpreterPlus {
     this.endState = null;             // GAME.DEAD / GAME.WON once seen, with the time and stats then
     this.endAt = 0;
     this.endStats = null;
+    this.endChronicle = null;
+    this.startedAt = 0;
+    this.splits = [];                 // [{ depth, ms }] each time a new depth is reached
+    this.lastDepth = null;
   }
 
   start() {
     this.loadExecutableBuffer(Buffer.from(this.opts.build.bytes), 'p');
     this.spInitial = this.r[6];
+    this.startedAt = performance.now();
     if (this.opts.race) this.poke('st_race', 1);
     this.keyQueue.push(' ');          // skip the title screen: everyone starts together
     this.resume();
@@ -51,6 +60,36 @@ class RaceGame extends InterpreterPlus {
     return v & 0x8000 ? v - 0x10000 : v;
   }
   poke(name, value) { this.mem[this.sym[name]] = value & 0xFFFF; }
+  str(addr, max = 40) {
+    let s = '';
+    for (let a = addr & 0xFFFF; s.length < max; a = (a + 1) & 0xFFFF) {
+      const c = this.mem[a] & 0xFF;
+      if (!c) break;
+      s += c >= 32 && c < 127 ? String.fromCharCode(c) : '?';
+    }
+    return s;
+  }
+  partName(id) { return id >= 1 && id <= PART_COUNT ? this.str(this.mem[this.sym.prt_catalog + (id - 1) * RECORD + P_NAME]) : null; }
+  robotName(type) { return type >= 1 && type <= ETYPE_COUNT ? this.str(this.mem[this.sym.act_types + (type - 1) * RECORD + ET_NAME]) : null; }
+
+  // What the post-race chronicle shows for this run, read from game memory.
+  chronicle() {
+    const loadout = [];
+    for (let i = 0; i < NUM_SLOTS; i++) {
+      const name = this.partName(this.mem[this.sym.st_slots + i * SLOT_SIZE]);
+      if (name) loadout.push(name);
+    }
+    return {
+      loadout,
+      cause: this.peek('st_game_state') === GAME.DEAD ? this.robotName(this.peek('st_death_cause')) : null,
+      salvaged: this.peek('st_stat_salvaged'),
+      lost: this.peek('st_stat_lost'),
+      recycled: this.peek('st_stat_recycled'),
+      kills: this.peek('st_kills'),
+      turns: this.peek('st_turn'),
+      splits: this.splits.slice(),
+    };
+  }
 
   stats() {
     return {
@@ -135,15 +174,25 @@ class RaceGame extends InterpreterPlus {
     if (this.endState === null) {
       const st = this.peek('st_game_state');
       if (st === GAME.DEAD || st === GAME.WON) this.markEnd();
+      else if (st === GAME.PLAY) this.noteDepth();
     }
     this.running = false;
     this.timer = setTimeout(() => { this.timer = null; this.resume(); }, this.r[this.sr]);
   }
+  // Floor splits: the race time at which each new (shallower) depth was reached.
+  noteDepth() {
+    const d = this.peek('st_depth');
+    if (d === this.lastDepth) return;
+    this.lastDepth = d;
+    if (!this.splits.length || d < this.splits[this.splits.length - 1].depth) this.splits.push({ depth: d, ms: Math.round(performance.now() - this.startedAt) });
+  }
   markEnd() {
+    if (this.peek('st_game_state') === GAME.WON) this.noteDepth();   // the Surface (depth 0) is the last split
     const s = this.stats();
     this.endState = s.state;
     this.endAt = performance.now();
     this.endStats = { depth: s.depth, best: s.best, core: s.core, kills: s.kills, turns: s.turns };
+    this.endChronicle = this.chronicle();
   }
 
   executeMillis() {
