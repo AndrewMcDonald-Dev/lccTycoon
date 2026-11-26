@@ -4,6 +4,8 @@
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const loc = d => (d === 0 ? 'Surface' : `Depth ${d}`);
+const clock = ms => { const t = Math.floor(ms / 1000); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
+const hex = n => `#${n.toString(16).toUpperCase().padStart(4, '0')}`;
 
 module.exports = {
   title: 'SCRAPCORE -- VERSUS',
@@ -16,8 +18,27 @@ module.exports = {
   notReady: 'not ready',
   racing: 'RACING',
   you: '(you)',
-  lobbyKeys: '[Enter / Space] toggle ready   [q / Ctrl-C] leave',
-  waitingKeys: 'Race in progress -- you will join the next one.   [q] leave',
+  lobbyKeys: '[Enter / Space] ready   [d] daily seed   [Tab] board / chronicle   [q] leave',
+  waitingKeys: 'Race in progress -- you will join the next one.   [Tab] board / chronicle   [q] leave',
+  seedDaily: date => `Next race: the daily seed for ${date} (ranked on the daily board).`,
+  seedRandom: 'Next race: a random seed. Press [d] to race the daily seed.',
+  viewKeys: '[Tab] next view   [q] leave',
+  boardTitle: (date, seed) => `DAILY BOARD -- ${date} UTC, seed ${hex(seed)}`,
+  boardEmpty: '  No ranked runs yet today.',
+  boardEntry: e => `${e.handle.padEnd(13)}${e.outcome === 'won' ? `Surface in ${clock(e.ms)}` : `${loc(e.best)}, ${clock(e.ms)}`}, ${plural(e.turns, 'turn')}`,
+  guest: 'Guest: connect with an SSH key to be ranked and keep a profile.',
+  noStore: 'This server does not save results.',
+  profile: p => (p
+    ? `Your record: ${plural(p.races, 'race')}, ${plural(p.wins, 'win')}, best ${loc(p.bestDepth)}${p.fastestWinMs === null ? '' : `, fastest win ${clock(p.fastestWinMs)}`}`
+    : 'Your record: no races yet.'),
+  chronicleTitle: last => (last ? `LAST RACE -- seed ${hex(last.seed)}${last.daily ? ` (daily ${last.daily.date})` : ''}` : 'LAST RACE'),
+  chronicleEmpty: 'No race has finished since the server started.',
+  splits: (splits, ms) => {
+    const out = splits.filter(s => s.depth < 10).map(s => `${s.depth === 0 ? 'Surf' : `D${s.depth}`} ${clock(s.ms)}`);
+    return `Splits: ${out.length ? out.join('  ') : 'none'}   (ended ${clock(ms || 0)})`;
+  },
+  loadout: parts => `Loadout: ${parts.length ? parts.join(', ') : 'empty'}`,
+  runStats: c => `-- ${c.cause ? `killed by ${c.cause}; ` : ''}salvaged ${c.salvaged}, lost ${c.lost}, recycled ${c.recycled}`,
   countdown: s => `All ready -- starting in ${s}...`,
   needAll: 'Race starts when everyone in the lobby is ready.',
   liveHeader: 'Live standings',

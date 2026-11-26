@@ -19,7 +19,7 @@ async function until(fn, ms = 5000) {
 function connect(port, username, extra = {}) {
   return new Promise((resolve, reject) => {
     const c = new Client();
-    c.on('ready', () => resolve(c)).on('error', reject).connect({ host: '127.0.0.1', port, username, ...extra });
+    c.on('ready', () => resolve(c)).on('error', reject).connect({ host: '127.0.0.1', port, username, tryKeyboard: true, ...extra });
   });
 }
 function shell(c, rows = 31, cols = 100) {
@@ -137,8 +137,8 @@ test('guests get the game only: no exec, sftp or port forwarding', async () => {
 test('a password, when set, is required', async () => {
   const srv = await startServer({ port: 0, host: '127.0.0.1', hostKey, build: game, password: 'hunter2' });
   try {
-    await assert.rejects(connect(srv.port, 'guest', { password: 'wrong' }));
-    await assert.rejects(connect(srv.port, 'guest'));
+    await assert.rejects(connect(srv.port, 'guest', { password: 'wrong', tryKeyboard: false }));
+    await assert.rejects(connect(srv.port, 'guest', { tryKeyboard: false }));
     const ok = await connect(srv.port, 'guest', { password: 'hunter2' });
     ok.end();
   } finally { srv.close(); }

@@ -8,7 +8,8 @@
 //   SCRAP_PASSWORD=secret node server/server.js      # require a shared password
 //
 // The host key is created on first run in server/data/ (keep it so returning
-// guests are not warned that the host key changed).
+// guests are not warned that the host key changed). Profiles and daily boards
+// are saved there too, keyed by each player's SSH public-key fingerprint.
 
 const fs = require('fs');
 const path = require('path');
@@ -18,6 +19,7 @@ const ROOT = path.resolve(__dirname, '..');
 const { build, resolveTarget } = require(path.join(ROOT, 'tools/lib/assemble'));
 const display = require(path.join(ROOT, 'tools/lib/display'));
 const { Room } = require('./room');
+const { Store, fingerprint } = require('./store');
 const T = require('./text');
 
 const ADMIT_MS = 30000;          // connect → in the lobby, or the connection is dropped
@@ -69,27 +71,47 @@ function samePassword(given, want) {
 
 function startServer(opts) {
   const game = opts.build || buildGame();
-  const room = new Room({ build: game, maxPlayers: opts.maxPlayers || 8, countdownMs: opts.countdownMs, endScreenMs: opts.endScreenMs, seed: opts.seed });
+  const store = opts.store !== undefined ? opts.store : (opts.dataDir ? new Store(opts.dataDir) : null);
+  const room = new Room({ build: game, store, now: opts.now, maxPlayers: opts.maxPlayers || 8, countdownMs: opts.countdownMs, endScreenMs: opts.endScreenMs, seed: opts.seed });
   const server = new Server({ hostKeys: [opts.hostKey || hostKey(opts.dataDir)], keepaliveInterval: 15000, keepaliveCountMax: 4 }, client => {
     let user = 'robot';
+    let fp = null;                   // fingerprint of a key the client proved it holds
     let authFails = 0;
     let sessionTaken = false;
     let member = null;
     const sock = client._sock;       // ssh2 1.17: the raw socket (deadline set on accept, below)
+    // Any SSH key the client offers is accepted and, once its signature checks
+    // out, names a ranked profile. Clients without a key fall through to
+    // keyboard-interactive (no prompt, or the password prompt) and play as guests.
+    // 'none' is refused so clients offer their keys first.
     client.on('authentication', ctx => {
       user = ctx.username;
-      if (!opts.password) return ctx.accept();
+      const methods = fp ? ['password', 'keyboard-interactive'] : ['publickey', 'password', 'keyboard-interactive'];
       const fail = () => {
         if (++authFails >= MAX_AUTH_FAILS) { client.end(); return; }
-        ctx.reject(['password', 'keyboard-interactive']);
+        ctx.reject(methods);
       };
-      if (ctx.method === 'password') return samePassword(ctx.password, opts.password) ? ctx.accept() : fail();
+      if (ctx.method === 'publickey') {
+        if (!ctx.signature) return ctx.accept();          // "would you take this key?": yes, now prove it
+        let key = utils.parseKey(ctx.key.data);
+        if (Array.isArray(key)) key = key[0];
+        // The signature must check out against the very key whose fingerprint we keep.
+        if (!key || key instanceof Error || key.verify(ctx.blob, ctx.signature, ctx.hashAlgo) !== true) return fail();
+        fp = fingerprint(ctx.key.data);
+        if (!opts.password) return ctx.accept();
+        return ctx.reject(['password', 'keyboard-interactive'], true);   // key noted; the password is still required
+      }
+      if (ctx.method === 'password') {
+        if (!opts.password) return ctx.accept();
+        return samePassword(ctx.password, opts.password) ? ctx.accept() : fail();
+      }
       if (ctx.method === 'keyboard-interactive') {
+        if (!opts.password) return ctx.accept();
         return ctx.prompt([{ prompt: 'Password: ', echo: false }], answers => {
           if (answers && samePassword(answers[0] || '', opts.password)) ctx.accept(); else fail();
         });
       }
-      return ctx.reject(['password', 'keyboard-interactive']);   // 'none' probe: not a failure
+      return ctx.reject(methods);   // 'none' probe: not a failure
     });
     client.on('ready', () => {
       client.on('session', (accept, reject) => {
@@ -112,7 +134,7 @@ function startServer(opts) {
           if (!stream || member) return;
           if (room.isFull()) { stream.write(T.full); stream.exit(0); stream.end(); client.end(); return; }
           const conn = {
-            name: user, rows: term.rows, cols: term.cols,
+            name: user, fp, rows: term.rows, cols: term.cols,
             colorMode: display.detectColorMode({ TERM: term.term }),
             write: str => {
               if (!str || !stream.writable) return;
@@ -126,7 +148,7 @@ function startServer(opts) {
           stream.on('close', () => { if (member) room.leave(member); client.end(); });
           member = room.join(conn);
           clearTimeout(sock.versusDeadline);
-          console.log(`[versus] ${member.name} joined (${room.members.length} online)`);
+          console.log(`[versus] ${member.name} joined${fp ? ' with a key' : ' as a guest'} (${room.members.length} online)`);
           stream.on('data', d => room.input(member, d));
         });
         // exec, subsystem (sftp), env, x11, agent forwarding: no handler, so ssh2 rejects them.
