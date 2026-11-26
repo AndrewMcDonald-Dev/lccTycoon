@@ -1,0 +1,102 @@
+{
+  "game": "render_bands_driver.ap",
+  "scenarios": [
+    {
+      "name": "render band tile set: depth 10 Slag Vaults: double-line yellow walls, red rubble/beads, bright-yellow doors",
+      "keys": "a",
+      "expect": {
+        "status": "halted",
+        "screen": {
+          "lines": {
+            "4": "   ║,·····∙·····║         ╠════╗·╔═══╝",
+            "9": "   ╚═════╗·╔════╝              ║·║     ║°···+···∙,············°║"
+          }
+        },
+        "colors": {
+          "lines": {
+            "4": "   yrwwwwwrwwwwwy         yyyyyywyyyyy",
+            "9": "   yyyyyyywyyyyyy              ywy     yywwwYwwwrrwwwwwwwwwwwwyy"
+          }
+        }
+      }
+    },
+    {
+      "name": "render band tile set: depth 5 Conduit Works: single-line cyan walls, gray grating, yellow doors",
+      "keys": "b",
+      "expect": {
+        "status": "halted",
+        "screen": {
+          "lines": {
+            "4": "   │··∙··:······│         ├────┐·┌───┘",
+            "9": "   └─────┬+┬────┘              │·│     │·······,······:···∙····│"
+          }
+        },
+        "colors": {
+          "lines": {
+            "4": "   cwwcwwKwwwwwwc         ccccccwccccc",
+            "9": "   cccccccycccccc              cwc     cwwwwwwwKwwwwwwKwwwcwwwwc"
+          }
+        }
+      }
+    },
+    {
+      "name": "render band tile set: depth 2 Intake Shafts: double-horizontal/single-vertical bright-white walls, green moss",
+      "keys": "c",
+      "expect": {
+        "status": "halted",
+        "screen": {
+          "lines": {
+            "4": "   │············│         ╘════╤+╤╤+╤╛",
+            "9": "   ╘═════╕·╒════╛              │·││\"│  │∙@··│     │············│"
+          }
+        },
+        "colors": {
+          "lines": {
+            "4": "   WwwwwwwwwwwwwW         WWWWWWyWWyWW",
+            "9": "   WWWWWWWwWWWWWW              WwWWgW  WKWwwW     WwwwwwwwwwwwwW"
+          }
+        }
+      }
+    },
+    {
+      "name": "render band tile set: depth 2 fully remembered: same band glyphs, all A_MEMORY blue",
+      "keys": "m",
+      "expect": {
+        "status": "halted",
+        "screen": {
+          "lines": {
+            "4": "   │············│         ╘════╤+╤╤+╤╛",
+            "9": "   ╘═════╕·╒════╛              │·││\"│  │∙@··│     │············│"
+          }
+        },
+        "colors": {
+          "lines": {
+            "4": "   bbbbbbbbbbbbbb         bbbbbbbbbbbb",
+            "9": "   bbbbbbbbbbbbbb              bbbbbb  bbWbbb     bbbbbbbbbbbbbb"
+          }
+        }
+      }
+    },
+    {
+      "name": "band edges: depths 1-3 Intake (bright white), 4-7 Conduit (cyan), 8-10 Slag (yellow) — ren_tile_cell(T_WALL, visible)",
+      "keys": "w",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_band": [
+            3875,
+            3875,
+            3875,
+            1571,
+            1571,
+            1571,
+            1571,
+            803,
+            803,
+            803
+          ]
+        }
+      }
+    }
+  ]
+}

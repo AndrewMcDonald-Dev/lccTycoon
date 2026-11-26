@@ -1160,13 +1160,20 @@ drv_mor_w:
         add r0, r0, 1
         sub r1, r1, 1
         brp drv_mor_w
-        ; Interior [1..62] x [1..22] = T_FLOOR
+        ; Interior [1..62] x [1..22] = T_FLOOR, written straight into st_map (this
+        ; driver never renders, so st_rmap is not rebuilt), then one st_map_ver bump
+        ; as dun_set would have made.
         mov r1, 1
 drv_mor_y:
         mov r0, 1
 drv_mor_x:
+        mov r3, r1
+        sll r3, MAP_SHIFT
+        or r3, r0
+        lea r2, st_map
+        add r3, r3, r2
         mov r2, T_FLOOR
-        bl dun_set
+        str r2, r3, 0
         add r0, r0, 1
         mov r3, MAP_W-1
         cmp r0, r3
@@ -1175,6 +1182,9 @@ drv_mor_x:
         mov r3, MAP_H-1
         cmp r1, r3
         brlt drv_mor_y
+        ld r0, st_map_ver
+        add r0, r0, 1
+        st r0, st_map_ver
         pop lr
         pop r3
         pop r2

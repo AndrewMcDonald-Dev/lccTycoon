@@ -9,6 +9,7 @@
 ;; (data only — every st_* cell is documented in this file)
 ;; st_map     MAP_SIZE tile words (T_*), index (y<<MAP_SHIFT)|x  W: dungeon
 ;; st_fov     MAP_SIZE words FOV_VISIBLE|FOV_KNOWN               W: fov
+;; st_rmap    MAP_SIZE render kinds RK_* (walls joined, floor accents) W: dungeon
 ;; st_rooms   MAX_ROOMS × ROOM_SIZE (RM_*), st_room_count        W: dungeon
 ;; st_slots   NUM_SLOTS × SLOT_SIZE (S_PART, S_HP) loadout       W: parts
 ;; st_inv     NUM_INV × SLOT_SIZE carried parts                  W: parts
@@ -78,6 +79,7 @@ st_enemies:     .zero MAX_ENEMIES*ENEMY_SIZE ; E_* records — W: actors (all), 
 st_items:       .zero MAX_ITEMS*ITEM_SIZE ; I_* records — W: items
 st_map:         .zero MAP_SIZE      ; tile words T_* — W: dungeon
 st_fov:         .zero MAP_SIZE      ; FOV_* bits — W: fov
+st_rmap:        .zero MAP_SIZE      ; RK_* render kind per tile, must follow st_fov (defs invariant 4) — W: dungeon (dun_rk_*)
 
 ; ---- display block (100x30), bound once by main -------------------------------------------
 st_screen:      .word SCR_COLS      ; header: cols, rows, top, left

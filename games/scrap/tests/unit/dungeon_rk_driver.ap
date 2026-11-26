@@ -1,0 +1,251 @@
+; Unit driver: st_rmap render kinds (#12) — wall join masks, map-border bounds,
+; parallel-run rule, dun_set refresh on door / wall changes, floor accent hash
+; and its independence from the RNG. Results in drv_* cells (see .test.json).
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        bl drv_clear
+        ; Room A walls: rectangle x 2..6, y 2..5 (floor x 3..5, y 3..4), plus a
+        ; parallel wall run along y = 6, x 2..6, under its bottom wall.
+        mov r0, 2
+        mov r1, 2
+        mov r2, 5
+        mov r3, 4
+        mov r4, T_WALL
+        bl drv_rect
+        mov r0, 3
+        mov r1, 3
+        mov r2, 3
+        mov r3, 2
+        mov r4, T_FLOOR
+        bl drv_rect
+        mov r0, 2
+        mov r1, 6
+        mov r2, 5
+        mov r3, 1
+        mov r4, T_WALL
+        bl drv_rect
+        ; Map-border walls: (0,0) (1,0) (0,1); lone (63,0); (62,23) (63,23)
+        mov r0, 0
+        mov r1, 0
+        bl drv_wall
+        mov r0, 1
+        bl drv_wall
+        mov r0, 0
+        mov r1, 1
+        bl drv_wall
+        mov r0, 63
+        mov r1, 0
+        bl drv_wall
+        mov r0, 62
+        mov r1, 23
+        bl drv_wall
+        mov r0, 63
+        bl drv_wall
+        bl dun_rk_all
+
+        ; drv_room: TL (2,2), top (4,2), TR (6,2), left (2,3), BL (2,5), BR (6,5),
+        ;           parallel pair (4,5) (4,6), run end (2,6)
+        lea r4, drv_room
+        mov r0, 2
+        mov r1, 2
+        bl drv_rk
+        mov r0, 4
+        bl drv_rk
+        mov r0, 6
+        bl drv_rk
+        mov r0, 2
+        mov r1, 3
+        bl drv_rk
+        mov r1, 5
+        bl drv_rk
+        mov r0, 6
+        bl drv_rk
+        mov r0, 4
+        bl drv_rk
+        mov r1, 6
+        bl drv_rk
+        mov r0, 2
+        bl drv_rk
+        ; drv_edge: (0,0) (1,0) (0,1) (63,0) (62,23) (63,23)
+        lea r4, drv_edge
+        mov r0, 0
+        mov r1, 0
+        bl drv_rk
+        mov r0, 1
+        bl drv_rk
+        mov r0, 0
+        mov r1, 1
+        bl drv_rk
+        mov r0, 63
+        mov r1, 0
+        bl drv_rk
+        mov r0, 62
+        mov r1, 23
+        bl drv_rk
+        mov r0, 63
+        bl drv_rk
+
+        ; dun_set on (4,2): door, open door, floor, wall again. After each:
+        ; rk(4,2), rk(3,2), rk(5,2) -> drv_set
+        lea r4, drv_set
+        mov r2, T_DOOR
+        bl drv_set_chk
+        mov r2, T_DOOR_OPEN
+        bl drv_set_chk
+        mov r2, T_FLOOR
+        bl drv_set_chk
+        mov r2, T_WALL
+        bl drv_set_chk
+
+        ; Accents: whole map floor at depth 10, then 3 -> counts of A and B
+        lea r4, drv_acc
+        mov r0, 10
+        bl drv_acc_count
+        mov r0, 3
+        bl drv_acc_count
+
+        ; RNG untouched: rand after srand(99) equals rand after srand(99) + dun_rk_all
+        mov r0, 99
+        srand r0
+        mov r0, 0
+        ld r1, drv_c_big
+        rand r0, r1
+        st r0, drv_rng_a
+        mov r0, 99
+        srand r0
+        bl dun_rk_all
+        mov r0, 0
+        ld r1, drv_c_big
+        rand r0, r1
+        st r0, drv_rng_b
+        halt
+
+; r2 = kind: dun_set(4, 2, kind); store rk of (4,2) (3,2) (5,2) at r4.., r4 += 3
+drv_set_chk:
+        push lr
+        mov r0, 4
+        mov r1, 2
+        bl dun_set
+        bl drv_rk
+        mov r0, 3
+        bl drv_rk
+        mov r0, 5
+        bl drv_rk
+        pop lr
+        ret
+
+; r0 = depth: fill st_map with T_FLOOR, dun_rk_all, count RK_ACCENT_A / _B into r4[0..1]
+drv_acc_count:
+        push lr
+        st r0, dun_depth
+        lea r0, st_map
+        mov r1, T_FLOOR
+        ld r2, drv_c_ms
+        bl drv_fill
+        bl dun_rk_all
+        mov r0, 0
+        str r0, r4, 0
+        str r0, r4, 1
+        lea r1, st_rmap
+        ld r2, drv_c_ms
+drv_ac_lp:
+        ldr r0, r1, 0
+        mov r3, RK_ACCENT_A
+        sub r0, r0, r3          ; 0 = A, 1 = B
+        brnz drv_ac_b
+        ldr r3, r4, 0
+        add r3, r3, 1
+        str r3, r4, 0
+drv_ac_b:
+        cmp r0, RK_ACCENT_B-RK_ACCENT_A
+        brnz drv_ac_nx
+        ldr r3, r4, 1
+        add r3, r3, 1
+        str r3, r4, 1
+drv_ac_nx:
+        add r1, r1, 1
+        sub r2, r2, 1
+        brp drv_ac_lp
+        add r4, r4, 2
+        pop lr
+        ret
+
+; r0=x r1=y: store st_rmap[(y<<6)|x] at r4, r4++ (preserves r0..r3)
+drv_rk:
+        push r0
+        push r2
+        mov r2, r1
+        sll r2, MAP_SHIFT
+        or r2, r0
+        lea r0, st_rmap
+        add r0, r0, r2
+        ldr r0, r0, 0
+        str r0, r4, 0
+        add r4, r4, 1
+        pop r2
+        pop r0
+        ret
+
+; r0=x r1=y: st_map tile = T_WALL (direct write; dun_rk_all runs afterwards)
+drv_wall:
+        push r0
+        push r2
+        mov r2, r1
+        sll r2, MAP_SHIFT
+        or r2, r0
+        lea r0, st_map
+        add r0, r0, r2
+        mov r2, T_WALL
+        str r2, r0, 0
+        pop r2
+        pop r0
+        ret
+
+; r0=x r1=y r2=w r3=h r4=kind: filled rectangle, direct st_map writes
+drv_rect:
+        push r0
+        push r1
+        push r2
+        push r3
+        push lr
+        bl dun_fill_rect
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+drv_clear:
+        push lr
+        lea r0, st_map
+        mov r1, T_ROCK
+        ld r2, drv_c_ms
+        bl drv_fill
+        pop lr
+        ret
+
+; r0=dst r1=val r2=count
+drv_fill:
+        str r1, r0, 0
+        add r0, r0, 1
+        sub r2, r2, 1
+        brp drv_fill
+        ret
+
+drv_c_ms:       .word MAP_SIZE
+drv_c_big:      .word 30000
+drv_room:       .zero 9
+drv_edge:       .zero 6
+drv_set:        .zero 12
+drv_acc:        .zero 4
+drv_rng_a:      .word -1
+drv_rng_b:      .word -2
+
+        .include "../../src/state.ap"
+        .include "../../src/rng.ap"
+        .include "../../src/dungeon.ap"
