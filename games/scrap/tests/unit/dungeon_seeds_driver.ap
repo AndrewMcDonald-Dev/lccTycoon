@@ -160,11 +160,45 @@ drv_chk_stairs:
         ld r1, st_start_room
         cmp r0, r1
         bre drv_bad_st
-        br drv_scan_map
+        br drv_chk_fix
 drv_bad_st:
         ld r0, drv_fail_stairs
         add r0, r0, 1
         st r0, drv_fail_stairs
+
+        ; 4b. Fixture record 0 is a charged FX_BAY on a T_FIXTURE tile in a room that is
+        ;     neither the start room nor the stairs room
+drv_chk_fix:
+        lea r4, st_fixtures
+        ldr r0, r4, F_TYPE
+        cmp r0, FX_BAY
+        brnz drv_bad_fix
+        ldr r0, r4, F_CHARGES
+        cmp r0, BAY_CHARGES
+        brnz drv_bad_fix
+        ldr r0, r4, F_X
+        ldr r1, r4, F_Y
+        bl dun_get
+        cmp r0, T_FIXTURE
+        brnz drv_bad_fix
+        ldr r0, r4, F_X
+        ldr r1, r4, F_Y
+        bl dun_room_of
+        cmp r0, 0
+        brn drv_bad_fix
+        ld r1, st_start_room
+        cmp r0, r1
+        bre drv_bad_fix
+        mov r2, r0
+        ld r0, st_stairs_x
+        ld r1, st_stairs_y
+        bl dun_room_of
+        cmp r0, r2
+        brnz drv_scan_map
+drv_bad_fix:
+        ld r0, drv_fail_fix
+        add r0, r0, 1
+        st r0, drv_fail_fix
 
 drv_scan_map:
         lea r0, st_map
@@ -199,6 +233,15 @@ drv_sm_rub:
         add r3, r3, 1
         br drv_sm_next
 drv_sm_flr:
+        cmp r4, T_FIXTURE
+        brnz drv_sm_flr2
+        push r0
+        ld r0, drv_total_fix
+        add r0, r0, 1
+        st r0, drv_total_fix
+        pop r0
+        br drv_sm_w
+drv_sm_flr2:
         cmp r4, T_FLOOR
         bre drv_sm_w
         cmp r4, T_DOOR_OPEN
@@ -396,6 +439,8 @@ drv_fail_bfs:       .word 99
 drv_fail_rf:        .word 99
 drv_total_doors:    .word 0
 drv_total_rubble:   .word 0
+drv_total_fix:      .word 0             ; T_FIXTURE tiles over all seeds (one per floor)
+drv_fail_fix:       .word 0
 drv_has_doors:      .word 99
 drv_has_rubble:     .word 99
 drv_min_rooms:      .word 99

@@ -11,11 +11,13 @@
 ;; dun_generate     r0=depth                   -> -        fill st_map (T_ROCK, then rooms ROOMS_MIN..MAX_ROOMS of T_FLOOR walled by T_WALL, L-shaped corridors connecting
 ;;                   every room, T_DOOR at DOOR_PCT of room exits, T_RUBBLE sprinkled); writes st_rooms/st_room_count; puts T_STAIRS in a room far from st_start_room; sets st_px/st_py inside
 ;;                   st_start_room, st_stairs_x/y. Every floor tile reachable from the start. Deterministic for a given rand seed. Depth may tune size/density.
-;;                   Then fills st_rmap (render kinds, defs.ap RK_*) from st_map + depth without using the RNG.
+;;                   Then clears st_fixtures and places one FX_BAY (BAY_CHARGES) as T_FIXTURE at the center of the first room that is neither st_start_room
+;;                   nor the stairs room (no RNG; a floor with fewer than 3 rooms gets none). Then fills st_rmap (render kinds, defs.ap RK_*) from st_map + depth without using the RNG.
 ;; dun_get          r0=x r1=y                  -> r0=tile kind T_*, T_OUT (-1) outside the map
 ;; dun_set          r0=x r1=y r2=kind          -> -        store a tile kind (ignored outside); refreshes st_rmap: the tile only (~100 instr) unless the tile enters or leaves the joinable set {T_WALL, T_DOOR, T_DOOR_OPEN}, then also every wall in its 3x3 (~1K instr)
 ;; dun_rk_all       ()                         -> -        recompute all of st_rmap from st_map; floor accents hash the depth of the last dun_generate (dun_depth), not st_depth (dun_generate calls it; for test drivers that poke st_map)
-;; dun_walkable     r0=x r1=y                  -> r0=1 for T_FLOOR T_DOOR T_DOOR_OPEN T_STAIRS T_RUBBLE, 0 otherwise or outside (ignores actors and items)
+;; dun_walkable     r0=x r1=y                  -> r0=1 for T_FLOOR T_DOOR T_DOOR_OPEN T_STAIRS T_RUBBLE T_FIXTURE, 0 otherwise or outside (ignores actors and items)
+;; dun_fix_at       r0=x r1=y                  -> r0=address of the st_fixtures record (F_*) at (x,y), 0 if none
 ;; dun_opaque       r0=x r1=y                  -> r0=1 for T_ROCK T_WALL T_DOOR or outside, 0 otherwise
 ;; dun_random_floor ()                         -> r0=index (y<<MAP_SHIFT)|x of a random T_FLOOR tile inside a room (callers check occupancy and retry)
 ;; dun_room_of      r0=x r1=y                  -> r0=room index whose interior holds (x,y), -1 if none
@@ -35,6 +37,7 @@ dun_walk_tbl:
         .word 1                 ; T_DOOR_OPEN (4)
         .word 1                 ; T_STAIRS (5)
         .word 1                 ; T_RUBBLE (6)
+        .word 1                 ; T_FIXTURE (7)
 
 ; ---- tile access & predicates ---------------------------------------
 
@@ -423,6 +426,7 @@ dun_gen_d_ok:
         bl dun_place_doors
         bl dun_place_endpoints
         bl dun_place_rubble
+        bl dun_place_fixtures
         bl dun_rk_all
         pop lr
         pop r4
@@ -1316,6 +1320,88 @@ dun_prub_next:
         pop lr
         ret
 
+; Clear st_fixtures; put one service bay at the center of the first room that is
+; neither the start room nor the stairs room (dun_best_r). No RNG.
+dun_place_fixtures:
+        lea r0, st_fixtures
+        mov r1, MAX_FIXTURES*FIX_SIZE
+        mov r2, FX_NONE
+dun_pf_clr:
+        str r2, r0, 0
+        add r0, r0, 1
+        sub r1, r1, 1
+        brp dun_pf_clr
+        lea r4, st_rooms
+        mov r3, 0
+dun_pf_lp:
+        ld r1, st_room_count
+        cmp r3, r1
+        brlt dun_pf_chk
+        ret
+dun_pf_chk:
+        ld r1, st_start_room
+        cmp r3, r1
+        bre dun_pf_next
+        ld r1, dun_best_r
+        cmp r3, r1
+        brnz dun_pf_put
+dun_pf_next:
+        add r4, r4, ROOM_SIZE
+        add r3, r3, 1
+        br dun_pf_lp
+dun_pf_put:
+        ldr r0, r4, RM_X
+        ldr r1, r4, RM_W
+        srl r1, 1
+        add r0, r0, r1
+        ldr r1, r4, RM_Y
+        ldr r2, r4, RM_H
+        srl r2, 1
+        add r1, r1, r2
+        lea r2, st_fixtures
+        str r0, r2, F_X
+        str r1, r2, F_Y
+        mov r3, FX_BAY
+        str r3, r2, F_TYPE
+        mov r3, BAY_CHARGES
+        str r3, r2, F_CHARGES
+        sll r1, MAP_SHIFT
+        or r1, r0
+        lea r2, st_map
+        add r2, r2, r1
+        mov r3, T_FIXTURE
+        str r3, r2, 0
+        ret
+
+dun_fix_at:
+        push r2
+        push r3
+        push r4
+        lea r2, st_fixtures
+        mov r3, MAX_FIXTURES
+dun_fa_lp:
+        ldr r4, r2, F_TYPE
+        cmp r4, FX_NONE
+        brz dun_fa_next
+        ldr r4, r2, F_X
+        cmp r4, r0
+        brnz dun_fa_next
+        ldr r4, r2, F_Y
+        cmp r4, r1
+        brnz dun_fa_next
+        mov r0, r2
+        br dun_fa_out
+dun_fa_next:
+        add r2, r2, FIX_SIZE
+        sub r3, r3, 1
+        brp dun_fa_lp
+        mov r0, 0
+dun_fa_out:
+        pop r4
+        pop r3
+        pop r2
+        ret
+
 ; ---- render kinds (st_rmap) ------------------------------------------
 ; See defs.ap RK_*. Pure function of st_map, (x, y) and dun_depth; no RNG.
 dun_p_map6:     .word st_map
@@ -1418,6 +1504,8 @@ dun_rk_at:
         brz dun_rka_wall
         cmp r2, T_FLOOR
         brz dun_rka_floor
+        cmp r2, T_FIXTURE
+        brz dun_rka_fix
 dun_rka_put:
         ld r1, dun_p_rmap6
         add r1, r1, r0
@@ -1553,6 +1641,24 @@ dun_rka_floor:
         brgt dun_rka_put        ; r2 = T_FLOOR
         mov r2, RK_ACCENT_A
         add r2, r2, r3
+        br dun_rka_put
+
+        ; fixture: RK_FIX_SPENT once its record has no charges left
+dun_rka_fix:
+        push r0
+        mov r1, r0
+        srl r1, MAP_SHIFT
+        mov r3, MAP_XMASK
+        and r0, r0, r3
+        bl dun_fix_at
+        mov r3, r0
+        pop r0
+        cmp r3, 0
+        brz dun_rka_put
+        ldr r3, r3, F_CHARGES
+        cmp r3, 0
+        brnz dun_rka_put
+        mov r2, RK_FIX_SPENT
         br dun_rka_put
 
 ; internal: dun_rk_j (r4 = &st_map tile) -> r4 = 1 if it joins walls (T_WALL,

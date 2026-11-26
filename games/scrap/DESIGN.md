@@ -131,6 +131,7 @@ Every key can be written in the harness key script (`tools/lib/keys.js`): letter
 | `r` then `1`-`8` | map → remove | detach that slot into the inventory |
 | `x` then `1`-`4` | map → drop | drop that inventory part on the floor |
 | `R` then `1`-`4` | map → recycle | scrap that carried part to restore core integrity (`TIME_RECYCLE`) |
+| `a` then `1`-`8`, `1`-`4` | map → bay slot → bay part | at a service bay, sacrifice a carried part to repair a damaged attached part (`TIME_BAY`) |
 | `w` then `1`-`3` | map → toggle | toggle hold-fire (`st_wpn_off`) on weapon slot 3-5 (held weapons do not fire or swing) |
 | `f` | map → target | targeting: reuses current target if still visible, else nearest visible hostile (Tinkers only if no hostiles visible) |
 | `F` | map | quick-fire at once at the last / nearest visible target |
@@ -165,9 +166,9 @@ the robot types are `act_types` in actors.ap.
 - **Map** `st_map: .zero MAP_SIZE` (64x24 = 1536 words), index `(y<<6)|x`, one T_* kind
   per word (bits 0-3, rest 0). Kinds: 0 T_ROCK (undug, blocks), 1 T_FLOOR, 2 T_WALL,
   3 T_DOOR (closed: walkable, opaque; opens when entered), 4 T_DOOR_OPEN, 5 T_STAIRS `<`,
-  6 T_RUBBLE (floor variant). Written only by dungeon (`dun_set`, also for door opening).
+  6 T_RUBBLE (floor variant), 7 T_FIXTURE (`st_fixtures`). Written only by dungeon (`dun_set`, also for door opening).
 - **FOV** `st_fov: .zero MAP_SIZE`, bits FOV_VISIBLE 1, FOV_KNOWN 2. Written only by fov.
-- **Render map** `st_rmap: .zero MAP_SIZE`, placed immediately after `st_fov` (`st_rmap == st_fov + MAP_SIZE`; `render.ap` reads it at that fixed offset and `tests/unit/tile_kinds` asserts the layout). One `RK_*` render kind per tile: `0..6` = `T_*` kind, `RK_WALL0` (8) + 4-bit join mask for `T_WALL`, `RK_ACCENT_A` (24) / `RK_ACCENT_B` (25) for floor accents, `RK_COUNT` = 32. Written only by dungeon: `dun_rk_all` at the end of `dun_generate`, and refreshed by `dun_set` (only the changed tile when wall-joinability did not change, e.g. door open/close; otherwise the tile plus every wall in the surrounding 3×3).
+- **Render map** `st_rmap: .zero MAP_SIZE`, placed immediately after `st_fov` (`st_rmap == st_fov + MAP_SIZE`; `render.ap` reads it at that fixed offset and `tests/unit/tile_kinds` asserts the layout). One `RK_*` render kind per tile: `0..7` = `T_*` kind, `RK_WALL0` (8) + 4-bit join mask for `T_WALL`, `RK_ACCENT_A` (24) / `RK_ACCENT_B` (25) for floor accents, `RK_FIX_SPENT` (26) for a `T_FIXTURE` with 0 `F_CHARGES`, `RK_COUNT` = 32. Written only by dungeon: `dun_rk_all` at the end of `dun_generate`, and refreshed by `dun_set` (only the changed tile when wall-joinability did not change, e.g. door open/close; otherwise the tile plus every wall in the surrounding 3×3).
 - **Rooms** `st_rooms` MAX_ROOMS 12 × ROOM_SIZE 4: RM_X, RM_Y (interior top-left), RM_W,
   RM_H; `st_room_count`, `st_start_room`; `st_stairs_x/y`.
 - **Loadout** `st_slots` NUM_SLOTS 8 × SLOT_SIZE 2: S_PART (id, 0 = empty), S_HP
@@ -192,8 +193,8 @@ the robot types are `act_types` in actors.ap.
 - **Derived stats** (written only by `prt_recalc`): `st_move_cost`, `st_regen`,
   `st_energy_max`, `st_sight`, `st_acc_bonus`, `st_evade`, `st_repair_turns`, plus
   v2 `st_shield` and `st_salvage`.
-- **Game** `st_game_state` (GAME_TITLE/PLAY/DEAD/WON), `st_mode` (MODE_MAP..MODE_RECYCLE,
-  incl. MODE_LOOK/LOG/TOGGLE/CLOSE/RECYCLE), `st_depth` (10..1), `st_depth_best`, `st_turn`
+- **Game** `st_game_state` (GAME_TITLE/PLAY/DEAD/WON), `st_mode` (MODE_MAP..MODE_BAY_PART,
+  incl. MODE_LOOK/LOG/TOGGLE/CLOSE/RECYCLE/BAY_SLOT/BAY_PART), `st_depth` (10..1), `st_depth_best`, `st_turn`
   (player actions), `st_time` (scheduler clock, TU), `st_kills`, `st_target` (enemy index
   or -1), `st_climb`, `st_death_cause` (EN_*), `st_seed`, `st_frame`.
 - **QoL controls** `st_auto` (AUTO_NONE/RUN/REST/TRAVEL/EXPLORE), `st_auto_dx/dy`,
@@ -208,6 +209,9 @@ the robot types are `act_types` in actors.ap.
   (last barrier absorption in `prt_damage`, written by parts); run summary counters
   `st_stat_salvaged` (pickup actions, written by player), `st_stat_lost` and `st_stat_recycled`
   (written by parts), all three zeroed in `main_new_game`.
+- **Fixtures** (appended) `st_fixtures` MAX_FIXTURES 4 × FIX_SIZE 4: F_X, F_Y, F_TYPE
+  (`FX_NONE`/`FX_BAY`), F_CHARGES. Written by dungeon (`dun_generate`) and player
+  (F_CHARGES); `st_bay_slot` written by player.
 - **Messages** `st_msg_text` MSG_COUNT 16 × MSG_LEN 64 (copied, NUL-terminated, so a
   message can contain names and numbers), `st_msg_attr[16]`, `st_msg_head`. Written only
   by `ui_msg*`.
@@ -414,15 +418,15 @@ preserved.
 | src/defs.ap | — | architect | constants, record layouts, regions, palette, keys, tuning | — | lcc-architect |
 | src/state.ap | st_ | architect | all shared state | data | lcc-architect |
 | src/rng.ap | rng_ | architect | uniform random ranges from the RNG's high bits | rng_range | lcc-simulation |
-| src/dungeon.ap | dun_ | WP1 | generator, tiles, walkable/opaque, random floor, distance | dun_generate dun_get dun_set dun_rk_all dun_walkable dun_opaque dun_random_floor dun_room_of dun_dist | lcc-simulation |
+| src/dungeon.ap | dun_ | WP1 | generator, tiles, walkable/opaque, random floor, distance | dun_generate dun_get dun_set dun_rk_all dun_walkable dun_opaque dun_random_floor dun_room_of dun_dist dun_fix_at | lcc-simulation |
 | src/fov.ap | fov_ | WP2 | visibility + memory, line of sight | fov_reset fov_update fov_visible fov_known fov_los | lcc-simulation |
-| src/parts.ap | prt_ | WP3 | catalog, slots, inventory, derived stats, energy, repair, damage spread | prt_init prt_recalc prt_info prt_name prt_kind prt_slot_kind prt_attach prt_detach prt_inv_add prt_inv_clear prt_recycle prt_damage prt_tick prt_spend_energy prt_random_part prt_free_slots | lcc-simulation |
+| src/parts.ap | prt_ | WP3 | catalog, slots, inventory, derived stats, energy, repair, damage spread | prt_init prt_recalc prt_info prt_name prt_kind prt_slot_kind prt_attach prt_detach prt_inv_add prt_inv_clear prt_recycle prt_bay_repair prt_damage prt_tick prt_spend_energy prt_random_part prt_free_slots | lcc-simulation |
 | src/ui.ap | ui_ | WP4 | panel, bars, messages, help row, menus, help overlay, title/end screens | ui_init ui_title ui_draw ui_end_screen ui_msg ui_msg_add ui_msg_addn ui_msg_attr ui_bar ui_score | lcc-text-graphics |
 | src/render.ap | ren_ | WP5 | map viewport layers | ren_draw ren_tile_cell | lcc-text-graphics |
 | src/items.ap | itm_ | WP6 | floor item pool, per-floor loot | itm_clear itm_place itm_at itm_remove itm_spawn_floor | lcc-simulation |
 | src/actors.ap | act_ | WP7 | robot types, pool, spawning, scheduler, AI, target cycling | act_init act_clear act_spawn_floor act_spawn act_at act_run act_think act_type_info act_name act_kill act_alert act_next_visible | lcc-simulation |
 | src/combat.ap | cbt_ | WP8 | hit chance, fire, melee, enemy attacks, destruction, drops | cbt_hit_chance cbt_player_fire cbt_player_melee cbt_enemy_attack cbt_damage_enemy cbt_blast | lcc-simulation |
-| src/player.ap | ply_ | WP9 | input modes, player actions | ply_init ply_handle ply_key ply_move ply_spend ply_pickup ply_equip ply_remove ply_drop ply_recycle ply_target ply_fire ply_stairs | lcc-game-dev |
+| src/player.ap | ply_ | WP9 | input modes, player actions | ply_init ply_handle ply_key ply_move ply_spend ply_pickup ply_equip ply_remove ply_drop ply_recycle ply_target ply_fire ply_stairs ply_bay_start ply_bay_slot ply_bay_part | lcc-game-dev |
 
 Dependency direction (who calls whom): main → everything. player → dungeon, items,
 parts, actors, combat, ui. actors → dungeon, fov, combat, ui. combat → parts, items,
@@ -504,6 +508,22 @@ Costs `TIME_RECYCLE`, increments `st_stat_recycled`, and logs
 digits highlight in `A_SELECT` like `MODE_EQUIP`/`MODE_DROP`; the help bar
 (`RECYCLE: 1-4 scrap carried part for core HP   Esc cancel`) and `?` overlay both list
 it. Spare parts now double as emergency repair material: carry, attach, or scrap.
+
+### Service bays (`a`, `MODE_BAY_SLOT` / `MODE_BAY_PART`)
+
+Each floor places one single-use service bay (`FX_BAY`, bright-green `Ω` ready, gray `Ω` spent)
+at the center of a room that is neither the start room nor the stairs room. Stepping onto a ready
+bay posts `Service bay here (1 use). Press a to repair a part.` (stopping auto-explore/run);
+`Here:` and `-- Look --` show `Service bay (1 use)` or `Service bay (spent)`.
+
+Pressing `a` checks in order at no time cost: bay underfoot (`No service bay here.`), charge left
+(`This service bay is spent.`), a damaged attached part (`No attached part needs repair.`), and a
+carried spare (`No carried part to sacrifice.`). Then a two-step picker opens (`Esc` cancels at
+either step): `1`-`8` picks a damaged loadout slot (`Slot is empty.` / `That part is undamaged.`),
+and `1`-`4` sacrifices a carried part (`No carried part there.`). The spare is destroyed and the
+chosen part regains `BAY_MULT × (1 + (RECYCLE_BASE + RECYCLE_TIER × tier) × hp / maxhp)` integrity
+(`BAY_MULT` = 2, capped at missing integrity). Costs `TIME_BAY` (150 TU), spends the bay, and logs
+`Bay repaired <Part> +<N>.` (bay messages live in `src/player.ap`).
 
 ### New robots (`act_types` ids 8–9)
 
