@@ -100,17 +100,15 @@ class Room {
 
   input(m, data) {
     if (!this.members.includes(m)) return;
-    const s = data.toString('utf8');
+    let s = data.toString('utf8');
     if (m.game) {
+      m.esc = 0;
       if (s.includes('\x03')) { this.forfeit(m); return; }   // Ctrl-C: give up, back to the lobby
       m.game.pushKeys(s);
       return;
     }
     if (/[\x03\x04]/.test(s)) { this.leave(m); return; }
-    // Arrow / function keys are not lobby keys, even when their bytes arrive in two chunks.
-    const tail = m.escTail;
-    m.escTail = /\x1b[[O]?[0-9;]*$/.test(s);
-    if (s.includes('\x1b') || tail) return;
+    s = this.stripEscapes(m, s);
     if (/[qQ]/.test(s)) { this.leave(m); return; }
     if (s.includes('\t')) { m.view = VIEWS[(VIEWS.indexOf(m.view) + 1) % VIEWS.length]; this.requestLobbies(); return; }
     if (m.view !== 'lobby') return;             // board / chronicle: only Tab and q do anything
@@ -129,6 +127,24 @@ class Room {
       this.maybeCountdown();
       this.requestLobbies();
     }
+  }
+
+  // Drop terminal escape sequences (arrow / function keys: ESC [ ... final, ESC O x),
+  // even when they arrive split across packets; a lone Esc is just dropped.
+  stripEscapes(m, s) {
+    let out = '';
+    for (const ch of s) {
+      if (m.esc === 1) {                         // after ESC
+        if (ch === '[' || ch === 'O') { m.esc = ch === '[' ? 2 : 3; continue; }
+        m.esc = 0;                               // lone Esc: this byte is an ordinary key
+      } else if (m.esc === 2) {                  // CSI: parameters until a final byte @..~
+        if (ch >= '@' && ch <= '~') m.esc = 0;
+        continue;
+      } else if (m.esc === 3) { m.esc = 0; continue; }   // SS3: one final byte
+      if (ch === '\x1b') { m.esc = 1; continue; }
+      out += ch;
+    }
+    return out;
   }
 
   // ---- countdown / race -----------------------------------------------------

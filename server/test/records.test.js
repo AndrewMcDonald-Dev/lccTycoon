@@ -185,8 +185,9 @@ test('memory matches disk after a failed save; damaged-but-valid JSON is moved a
   const dir = tmpDir();
   const daily = { date: '2026-11-25', build: 'b', seed: 1 };
   const s = new Store(dir);
+  s.board('2026-11-25', 'b', 1);                       // cached (empty) before the failure
   fs.mkdirSync(path.join(dir, 'daily'));
-  fs.mkdirSync(s.boardFile('2026-11-25', 'b', 1));    // the board path is a directory: its write fails
+  fs.mkdirSync(s.boardFile('2026-11-25', 'b', 1));    // the board path is a directory: the rename onto it fails
   assert.throws(() => s.recordRace([run('fpA', 'ann', 1, 'won', 0, 1000)], daily));
   const reopened = new Store(dir);
   assert.deepStrictEqual(s.profile('fpA'), reopened.profile('fpA'), 'profile: memory matches disk');
@@ -223,6 +224,11 @@ test('the lobby ignores arrow keys, only Tab and q work off the lobby view, and 
     room.input(m, Buffer.from('\x1b['));         // Left arrow split across two packets
     room.input(m, Buffer.from('D'));
     assert.strictEqual(room.daily, false);
+    for (const parts of [['\x1b', 'O', 'Q'], ['\x1b[1;', '5', 'D'], ['\x1b', '[', 'D']]) {   // F2 / Ctrl-Left / Left in pieces
+      for (const p of parts) room.input(m, Buffer.from(p));
+      assert.ok(room.members.includes(m) && room.daily === false, JSON.stringify(parts));
+    }
+    room.input(m, Buffer.from('\x1b'));          // a lone Esc does not eat the next key
     room.input(m, Buffer.from('d'));             // a real 'd' after that still works
     assert.strictEqual(room.daily, true);
     room.input(m, Buffer.from('d'));
