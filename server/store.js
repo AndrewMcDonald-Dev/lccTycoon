@@ -28,14 +28,19 @@ function better(a, b) {
   return (aw ? 0 : a.best - b.best) || finish(a.outcome) - finish(b.outcome) || a.ms - b.ms || a.turns - b.turns;
 }
 const isObject = v => v !== null && typeof v === 'object' && !Array.isArray(v);
-const isBoard = v => isObject(v) && Array.isArray(v.entries) && v.entries.every(isObject);
+const int = v => Number.isInteger(v);
+const isProfile = p => isObject(p) && typeof p.handle === 'string' && int(p.races) && int(p.wins)
+  && (p.bestDepth === null || int(p.bestDepth)) && (p.fastestWinMs === null || int(p.fastestWinMs));
+const isEntry = e => isObject(e) && typeof e.fp === 'string' && typeof e.handle === 'string' && typeof e.outcome === 'string'
+  && int(e.best) && int(e.ms) && int(e.turns) && int(e.kills);
+const isBoard = v => isObject(v) && Array.isArray(v.entries) && v.entries.every(isEntry);
 const clone = v => JSON.parse(JSON.stringify(v));
 
 class Store {
   constructor(dir) {
     this.dir = dir;
     this.profilesFile = path.join(dir, 'profiles.json');
-    this.profiles = this.read(this.profilesFile, {}, v => isObject(v) && Object.values(v).every(isObject));
+    this.profiles = this.read(this.profilesFile, {}, v => isObject(v) && Object.values(v).every(isProfile));
     this.boards = new Map();             // board key -> { date, build, seed, entries }
   }
 
@@ -61,7 +66,7 @@ class Store {
     try {
       const fd = fs.openSync(tmp, 'wx', 0o600);
       try {
-        fs.writeSync(fd, JSON.stringify(data, null, 1) + '\n');
+        fs.writeFileSync(fd, JSON.stringify(data, null, 1) + '\n');   // writes it all, even on a short write
         fs.fsyncSync(fd);           // the bytes are on disk before the rename makes them the file
       } finally { fs.closeSync(fd); }
       fs.renameSync(tmp, file);
@@ -84,8 +89,9 @@ class Store {
   // Record a finished race. runs: the race standings [{ fp, handle, place, outcome,
   // best, ms, turns, kills }]; only racers with a verified key (fp) are recorded.
   // A win is first place on the Surface. daily: { date, build, seed } or null.
-  // One key racing in two seats counts once, with its better-placed run.
-  // Both files are written before memory changes, so a failed write changes nothing.
+  // One key racing in two seats counts once on its profile (its better-placed
+  // run) and keeps its better run on the board. Each file is written before
+  // memory takes the change, so memory always matches what is on disk.
   recordRace(runs, daily) {
     const ranked = [];
     for (const r of [...runs].sort((a, b) => a.place - b.place)) if (r.fp && !ranked.some(o => o.fp === r.fp)) ranked.push(r);
@@ -100,12 +106,14 @@ class Store {
       if (p.bestDepth === null || r.best < p.bestDepth) p.bestDepth = r.best;
       if (won && (p.fastestWinMs === null || r.ms < p.fastestWinMs)) p.fastestWinMs = r.ms;
     }
-    const b = daily ? clone(this.board(daily.date, daily.build, daily.seed)) : null;
-    if (b) this.rankDaily(b, ranked);
-    if (b) this.write(this.boardFile(daily.date, daily.build, daily.seed), b);
     this.write(this.profilesFile, profiles);
     this.profiles = profiles;
-    if (b) this.boards.set(this.boardFile(daily.date, daily.build, daily.seed), b);
+    if (!daily) return;
+    const file = this.boardFile(daily.date, daily.build, daily.seed);
+    const b = clone(this.board(daily.date, daily.build, daily.seed));
+    this.rankDaily(b, runs.filter(r => r.fp).sort((x, y) => better(y, x)));   // worst first: a key's best run lands last
+    this.write(file, b);
+    this.boards.set(file, b);
   }
 
   rankDaily(b, ranked) {

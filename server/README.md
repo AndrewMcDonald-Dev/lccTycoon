@@ -91,7 +91,7 @@ After a race finishes, press **`Tab`** twice from the lobby to view the **last-r
   5. Fewer turns
   Boards are scoped per game build, so a new build starts a fresh board.
 - **Ranked play (SSH key)**: Running `ssh -p 2222 <name>@<host>` offers your default SSH key automatically if you have one. After verifying your key's signature, the server tracks your persistent record across all races (total races, best depth, wins, and fastest win — both requiring 1st place on the Surface) and ranks your daily-seed runs on the daily board. If one key is connected in multiple seats of the same race, it counts once (its better-placed run). Keys the server cannot read (e.g. FIDO/security keys `sk-*` or OpenSSH certificates) are skipped, so those players still connect — as guests unless they also have a regular key.
-- **Guest play (no key)**: Players without an SSH key — or anyone opting out with `ssh -p 2222 -o PubkeyAuthentication=no <name>@<host>` — join and race normally (including on the daily seed), but are never saved to a profile or the daily board.
+- **Guest play (no key)**: Players without an SSH key — or anyone opting out with `ssh -p 2222 -o PubkeyAuthentication=no <name>@<host>` — join and race normally (including on the daily seed), but are never saved to a profile or the daily board. To let SSH clients offer their keys, the server does not accept SSH `none` auth and instead admits keyless guests via `keyboard-interactive` auth with no prompt (or the password prompt when `SCRAP_PASSWORD` is set). Normal interactive `ssh` handles this transparently, but a keyless `ssh -o BatchMode=yes` (which disables `keyboard-interactive`) — or any client without `keyboard-interactive` support — is refused.
 
 ## Saved data & privacy
 

@@ -41,7 +41,7 @@ function parseArgs(argv) {
     if (a === '--port') { o.port = intArg(a, v, 0, 65535); i++; }
     else if (a === '--host') { o.host = v; i++; }
     else if (a === '--max-players') { o.maxPlayers = intArg(a, v, 1, 8); i++; }   // the rival line fits 7 rivals
-    else if (a === '--data-dir') { if (!v) throw new Error('--data-dir needs a directory'); o.dataDir = path.resolve(v); i++; }
+    else if (a === '--data-dir') { if (!v || v.startsWith('-')) throw new Error('--data-dir needs a directory'); o.dataDir = path.resolve(v); i++; }
     else if (a === '--help' || a === '-h') { o.help = true; }
     else throw new Error(`unknown option ${a}`);
   }

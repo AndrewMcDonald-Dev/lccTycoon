@@ -169,6 +169,10 @@ test('one key in two seats counts once; a forfeit never outranks a run that ende
   const dead = run('x', 'x', 1, 'dead', 10, 60000), quit = run('y', 'y', 1, 'quit', 10, 200);
   assert.ok(better(dead, quit) < 0, 'destroyed at Depth 10 beats an instant forfeit at Depth 10');
   assert.ok(better(run('z', 'z', 1, 'quit', 9, 200), dead) < 0, 'shallower still wins first');
+  // two seats, one key: a forfeit that placed higher in the race does not displace the destroyed run on the board
+  s.recordRace([run('fpE', 'eve2', 1, 'quit', 10, 300), run('fpE', 'eve', 2, 'dead', 10, 9000)], daily);
+  assert.strictEqual(s.board('2026-11-25', 'b', 1).entries.find(e => e.fp === 'fpE').outcome, 'dead');
+  assert.strictEqual(s.profile('fpE').races, 1);
   s.recordRace([run('fpB', 'bob', 1, 'dead', 10, 60000)], daily);
   s.recordRace([run('fpB', 'bob', 1, 'quit', 10, 200)], daily);       // a later instant forfeit does not replace it
   assert.strictEqual(s.board('2026-11-25', 'b', 1).entries.find(e => e.fp === 'fpB').outcome, 'dead');
@@ -177,28 +181,32 @@ test('one key in two seats counts once; a forfeit never outranks a run that ende
   assert.deepStrictEqual([s.profile('fpD').wins, s.profile('fpD').fastestWinMs], [0, null]);
 });
 
-test('a failed save changes nothing; damaged-but-valid JSON is moved aside, not trusted', () => {
+test('memory matches disk after a failed save; damaged-but-valid JSON is moved aside, not trusted', () => {
   const dir = tmpDir();
   const daily = { date: '2026-11-25', build: 'b', seed: 1 };
   const s = new Store(dir);
   fs.mkdirSync(path.join(dir, 'daily'));
   fs.mkdirSync(s.boardFile('2026-11-25', 'b', 1));    // the board path is a directory: its write fails
   assert.throws(() => s.recordRace([run('fpA', 'ann', 1, 'won', 0, 1000)], daily));
-  assert.strictEqual(s.profile('fpA'), null, 'profile unchanged in memory');
-  assert.strictEqual(new Store(dir).profile('fpA'), null, 'and on disk');
-  for (const [name, text] of [['profiles.json', '[]'], ['profiles.json', 'null'], ['profiles.json', '{"k":42}']]) {
+  const reopened = new Store(dir);
+  assert.deepStrictEqual(s.profile('fpA'), reopened.profile('fpA'), 'profile: memory matches disk');
+  const cached = s.boards.get(s.boardFile('2026-11-25', 'b', 1));
+  assert.ok(!cached || cached.entries.length === 0, 'board: nothing in memory, as on disk');
+  for (const [name, text] of [['profiles.json', '[]'], ['profiles.json', 'null'], ['profiles.json', '{"k":42}'], ['profiles.json', '{"k":{}}'],
+    ['profiles.json', '{"k":{"handle":"a","races":"1","wins":0,"bestDepth":null,"fastestWinMs":null}}']]) {
     const d = tmpDir();
     fs.writeFileSync(path.join(d, name), text);
     const st = new Store(d);
     assert.deepStrictEqual(st.profiles, {}, text);
     assert.ok(fs.readdirSync(d).some(f => f.startsWith('profiles.json.corrupt-')), text);
   }
-  for (const text of ['{}', 'null', '{"entries":null}', '{"entries":[1]}']) {
+  for (const text of ['{}', 'null', '{"entries":null}', '{"entries":[1]}', '{"entries":[{}]}', '{"entries":[{"fp":"x","handle":5,"outcome":"won","best":0,"ms":1,"turns":1,"kills":0}]}']) {
     const d = tmpDir();
     const st = new Store(d);
     fs.mkdirSync(path.join(d, 'daily'));
     fs.writeFileSync(st.boardFile('2026-11-25', 'b', 1), text);
     assert.deepStrictEqual(st.board('2026-11-25', 'b', 1).entries, [], text);
+    assert.ok(fs.readdirSync(path.join(d, 'daily')).some(f => f.includes('.corrupt-')), text);
   }
 });
 
@@ -212,6 +220,12 @@ test('the lobby ignores arrow keys, only Tab and q work off the lobby view, and 
     assert.strictEqual(room.daily, false);
     room.input(m, Buffer.from('\x1bOQ'));        // F2 ends in 'Q'
     assert.ok(room.members.includes(m));
+    room.input(m, Buffer.from('\x1b['));         // Left arrow split across two packets
+    room.input(m, Buffer.from('D'));
+    assert.strictEqual(room.daily, false);
+    room.input(m, Buffer.from('d'));             // a real 'd' after that still works
+    assert.strictEqual(room.daily, true);
+    room.input(m, Buffer.from('d'));
     room.input(m, Buffer.from('\t'));            // board view
     room.input(m, Buffer.from('d'));
     room.input(m, Buffer.from('\r'));

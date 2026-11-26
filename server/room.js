@@ -107,7 +107,10 @@ class Room {
       return;
     }
     if (/[\x03\x04]/.test(s)) { this.leave(m); return; }
-    if (s.includes('\x1b')) return;            // arrow / function keys: their bytes are not lobby keys
+    // Arrow / function keys are not lobby keys, even when their bytes arrive in two chunks.
+    const tail = m.escTail;
+    m.escTail = /\x1b[[O]?[0-9;]*$/.test(s);
+    if (s.includes('\x1b') || tail) return;
     if (/[qQ]/.test(s)) { this.leave(m); return; }
     if (s.includes('\t')) { m.view = VIEWS[(VIEWS.indexOf(m.view) + 1) % VIEWS.length]; this.requestLobbies(); return; }
     if (m.view !== 'lobby') return;             // board / chronicle: only Tab and q do anything
