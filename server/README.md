@@ -86,10 +86,11 @@ After a race finishes, press **`Tab`** twice from the lobby to view the **last-r
 - **Daily board**: Keeps each ranked player's **best** run of the day (repeat attempts are allowed). Entries are ordered by:
   1. Reached the Surface first (fastest time)
   2. Shallowest depth reached
-  3. Faster time
-  4. Fewer turns
+  3. Runs that ended in play (destroyed) over forfeits (`Ctrl-C`), disconnects, and crashes at the same depth — so a later instant forfeit never replaces a real run
+  4. Faster time
+  5. Fewer turns
   Boards are scoped per game build, so a new build starts a fresh board.
-- **Ranked play (SSH key)**: Running `ssh -p 2222 <name>@<host>` offers your default SSH key automatically if you have one. After verifying your key's signature, the server tracks your persistent record (total races, wins — 1st place on the Surface — best depth, and fastest win) across all races and ranks your daily-seed runs on the daily board.
+- **Ranked play (SSH key)**: Running `ssh -p 2222 <name>@<host>` offers your default SSH key automatically if you have one. After verifying your key's signature, the server tracks your persistent record across all races (total races, best depth, wins, and fastest win — both requiring 1st place on the Surface) and ranks your daily-seed runs on the daily board. If one key is connected in multiple seats of the same race, it counts once (its better-placed run). Keys the server cannot read (e.g. FIDO/security keys `sk-*` or OpenSSH certificates) are skipped, so those players still connect — as guests unless they also have a regular key.
 - **Guest play (no key)**: Players without an SSH key — or anyone opting out with `ssh -p 2222 -o PubkeyAuthentication=no <name>@<host>` — join and race normally (including on the daily seed), but are never saved to a profile or the daily board.
 
 ## Saved data & privacy

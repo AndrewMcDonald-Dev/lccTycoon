@@ -4,6 +4,7 @@
 
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const loc = d => (d === 0 ? 'Surface' : `Depth ${d}`);
+const shortLoc = d => (d === 0 ? 'Surf' : `D${d}`);
 const clock = ms => { const t = Math.floor(ms / 1000); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`; };
 const hex = n => `#${n.toString(16).toUpperCase().padStart(4, '0')}`;
 
@@ -33,16 +34,58 @@ module.exports = {
     : 'Your record: no races yet.'),
   chronicleTitle: last => (last ? `LAST RACE -- ${last.daily ? `daily seed ${hex(last.seed)} (${last.daily.date} UTC)` : `random seed ${hex(last.seed)}`}` : 'LAST RACE'),
   chronicleEmpty: 'No race has finished since the server started.',
-  splits: (splits, ms) => {
-    const out = splits.filter(s => s.depth < 10).map(s => `${s.depth === 0 ? 'Surf' : `D${s.depth}`} ${clock(s.ms)}`);
-    const hasSurf = splits.some(s => s.depth === 0);
-    const tail = hasSurf ? '' : `  (end ${clock(ms || 0)})`;
-    const wide = `Splits: ${out.length ? out.join('  ') : 'none'}${tail}`;
-    if (wide.length <= 93) return wide;
-    return `Splits: ${out.join(' ')}${hasSurf ? '' : ` (end ${clock(ms || 0)})`}`;
+  chronicleHead: (r, c = {}, width = 96) => {
+    const kills = r.kills ?? c.kills ?? 0;
+    const turns = r.turns ?? c.turns ?? 0;
+    const salv = c.salvaged ?? 0, lost = c.lost ?? 0, rec = c.recycled ?? 0;
+    const killer = c.cause ? ` by ${c.cause}` : '';
+    const endWide = (
+      r.outcome === 'won' ? 'reached Surface' :
+      r.outcome === 'dead' ? `destroyed at ${loc(r.depth)}` :
+      r.outcome === 'quit' ? `gave up at ${loc(r.depth)}` :
+      r.outcome === 'left' ? `disconnected at ${loc(r.depth)}` :
+      r.outcome === 'crashed' ? `crashed at ${loc(r.depth)}` :
+      loc(r.depth)
+    ) + killer;
+    const endShort = (
+      r.outcome === 'won' ? 'Surface' :
+      r.outcome === 'dead' ? `dead ${shortLoc(r.depth)}` :
+      r.outcome === 'quit' ? `quit ${shortLoc(r.depth)}` :
+      r.outcome === 'left' ? `left ${shortLoc(r.depth)}` :
+      r.outcome === 'crashed' ? `crashed ${shortLoc(r.depth)}` :
+      shortLoc(r.depth)
+    ) + killer;
+    const wide = `${r.place}. ${r.name}: ${endWide} -- ${plural(kills, 'kill')}, ${plural(turns, 'turn')}; salv ${salv}, lost ${lost}, rec ${rec}`;
+    if (wide.length <= width) return wide;
+    const mid = `${r.place}. ${r.name}: ${endShort} -- ${plural(kills, 'kill')}, ${plural(turns, 'turn')}; salv ${salv}, lost ${lost}, rec ${rec}`;
+    if (mid.length <= width) return mid;
+    const tight = `${r.place}. ${r.name}: ${endShort} -- ${kills}k ${turns}t; salv ${salv}, lost ${lost}, rec ${rec}`;
+    if (tight.length <= width) return tight;
+    return `${r.place}. ${r.name}: ${endShort} ${kills}k/${turns}t s${salv}/l${lost}/r${rec}`;
   },
-  loadout: parts => `Loadout: ${parts.length ? parts.join(', ') : 'none'}`,
-  runStats: c => `-- ${c.cause ? `by ${c.cause}; ` : ''}salv ${c.salvaged}, lost ${c.lost}, rec ${c.recycled}`,
+  splits: (splits, ms, width = 93) => {
+    const reached = splits.filter(s => s.depth < 10);
+    const hasSurf = reached.some(s => s.depth === 0);
+    const end = clock(ms || 0);
+    const wide = `Splits: ${reached.length ? reached.map(s => `${shortLoc(s.depth)} ${clock(s.ms)}`).join('  ') : 'none'}${hasSurf ? '' : `  (end ${end})`}`;
+    if (wide.length <= width) return wide;
+    const med = `Splits: ${reached.length ? reached.map(s => `${shortLoc(s.depth)} ${clock(s.ms)}`).join(' ') : 'none'}${hasSurf ? '' : ` (end ${end})`}`;
+    if (med.length <= width) return med;
+    const compact = `Splits: ${reached.length ? reached.map(s => `${s.depth === 0 ? 'Surf' : s.depth}@${clock(s.ms)}`).join(' ') : 'none'}${hasSurf ? '' : ` (end ${end})`}`;
+    if (compact.length <= width) return compact;
+    return `Spl: ${reached.length ? reached.map(s => `${s.depth === 0 ? 'S' : s.depth}@${clock(s.ms)}`).join(' ') : 'none'}${hasSurf ? '' : ` end ${end}`}`;
+  },
+  loadout: (parts, width = 93) => {
+    if (!parts.length) return 'Loadout: none';
+    const full = `Loadout: ${parts.join(', ')}`;
+    if (full.length <= width) return full;
+    const trim = (p, cap) => (p.length <= cap ? p : cap <= 1 ? p.slice(0, 1) : `${p.slice(0, cap - 1).trimEnd()}.`);
+    for (let cap = Math.max(...parts.map(p => p.length)) - 1; cap >= 1; cap--) {
+      const line = `Loadout: ${parts.map(p => trim(p, cap)).join(', ')}`;
+      if (line.length <= width) return line;
+    }
+    return `Loadout: ${parts.map(p => p.slice(0, 1)).join(', ')}`;
+  },
   countdown: s => `All ready -- starting in ${s}...`,
   needAll: 'Race starts when everyone in the lobby is ready.',
   liveHeader: 'Live standings',

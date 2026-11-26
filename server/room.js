@@ -31,6 +31,7 @@ class Room {
     this.store = opts.store || null;
     this.now = opts.now || Date.now;
     this.daily = false;               // next race runs on the daily seed (lobby 'd' toggles)
+    this.shownDay = utcDate(this.now());   // UTC day the lobbies last showed
     this.countdownMs = opts.countdownMs === undefined ? 3000 : opts.countdownMs;
     this.pollMs = opts.pollMs || 250;
     this.endScreenMs = opts.endScreenMs === undefined ? 20000 : opts.endScreenMs;
@@ -105,8 +106,11 @@ class Room {
       m.game.pushKeys(s);
       return;
     }
-    if (/[qQ\x03\x04]/.test(s)) { this.leave(m); return; }
+    if (/[\x03\x04]/.test(s)) { this.leave(m); return; }
+    if (s.includes('\x1b')) return;            // arrow / function keys: their bytes are not lobby keys
+    if (/[qQ]/.test(s)) { this.leave(m); return; }
     if (s.includes('\t')) { m.view = VIEWS[(VIEWS.indexOf(m.view) + 1) % VIEWS.length]; this.requestLobbies(); return; }
+    if (m.view !== 'lobby') return;             // board / chronicle: only Tab and q do anything
     if (/[dD]/.test(s) && this.phase !== 'race') {
       this.daily = !this.daily;
       const restart = this.phase === 'countdown';
@@ -234,6 +238,8 @@ class Room {
 
   // Poll: record finishes the VMs saw, and refresh rival lines and lobbies.
   tick() {
+    const day = utcDate(this.now());
+    if (day !== this.shownDay) { this.shownDay = day; this.requestLobbies(); }   // idle lobbies show the new day's seed and board
     if (this.phase !== 'race') return;
     for (const m of this.race.racers) this.recordResult(m);
     this.maybeEndRace();
@@ -320,7 +326,8 @@ class Room {
     const date = utcDate(this.now());
     const seed = dailySeed(date);
     const lines = [T.boardTitle(date, seed), ''];
-    const entries = this.store ? this.store.board(date, this.buildId, seed).entries : [];
+    let entries = [];
+    try { if (this.store) entries = this.store.board(date, this.buildId, seed).entries; } catch (e) { console.error(`[versus] could not read the daily board: ${e.message}`); }
     if (!entries.length) lines.push(T.boardEmpty);
     entries.slice(0, BOARD_ROWS).forEach((e, i) => lines.push(`  ${String(i + 1).padStart(2)}. ${T.boardEntry(e)}${e.fp === m.fp ? ' ' + T.you : ''}`));
     const mine = m.fp ? entries.findIndex(e => e.fp === m.fp) : -1;
@@ -328,7 +335,7 @@ class Room {
     lines.push('');
     if (!m.fp) lines.push(T.guest);
     else if (!this.store) lines.push(T.noStore);
-    else lines.push(T.profile(this.store.profile(m.fp)));
+    else lines.push(T.profile(this.store.profile(m.fp)));   // profiles were read (and checked) at startup
     lines.push('', T.viewKeys);
     return lines;
   }
@@ -339,9 +346,10 @@ class Room {
     if (!this.lastResults) lines.push(T.chronicleEmpty);
     for (const r of this.lastResults || []) {
       const c = r.chronicle || { loadout: [], splits: [], salvaged: 0, lost: 0, recycled: 0 };
-      lines.push(`${r.place}. ${T.standing(r)} ${T.runStats(c)}`.slice(0, width));   // 3 lines each: 8 racers fit in 30 rows
-      lines.push(`   ${T.splits(c.splits, r.ms)}`.slice(0, width));
-      lines.push(`   ${T.loadout(c.loadout)}`.slice(0, width));
+      // 3 lines each (8 racers fit in 30 rows); each line fits the width on its own.
+      lines.push(T.chronicleHead(r, c, width).slice(0, width));
+      lines.push(`   ${T.splits(c.splits, r.ms, width - 3)}`.slice(0, width));
+      lines.push(`   ${T.loadout(c.loadout, width - 3)}`.slice(0, width));
     }
     lines.push('', T.viewKeys);
     return lines;
