@@ -294,6 +294,19 @@ class CollectingAssembler extends AssemblerPlus {
     this.collected.push({ lineNum: this.lineNum, locCtr: this.locCtr, message, pass: this.pass });
     this.errorFlag = true;
   }
+  // Upstream emits no word when an encoder fails in pass 2 (e.g. pcoffset9 out of
+  // range), so every later instruction lands one word below the address pass 1
+  // gave its label. Hundreds of real far refs then made nearby short branches look
+  // out of range too. Keep pass 2 in step with pass 1 by emitting a placeholder.
+  handleInstruction(mnemonic, operands) {
+    const loc = this.locCtr;
+    const errs = this.collected.length;
+    super.handleInstruction(mnemonic, operands);
+    if (this.pass === 2 && this.locCtr === loc && this.collected.length > errs) {
+      this.writeMachineWord(0);
+      this.locCtr += 1;
+    }
+  }
 }
 
 function assembleOnce(lines, inputName) {

@@ -35,7 +35,7 @@
 ;; act_nearest_visible ()               -> r0=nearest visible living robot of any type, -1 if none
 ;; act_hostile_visible ()               -> r0=1 if a living non-worker robot is visible, 0 otherwise
 ;; act_player_path  r0=tile index or -1 -> r0=first step's tile index, -1 if no step. BFS over known walkable tiles (8-way), avoiding visible robots.
-;;                   -1 searches for the nearest reachable tile with an unknown in-bounds neighbour. Shares act_queue with the AI distance field and invalidates it (the next act_ensure_bfs rebuilds).
+;;                   -1 searches for the nearest reachable tile with an unknown in-bounds neighbour. Shares act_queue with the AI distance field; the field stays valid, and its next rebuild clears all of it.
 ; ---------------------------------------------------------------------
 
 ; ---- local pool 1 (placed before routines: negative PC offsets) -----
@@ -631,6 +631,8 @@ act_bfs_mver:      .word 0
 act_bfs_head:      .word 0
 act_bfs_prev_tail: .word act_queue
 act_bfs_mdiff:     .word 0
+act_bfs_lost:      .word 0          ; 1 = act_player_path overwrote the visit list in act_queue
+act_bfs_size:      .word MAP_SIZE
 act_p_dist:        .word act_dist
 act_p_queue:       .word act_queue
 act_p_map3:        .word st_map
@@ -677,14 +679,30 @@ act_eb_ok:
         ret
 
 ; Clear the act_dist cells the previous BFS visited (listed in act_queue) and
-; empty that list. Clobbers r0-r3.
+; empty that list; clear all of act_dist if the list was lost. Clobbers r0-r3.
 act_bfs_clear:
+        mov r1, 0
+        ld r0, act_bfs_lost
+        cmp r0, 0
+        brz act_bf_clr_list
+        st r1, act_bfs_lost
+        ld r0, act_p_dist
+        ld r2, act_bfs_size     ; MAP_SIZE is a multiple of 4
+act_bf_clr_all:
+        str r1, r0, 0
+        str r1, r0, 1
+        str r1, r0, 2
+        str r1, r0, 3
+        add r0, r0, 4
+        sub r2, r2, 4
+        brp act_bf_clr_all
+        br act_bf_clr_done
+act_bf_clr_list:
         ; Count = prev_tail - act_queue (0..MAP_SIZE); avoids signed pointer compares
         ld r0, act_p_queue
         ld r2, act_bfs_prev_tail
         sub r2, r2, r0
         brz act_bf_clr_done
-        mov r1, 0
         sub r2, r2, 3           ; > 0 iff remaining >= 4
         brp act_bf_clr4
         br act_bf_clr_t0
@@ -715,21 +733,12 @@ act_bf_clr_done:
         ret
 
 ; act_player_path reuses act_queue as its own queue, which destroys the visit
-; list act_bfs_clear needs. Called before that: wipe the field while the list
-; is intact and force the next act_ensure_bfs to rebuild. Preserves all regs.
+; list act_bfs_clear needs. Called before that; act_dist stays valid and the
+; next rebuild clears the whole field instead. Preserves all regs.
 act_bfs_release:
         push r0
-        push r1
-        push r2
-        push r3
-        push lr
-        bl act_bfs_clear
-        mov r0, 0
-        st r0, act_bfs_valid
-        pop lr
-        pop r3
-        pop r2
-        pop r1
+        mov r0, 1
+        st r0, act_bfs_lost
         pop r0
         ret
 

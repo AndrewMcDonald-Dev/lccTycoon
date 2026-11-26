@@ -1,6 +1,6 @@
 ; Unit driver: act_player_path shares act_queue with the AI distance field.
-; It must wipe act_dist through the BFS visit list before reusing the queue,
-; invalidate the cache, and the next act_ensure_bfs must rebuild the same field.
+; It overwrites the BFS visit list there, so it must leave act_dist intact and
+; valid (no extra rebuild) and make the next rebuild clear the whole field.
 ; Map: corridor y=5 x=5..9 and detour y=3 x=5..9 joined at (5,4) and (9,4).
 ; 4-way distances from (5,5), stored as d+1, sum to 48 over the 12 floor tiles.
         .lccplus
@@ -58,36 +58,83 @@ drv_c_lp:
         bl fov_update
         bl act_clear
 
-        ; 1. Build the AI field.
+        ; 0. The two queues really are one buffer.
+        lea r0, act_queue
+        lea r1, act_path_queue
+        sub r0, r1, r0
+        st r0, drv_alias        ; expect 0
+
+        ; 1. Build the AI field and keep a copy.
         bl act_ensure_bfs
-        ld r0, act_bfs_valid
-        st r0, drv_valid1       ; expect 1
         bl drv_dist_sum
         st r0, drv_sum1         ; expect 48
+        bl drv_snap
+        ld r0, act_bfs_border_ok
+        st r0, drv_border1      ; expect 1 (all border walls)
 
-        ; 2. Player path to (9,5) borrows the queue.
+        ; 2. Two player paths back to back borrow the queue.
         ld r0, drv_goal
         bl act_player_path
         st r0, drv_step         ; expect (6,5): index 5*MAP_W+6 = 326
-        ld r0, act_bfs_valid
-        st r0, drv_valid2       ; expect 0
-        bl drv_dist_sum
-        st r0, drv_sum2         ; expect 0: wiped before the queue was reused
-
-        ; 3. Same player position and map version: still rebuilds.
-        bl act_ensure_bfs
-        ld r0, act_bfs_valid
-        st r0, drv_valid3       ; expect 1
-        bl drv_dist_sum
-        st r0, drv_sum3         ; expect 48
-
-        ; 4. A second path right after a rebuild, then a rebuild: same again.
         ld r0, drv_goal
         bl act_player_path
-        st r0, drv_step2        ; expect same as drv_step
+        st r0, drv_step2        ; expect 326
+        ld r0, act_bfs_valid
+        st r0, drv_valid2       ; expect 1: the field is still valid
+        bl drv_cmp
+        st r0, drv_diff2        ; expect 0 cells changed
+
+        ; 3. Same position and map: the cached field is reused, no rebuild.
+        ;    A marker in an unreachable cell survives only if nothing rebuilt
+        ;    (a rebuild would clear the whole field here).
+        lea r1, act_dist
+        ld r0, drv_mark_idx
+        add r1, r1, r0
+        mov r0, 77
+        str r0, r1, 0
+        bl act_ensure_bfs
+        bl drv_cmp
+        st r0, drv_diff3        ; expect 1: only the marker differs
+        lea r1, act_dist
+        ld r0, drv_mark_idx
+        add r1, r1, r0
+        mov r0, 0
+        str r0, r1, 0
+
+        ; 4. Wall off both joins: the detour becomes unreachable. The rebuild
+        ;    must clear all of act_dist (its visit list is gone), so only the
+        ;    5 corridor tiles keep a distance: 1+2+3+4+5 = 15.
+        mov r0, 5
+        mov r1, 4
+        mov r2, T_WALL
+        bl dun_set
+        mov r0, 9
+        mov r1, 4
+        mov r2, T_WALL
+        bl dun_set
         bl act_ensure_bfs
         bl drv_dist_sum
-        st r0, drv_sum4         ; expect 48
+        st r0, drv_sum4         ; expect 15
+
+        ; 5. Player steps to (6,5): normal list clear of 5 cells (4 + 1 remainder).
+        mov r0, 6
+        st r0, st_px
+        bl act_ensure_bfs
+        bl drv_dist_sum
+        st r0, drv_sum5         ; expect 2+1+2+3+4 = 12
+
+        ; 6. A path, then a walkable border tile: the rebuild still rechecks the border.
+        ld r0, drv_goal
+        bl act_player_path
+        mov r0, 0
+        mov r1, 5
+        mov r2, T_FLOOR
+        bl dun_set
+        bl act_ensure_bfs
+        ld r0, act_bfs_border_ok
+        st r0, drv_border6      ; expect -1
+        bl drv_dist_sum
+        st r0, drv_sum6         ; expect 12: (0,5) is not connected
         halt
 
 ; r0 = sum of act_dist over the whole map. Clobbers r1-r3.
@@ -103,6 +150,41 @@ drv_ds_lp:
         brp drv_ds_lp
         ret
 
+; Copy act_dist to drv_copy. Clobbers r0-r3.
+drv_snap:
+        lea r0, act_dist
+        lea r1, drv_copy
+        ld r2, drv_size
+drv_sn_lp:
+        ldr r3, r0, 0
+        str r3, r1, 0
+        add r0, r0, 1
+        add r1, r1, 1
+        sub r2, r2, 1
+        brp drv_sn_lp
+        ret
+
+; r0 = number of cells where act_dist differs from drv_copy. Clobbers r1-r4.
+drv_cmp:
+        lea r1, act_dist
+        lea r2, drv_copy
+        ld r3, drv_size
+        mov r0, 0
+drv_cm_lp:
+        ldr r4, r1, 0
+        push r0
+        ldr r0, r2, 0
+        cmp r4, r0
+        pop r0
+        bre drv_cm_same
+        add r0, r0, 1
+drv_cm_same:
+        add r1, r1, 1
+        add r2, r2, 1
+        sub r3, r3, 1
+        brp drv_cm_lp
+        ret
+
 ; Stubs required by actors.ap
 cbt_enemy_attack:
         ret
@@ -113,17 +195,22 @@ ui_msg_add:
 ui_msg_attr:
         ret
 
-drv_size:   .word MAP_SIZE
-drv_goal:   .word 5*MAP_W+9
-drv_valid1: .word 99
-drv_valid2: .word 99
-drv_valid3: .word 99
-drv_sum1:   .word 99
-drv_sum2:   .word 99
-drv_sum3:   .word 99
-drv_sum4:   .word 99
-drv_step:   .word 99
-drv_step2:  .word 99
+drv_size:    .word MAP_SIZE
+drv_goal:    .word 5*MAP_W+9
+drv_alias:   .word 99
+drv_sum1:    .word 99
+drv_border1: .word 99
+drv_step:    .word 99
+drv_step2:   .word 99
+drv_valid2:  .word 99
+drv_diff2:   .word 99
+drv_mark_idx: .word 20*MAP_W+20
+drv_diff3:   .word 99
+drv_sum4:    .word 99
+drv_sum5:    .word 99
+drv_border6: .word 99
+drv_sum6:    .word 99
+drv_copy:    .zero MAP_SIZE
 
         .include "../../src/state.ap"
         .include "../../src/rng.ap"
