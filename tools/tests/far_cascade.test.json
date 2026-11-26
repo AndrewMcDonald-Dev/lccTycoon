@@ -1,7 +1,7 @@
 {
   "game": "far_cascade.ap",
   "scenarios": [
-    { "name": "a relaxation cascade that rewrites one branch per pass converges (80 passes) and runs",
+    { "name": "a relaxation cascade that rewrites one branch per pass (80 branches, beyond the old 60-pass cap) builds and runs",
       "expect": { "status": "halted", "memory": { "hit": 7 } } }
   ]
 }

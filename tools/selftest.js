@@ -52,6 +52,24 @@ const display = require('./lib/display');
   assert.strictEqual(display.detectColorMode({ LCC_COLOR_MODE: 'ansi', COLORTERM: 'truecolor' }), 'ansi');
 })();
 
+// Far-reference relaxation must stop and report genuine errors (fixtures in tools/tests/build_errors).
+(function testRelaxationErrors() {
+  const dir = path.join(ROOT, 'tools', 'tests', 'build_errors');
+  const fail = f => {
+    const t0 = Date.now();
+    try { build(path.join(dir, f), {}); } catch (e) { return { diags: e.diagnostics || [], ms: Date.now() - t0 }; }
+    assert.fail(`${f} should not build`);
+  };
+  const st = fail('straddle.ap');
+  assert(st.ms < 10000, `straddle.ap must fail fast, took ${st.ms} ms`);
+  assert(st.diags.some(d => /Program too big/.test(d.message)), 'straddle.ap reports Program too big');
+  const bl = fail('bad_label.ap');
+  assert.deepStrictEqual(bl.diags.map(d => [d.line, d.message]), [[5, 'Invalid operation'], [6, 'Bad label']], 'bad_label.ap keeps both errors');
+  const ty = fail('typo.ap');
+  assert.deepStrictEqual(ty.diags.map(d => [d.line, d.message, d.source.trim()]), [[6, 'Undefined label', 'ld r0, no_such_var']], 'typo.ap reports its own source line');
+  console.log('ok   far relaxation stops and reports genuine errors');
+})();
+
 const files = [];
 const demoDir = path.join(VENDOR, 'plusdemos');
 for (const f of fs.readdirSync(demoDir).sort()) if (f.endsWith('.ap')) files.push(path.join(demoDir, f));

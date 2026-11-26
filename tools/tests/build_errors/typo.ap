@@ -1,0 +1,7 @@
+; Build-error fixture (tools/selftest.js): a misspelt label beyond near reach is
+; reported on its own source line, not on a generated far-form line.
+        .lccplus
+        .start main
+main:   .zero 300
+        ld r0, no_such_var
+        halt

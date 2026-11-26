@@ -100,7 +100,7 @@ drv_c_lp:
         ; 4. Wall off both joins: the detour becomes unreachable. The rebuild
         ;    must clear all of act_dist (its visit list is gone), so only the
         ;    5 corridor tiles keep a distance: 1+2+3+4+5 = 15 (a partial clear
-        ;    would leave the marker in row 20).
+        ;    would leave the marker in the last cell).
         mov r0, 5
         mov r1, 4
         mov r2, T_WALL
@@ -229,7 +229,7 @@ drv_step:    .word 99
 drv_step2:   .word 99
 drv_valid2:  .word 99
 drv_diff2:   .word 99
-drv_mark_idx: .word 20*MAP_W+20
+drv_mark_idx: .word MAP_SIZE-1          ; last cell (bottom-right border wall)
 drv_diff3:   .word 99
 drv_sum4:    .word 99
 drv_sum5:    .word 99

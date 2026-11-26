@@ -373,16 +373,20 @@ function build(entryFile, options = {}) {
   const relaxed = [];
   let res;
 
-  // Relaxation passes always rewrite at least one line and never undo one, so they
-  // end on their own (a chain of near-limit branches can need one pass each); only
-  // the error-recovery retries below count against the cap.
-  for (let iter = 0, retries = 0; retries < 60; iter++) {
+  // A chain of near-limit branches can need one relaxation pass per branch, so
+  // relaxation passes are bounded by the source size; error-recovery retries keep
+  // their own cap of 60.
+  const maxIter = lines.length + 60;
+  for (let iter = 0, retries = 0; retries < 60 && iter < maxIter; iter++) {
     res = assembleOnce(lines, inputName);
     if (!res.failed) break;
 
     if (relaxOn) {
+      // A line with another error too (undefined or bad label) also reports a bogus
+      // pcoffset error: report it rather than rewrite it.
+      const otherErr = new Set(res.errors.filter(e => !/pcoffset/i.test(e.message)).map(e => e.lineNum));
       const fixable = res.errors
-        .filter(e => !e.thrown && /pcoffset/i.test(e.message))
+        .filter(e => !e.thrown && /pcoffset/i.test(e.message) && !otherErr.has(e.lineNum))
         .map(e => ({ e, idx: e.lineNum - 1, rewrite: far.relaxLine(lines[e.lineNum - 1], `${iter}_${e.lineNum}`) }))
         .filter(x => x.rewrite);
       if (fixable.length) {
