@@ -17,7 +17,12 @@
           "drv_sum4": 15,
           "drv_sum5": 12,
           "drv_border6": -1,
-          "drv_sum6": 12
+          "drv_sum6": 12,
+          "drv_sum7": 45,
+          "drv_sum8": 12,
+          "drv_fail": -1,
+          "drv_valid9": 1,
+          "drv_sum9": 12
         }
       }
     }

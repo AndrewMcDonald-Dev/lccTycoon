@@ -373,7 +373,10 @@ function build(entryFile, options = {}) {
   const relaxed = [];
   let res;
 
-  for (let iter = 0; iter < 60; iter++) {
+  // Relaxation passes always rewrite at least one line and never undo one, so they
+  // end on their own (a chain of near-limit branches can need one pass each); only
+  // the error-recovery retries below count against the cap.
+  for (let iter = 0, retries = 0; retries < 60; iter++) {
     res = assembleOnce(lines, inputName);
     if (!res.failed) break;
 
@@ -407,7 +410,7 @@ function build(entryFile, options = {}) {
       const ln = lines[thrownErr.lineNum - 1];
       const label = /label/i.test(thrownErr.message) ? null : (ln.match(/^([A-Za-z_$@][\w$@]*):/) || [])[1];
       const placeholder = `${label ? label + ':' : ''}        .word 0`;
-      if (ln !== placeholder) { lines[thrownErr.lineNum - 1] = placeholder; continue; }
+      if (ln !== placeholder) { lines[thrownErr.lineNum - 1] = placeholder; retries++; continue; }
     }
     break;
   }
