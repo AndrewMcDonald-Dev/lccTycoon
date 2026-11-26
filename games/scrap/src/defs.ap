@@ -89,8 +89,8 @@
         .define T_RUBBLE        6       ; floor variant (cosmetic), walkable, see-through
         .define T_FIXTURE       7       ; fixture (st_fixtures record at this tile), walkable, see-through; items never land here
         .define T_KIND_COUNT    8
-; st_rmap render kind per tile (W: dungeon, from st_map; read: render only). A pure
-; function of st_map, the tile's (x, y) and the floor depth — never the RNG:
+; st_rmap render kind per tile (W: dungeon, from st_map; read: render, ui_tile_name). A pure
+; function of st_map, st_fixtures F_CHARGES, the tile's (x, y) and the floor depth — never the RNG:
 ;   T_WALL  -> RK_WALL0 + join mask of its 4 neighbors in {T_WALL, T_DOOR, T_DOOR_OPEN}
 ;              (bit 0 N, 1 E, 2 S, 3 W; off-map neighbors never join)
 ;   T_FLOOR -> RK_ACCENT_A / RK_ACCENT_B (must be RK_ACCENT_A + 1) for ~1 in 12 floors
@@ -136,7 +136,6 @@
 ; neither the start room nor the stairs room; no RNG, so race floors stay identical.
         .define MAX_FIXTURES    4
         .define FIX_SIZE        4
-        .define FIX_SHIFT       2
         .define F_X             0
         .define F_Y             1
         .define F_TYPE          2       ; FX_* (FX_NONE = free record)

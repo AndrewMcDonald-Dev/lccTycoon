@@ -4,7 +4,7 @@
 ; (MSG_ROW..MSG_ROW+MSG_ROWS-1, oldest at top, newest at the bottom),
 ; help row (HELP_ROW, text per st_mode), menu hints inside the panel
 ; (MODE_EQUIP/MODE_DROP/MODE_RECYCLE/MODE_BAY_PART highlight inventory digits 1-4, MODE_REMOVE
-; and MODE_BAY_SLOT number the loadout rows 1-8, MODE_TOGGLE numbers weapon rows 1-3, highlighted
+; and MODE_BAY_SLOT number the loadout rows 1-8, MODE_BAY_PART numbers only st_bay_slot, MODE_TOGGLE numbers weapon rows 1-3, highlighted
 ; A_SELECT; held weapons in st_wpn_off are dimmed and tagged [HOLD]),
 ; row 22 status line (auto action or visible hostile count), MODE_LOOK
 ; cursor inspection in the target panel, overlays (MODE_HELP, MODE_LOG,
@@ -654,6 +654,14 @@ ui_dl_hset:
         brz ui_dl_remtag
         cmp r0, MODE_BAY_SLOT
         brz ui_dl_remtag
+        cmp r0, MODE_BAY_PART   ; step 2 keeps the slot picked in step 1 tagged
+        brnz ui_dl_tog
+        ldr r3, fp, -2          ; i
+        ld r0, st_bay_slot
+        cmp r3, r0
+        brz ui_dl_remtag
+        br ui_dl_letter
+ui_dl_tog:
         cmp r0, MODE_TOGGLE
         brnz ui_dl_letter
         ldr r3, fp, -2          ; i
@@ -3058,19 +3066,19 @@ ui_help_lines:
         .word 13*SCR_COLS+5
         .word A_TEXT
         .word ui_sh_bay
-        .word 14*SCR_COLS+5
+        .word 15*SCR_COLS+5
         .word A_LABEL
         .word ui_sh_l11
-        .word 15*SCR_COLS+5
-        .word A_TEXT
-        .word ui_sh_l12
         .word 16*SCR_COLS+5
         .word A_TEXT
-        .word ui_sh_l13
+        .word ui_sh_l12
         .word 17*SCR_COLS+5
         .word A_TEXT
-        .word ui_sh_l14
+        .word ui_sh_l13
         .word 18*SCR_COLS+5
+        .word A_TEXT
+        .word ui_sh_l14
+        .word 19*SCR_COLS+5
         .word A_TEXT
         .word ui_sh_l14b
         .word 20*SCR_COLS+5

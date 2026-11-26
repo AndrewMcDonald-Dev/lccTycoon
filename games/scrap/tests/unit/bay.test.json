@@ -36,11 +36,16 @@
             "screen": {
               "contains": [
                 "SERVICE BAY (2/2): 1-4 sacrifice carried part to repair it   Esc cancel"
+              ],
+              "matches": [
+                "^ {64}│1 Stub Legs ",
+                "^ {64}│P Stub Legs "
               ]
             },
             "colors": {
               "matches": [
-                "^ {64}Kk C wwwwwwwww"
+                "^ {64}Kk C wwwwwwwww",
+                "^ {64}Kk wwwwwwwww {4}RR"
               ]
             }
           },

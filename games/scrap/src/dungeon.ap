@@ -12,7 +12,7 @@
 ;;                   every room, T_DOOR at DOOR_PCT of room exits, T_RUBBLE sprinkled); writes st_rooms/st_room_count; puts T_STAIRS in a room far from st_start_room; sets st_px/st_py inside
 ;;                   st_start_room, st_stairs_x/y. Every floor tile reachable from the start. Deterministic for a given rand seed. Depth may tune size/density.
 ;;                   Then clears st_fixtures and places one FX_BAY (BAY_CHARGES) as T_FIXTURE at the center of the first room that is neither st_start_room
-;;                   nor the stairs room (no RNG). Then fills st_rmap (render kinds, defs.ap RK_*) from st_map + depth without using the RNG.
+;;                   nor the stairs room (no RNG; a floor with fewer than 3 rooms gets none). Then fills st_rmap (render kinds, defs.ap RK_*) from st_map + depth without using the RNG.
 ;; dun_get          r0=x r1=y                  -> r0=tile kind T_*, T_OUT (-1) outside the map
 ;; dun_set          r0=x r1=y r2=kind          -> -        store a tile kind (ignored outside); refreshes st_rmap: the tile only (~100 instr) unless the tile enters or leaves the joinable set {T_WALL, T_DOOR, T_DOOR_OPEN}, then also every wall in its 3x3 (~1K instr)
 ;; dun_rk_all       ()                         -> -        recompute all of st_rmap from st_map; floor accents hash the depth of the last dun_generate (dun_depth), not st_depth (dun_generate calls it; for test drivers that poke st_map)
