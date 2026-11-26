@@ -131,6 +131,7 @@ Every key can be written in the harness key script (`tools/lib/keys.js`): letter
 | `r` then `1`-`8` | map → remove | detach that slot into the inventory |
 | `x` then `1`-`4` | map → drop | drop that inventory part on the floor |
 | `R` then `1`-`4` | map → recycle | scrap that carried part to restore core integrity (`TIME_RECYCLE`) |
+| `a` then `1`-`8`, `1`-`4` | map → bay slot → bay part | at a service bay, sacrifice a carried part to repair a damaged attached part (`TIME_BAY`) |
 | `w` then `1`-`3` | map → toggle | toggle hold-fire (`st_wpn_off`) on weapon slot 3-5 (held weapons do not fire or swing) |
 | `f` | map → target | targeting: reuses current target if still visible, else nearest visible hostile (Tinkers only if no hostiles visible) |
 | `F` | map | quick-fire at once at the last / nearest visible target |
@@ -507,6 +508,22 @@ Costs `TIME_RECYCLE`, increments `st_stat_recycled`, and logs
 digits highlight in `A_SELECT` like `MODE_EQUIP`/`MODE_DROP`; the help bar
 (`RECYCLE: 1-4 scrap carried part for core HP   Esc cancel`) and `?` overlay both list
 it. Spare parts now double as emergency repair material: carry, attach, or scrap.
+
+### Service bays (`a`, `MODE_BAY_SLOT` / `MODE_BAY_PART`)
+
+Each floor places one single-use service bay (`FX_BAY`, bright-green `Ω` ready, gray `Ω` spent)
+at the center of a room that is neither the start room nor the stairs room. Stepping onto a ready
+bay posts `Service bay here (1 use). Press a to repair a part.` (stopping auto-explore/run);
+`Here:` and `-- Look --` show `Service bay (1 use)` or `Service bay (spent)`.
+
+Pressing `a` checks in order at no time cost: bay underfoot (`No service bay here.`), charge left
+(`This service bay is spent.`), a damaged attached part (`No attached part needs repair.`), and a
+carried spare (`No carried part to sacrifice.`). Then a two-step picker opens (`Esc` cancels at
+either step): `1`-`8` picks a damaged loadout slot (`Slot is empty.` / `That part is undamaged.`),
+and `1`-`4` sacrifices a carried part (`No carried part there.`). The spare is destroyed and the
+chosen part regains `BAY_MULT × (1 + (RECYCLE_BASE + RECYCLE_TIER × tier) × hp / maxhp)` integrity
+(`BAY_MULT` = 2, capped at missing integrity). Costs `TIME_BAY` (150 TU), spends the bay, and logs
+`Bay repaired <Part> +<N>.` (bay messages live in `src/player.ap`).
 
 ### New robots (`act_types` ids 8–9)
 

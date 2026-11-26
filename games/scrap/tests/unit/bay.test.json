@@ -11,7 +11,7 @@
             "frame": 1,
             "screen": {
               "contains": [
-                "Service bay here. Press a to repair a part.",
+                "Service bay here (1 use). Press a to repair a part.",
                 "Here: Service bay (1 use)"
               ]
             }
@@ -20,7 +20,7 @@
             "frame": 2,
             "screen": {
               "contains": [
-                "BAY: 1-8 pick damaged part to repair   Esc cancel",
+                "SERVICE BAY (1/2): 1-8 pick damaged part to repair   Esc cancel",
                 "1 Stub Legs",
                 "8 -"
               ]
@@ -35,7 +35,7 @@
             "frame": 3,
             "screen": {
               "contains": [
-                "BAY: 1-4 feed carried part to the bay   Esc cancel"
+                "SERVICE BAY (2/2): 1-4 sacrifice carried part to repair it   Esc cancel"
               ]
             },
             "colors": {
@@ -287,7 +287,7 @@
       "expect": {
         "screen": {
           "contains": [
-            "Service bay here. Press a to repair a part."
+            "Service bay here (1 use). Press a to repair a part."
           ]
         },
         "memory": {
@@ -361,7 +361,7 @@
       "expect": {
         "screen": {
           "contains": [
-            "Carry a spare part to feed the bay."
+            "No carried part to sacrifice."
           ]
         },
         "memory": {

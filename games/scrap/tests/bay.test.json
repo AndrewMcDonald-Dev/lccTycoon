@@ -24,7 +24,7 @@
         ],
         "screen": {
           "contains": [
-            "Service bay here. Press a to repair a part.",
+            "Service bay here (1 use). Press a to repair a part.",
             "No attached part needs repair.",
             "Here: Service bay (1 use)"
           ]
