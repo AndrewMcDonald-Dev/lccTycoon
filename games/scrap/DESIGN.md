@@ -76,6 +76,8 @@ cols 0-63                                                         cols 64-99
 +-----------------------------------------------------------------------------------------------------+
 ```
 
+*(The viewport mock shows `#` walls for brevity; actual walls draw as joined CP437 box-drawing glyphs per depth band — see "Depth bands, wall joins and accents" below.)*
+
 Region rectangles are defines: `VIEW_*`, `PANEL_*`, `MSG_ROW/MSG_ROWS`, `HELP_ROW`, and the
 panel rows `PR_*`. Row 4 (`PR_LOAD_HDR`) shows a compact 10-cell `Alarm` meter at the right
 of `-- Loadout --` (`A_GOOD` up to half `ALARM_MAX`, `A_WARN` past half, `A_BAD` after the
@@ -165,6 +167,7 @@ the robot types are `act_types` in actors.ap.
   3 T_DOOR (closed: walkable, opaque; opens when entered), 4 T_DOOR_OPEN, 5 T_STAIRS `<`,
   6 T_RUBBLE (floor variant). Written only by dungeon (`dun_set`, also for door opening).
 - **FOV** `st_fov: .zero MAP_SIZE`, bits FOV_VISIBLE 1, FOV_KNOWN 2. Written only by fov.
+- **Render map** `st_rmap: .zero MAP_SIZE`, placed immediately after `st_fov` (`st_rmap == st_fov + MAP_SIZE`; `render.ap` reads it at that fixed offset and `tests/unit/tile_kinds` asserts the layout). One `RK_*` render kind per tile: `0..6` = `T_*` kind, `RK_WALL0` (8) + 4-bit join mask for `T_WALL`, `RK_ACCENT_A` (24) / `RK_ACCENT_B` (25) for floor accents, `RK_COUNT` = 32. Written only by dungeon: `dun_rk_all` at the end of `dun_generate`, and refreshed by `dun_set` (only the changed tile when wall-joinability did not change, e.g. door open/close; otherwise the tile plus every wall in the surrounding 3×3).
 - **Rooms** `st_rooms` MAX_ROOMS 12 × ROOM_SIZE 4: RM_X, RM_Y (interior top-left), RM_W,
   RM_H; `st_room_count`, `st_start_room`; `st_stairs_x/y`.
 - **Loadout** `st_slots` NUM_SLOTS 8 × SLOT_SIZE 2: S_PART (id, 0 = empty), S_HP
@@ -209,6 +212,22 @@ the robot types are `act_types` in actors.ap.
   message can contain names and numbers), `st_msg_attr[16]`, `st_msg_head`. Written only
   by `ui_msg*`.
 - **Display** `st_screen`: header (100, 30, 0, 0) plus `st_cells` (3000).
+
+### Depth bands, wall joins and accents
+
+- **Why a shadow map (`st_rmap`):** packing a wall join mask into `st_map` bits 4–7 would have required auditing ~10 `st_map` readers across `actors`, `fov`, `items` and `ui` that compare unmasked tile kinds. Keeping `st_rmap` separate preserves every `st_map` invariant and keeps `ren_slow4` branchless at the same per-tile cost.
+- **Wall joining:** each `T_WALL` gets `RK_WALL0` (8) + 4-bit join mask (N=1, E=2, S=4, W=8). A neighbor joins if it is `T_WALL`, `T_DOOR` or `T_DOOR_OPEN`; off-map neighbors never join. Unjoined walls (mask 0, or `ren_tile_cell(T_WALL)`) draw `#`.
+- **Parallel-run rule:** two side-by-side wall runs do not join each other — a horizontal run (E+W joined) drops its N or S join when that neighbor also has joinable tiles on both sides, and a vertical run (N+S joined) does the same for E or W — so double walls draw as two clean lines instead of rows of tees.
+- **Floor accents:** ~1 in 16 `T_FLOOR` tiles gets `RK_ACCENT_A` or `RK_ACCENT_B` from a pure hash of `(x, y, depth)` — never the RNG — so shared-seed versus races see identical floors and RNG streams (unit-tested: `dun_rk_all` leaves `rand` output unchanged).
+- **Depth bands:** `render.ap` selects one of three 128-word tables from `st_depth` each frame (`BAND_SLAG_MIN` 8, `BAND_CONDUIT_MIN` 4), indexed by `(fov << 5) + render kind` (4 blocks of 32: unknown blank, visible, remembered in `A_MEMORY` blue, visible). Floors (`·` white) and stairs (`<` bright yellow) are shared across all bands:
+
+| Band | Depths | Walls | Doors | Rubble | Floor accents (A / B) |
+|---|---|---|---|---|---|
+| Slag Vaults | 10–8 | double-line yellow (`═║`) | bright yellow | red | red `∙` slag beads / yellow `°` cinders |
+| Conduit Works | 7–4 | single-line cyan (`─│`) | yellow | gray | gray `:` grating / cyan `∙` cable studs |
+| Intake Shafts | 3–1 | bright-white double-H / single-V (`═│`) | yellow | green | green `"` moss tufts / gray `∙` grit |
+
+- **Cost & scope:** per-frame render cost is unchanged; the new-floor frame rises from ~82K to ~154K instructions (`dun_rk_all`), well inside the 500K per-frame target. A plain-ASCII fallback tile set is deliberately deferred to issue #13 (host-side glyph packs).
 
 ## Part catalog
 
@@ -356,21 +375,22 @@ the field valid so the next rebuild clears it in full instead of using the visit
 | Item | Words |
 |---|---|
 | display block 100x30 | 3004 |
-| map + fov 2 × 1536 | 3072 |
+| map + fov + rmap 3 × 1536 | 4608 |
 | actors distance field, player-path first steps, shared BFS queue (3 × 1536, private) | 4608 |
 | enemies 24×16, items 32×4, slots/inv 24, rooms 48 | ~590 |
 | messages 16×64 + 17 | ~1041 |
 | other state | ~60 |
 | part catalog 26×16 + names, robot types 9×16 + names + drop lists | ~920 |
-| **measured total / budget.words** | **28,690 / 52000** |
+| render depth-band tables 3 × 128 | 384 |
+| **measured total / budget.words** | **30,846 / 52000** |
 
 WP0 skeleton: 8,510 words (7,211 of them state + display). Measured program size is
-28,690 words (was 34,141 on `main`), including 772 far-reference rewrites (+1,609 words;
-was 2,318 / +5,550). Far references dropped after fixing `tools/lib/assemble.js`, where
-the upstream assembler emitted no word for an out-of-range instruction in pass 2,
-shifting later addresses and forcing needless far rewrites. In `actors`, `act_player_path`
-calls `act_bfs_release` before reusing the shared queue; the AI distance field stays valid
-and its next rebuild clears the whole field.
+30,846 words (28,690 on `main` before depth-band tile sets), including 785
+far-reference rewrites (+1,634 words; was 772 / +1,609, and 2,318 / +5,550 before fixing
+`tools/lib/assemble.js`, where the upstream assembler emitted no word for an out-of-range
+instruction in pass 2, shifting later addresses and forcing needless far rewrites). In
+`actors`, `act_player_path` calls `act_bfs_release` before reusing the shared queue; the
+AI distance field stays valid and its next rebuild clears the whole field.
 
 Budget policy: `games/scrap/game.json` sets `budget.words` to 52000 (was 40000; harness
 warns at 56,000), deliberately above the `lcc-architect` skill's general ~48K guidance.
@@ -394,7 +414,7 @@ preserved.
 | src/defs.ap | — | architect | constants, record layouts, regions, palette, keys, tuning | — | lcc-architect |
 | src/state.ap | st_ | architect | all shared state | data | lcc-architect |
 | src/rng.ap | rng_ | architect | uniform random ranges from the RNG's high bits | rng_range | lcc-simulation |
-| src/dungeon.ap | dun_ | WP1 | generator, tiles, walkable/opaque, random floor, distance | dun_generate dun_get dun_set dun_walkable dun_opaque dun_random_floor dun_room_of dun_dist | lcc-simulation |
+| src/dungeon.ap | dun_ | WP1 | generator, tiles, walkable/opaque, random floor, distance | dun_generate dun_get dun_set dun_rk_all dun_walkable dun_opaque dun_random_floor dun_room_of dun_dist | lcc-simulation |
 | src/fov.ap | fov_ | WP2 | visibility + memory, line of sight | fov_reset fov_update fov_visible fov_known fov_los | lcc-simulation |
 | src/parts.ap | prt_ | WP3 | catalog, slots, inventory, derived stats, energy, repair, damage spread | prt_init prt_recalc prt_info prt_name prt_kind prt_slot_kind prt_attach prt_detach prt_inv_add prt_inv_clear prt_recycle prt_damage prt_tick prt_spend_energy prt_random_part prt_free_slots | lcc-simulation |
 | src/ui.ap | ui_ | WP4 | panel, bars, messages, help row, menus, help overlay, title/end screens | ui_init ui_title ui_draw ui_end_screen ui_msg ui_msg_add ui_msg_addn ui_msg_attr ui_bar ui_score | lcc-text-graphics |
