@@ -18,27 +18,31 @@ module.exports = {
   notReady: 'not ready',
   racing: 'RACING',
   you: '(you)',
-  lobbyKeys: '[Enter / Space] ready   [d] daily seed   [Tab] board / chronicle   [q] leave',
+  lobbyKeys: '[Enter / Space] ready   [d] daily / random   [Tab] board / chronicle   [q] leave',
   waitingKeys: 'Race in progress -- you will join the next one.   [Tab] board / chronicle   [q] leave',
-  seedDaily: date => `Next race: the daily seed for ${date} (ranked on the daily board).`,
-  seedRandom: 'Next race: a random seed. Press [d] to race the daily seed.',
-  viewKeys: '[Tab] next view   [q] leave',
-  boardTitle: (date, seed) => `DAILY BOARD -- ${date} UTC, seed ${hex(seed)}`,
+  seedDaily: date => `Next race: daily seed for ${date} UTC (ranked on daily board; [d] for random).`,
+  seedRandom: 'Next race: random seed (press [d] to switch the room to the daily seed).',
+  viewKeys: '[Tab] next view (lobby / board / chronicle)   [q] leave',
+  boardTitle: (date, seed) => `DAILY BOARD -- ${date} UTC (seed ${hex(seed)})`,
   boardEmpty: '  No ranked runs yet today.',
-  boardEntry: e => `${e.handle.padEnd(13)}${e.outcome === 'won' ? `Surface in ${clock(e.ms)}` : `${loc(e.best)}, ${clock(e.ms)}`}, ${plural(e.turns, 'turn')}`,
-  guest: 'Guest: connect with an SSH key to be ranked and keep a profile.',
-  noStore: 'This server does not save results.',
+  boardEntry: e => `${e.handle.padEnd(14)}${e.outcome === 'won' ? `Surface in ${clock(e.ms)}` : `${loc(e.best)}, ${clock(e.ms)}`}, ${plural(e.turns, 'turn')}`,
+  guest: 'Guest session -- connect with an SSH key to keep a record and rank on the daily board.',
+  noStore: 'This server does not save records or daily boards.',
   profile: p => (p
     ? `Your record: ${plural(p.races, 'race')}, ${plural(p.wins, 'win')}, best ${loc(p.bestDepth)}${p.fastestWinMs === null ? '' : `, fastest win ${clock(p.fastestWinMs)}`}`
     : 'Your record: no races yet.'),
-  chronicleTitle: last => (last ? `LAST RACE -- seed ${hex(last.seed)}${last.daily ? ` (daily ${last.daily.date})` : ''}` : 'LAST RACE'),
+  chronicleTitle: last => (last ? `LAST RACE -- ${last.daily ? `daily seed ${hex(last.seed)} (${last.daily.date} UTC)` : `random seed ${hex(last.seed)}`}` : 'LAST RACE'),
   chronicleEmpty: 'No race has finished since the server started.',
   splits: (splits, ms) => {
     const out = splits.filter(s => s.depth < 10).map(s => `${s.depth === 0 ? 'Surf' : `D${s.depth}`} ${clock(s.ms)}`);
-    return `Splits: ${out.length ? out.join('  ') : 'none'}   (ended ${clock(ms || 0)})`;
+    const hasSurf = splits.some(s => s.depth === 0);
+    const tail = hasSurf ? '' : `  (end ${clock(ms || 0)})`;
+    const wide = `Splits: ${out.length ? out.join('  ') : 'none'}${tail}`;
+    if (wide.length <= 93) return wide;
+    return `Splits: ${out.join(' ')}${hasSurf ? '' : ` (end ${clock(ms || 0)})`}`;
   },
-  loadout: parts => `Loadout: ${parts.length ? parts.join(', ') : 'empty'}`,
-  runStats: c => `-- ${c.cause ? `killed by ${c.cause}; ` : ''}salvaged ${c.salvaged}, lost ${c.lost}, recycled ${c.recycled}`,
+  loadout: parts => `Loadout: ${parts.length ? parts.join(', ') : 'none'}`,
+  runStats: c => `-- ${c.cause ? `by ${c.cause}; ` : ''}salv ${c.salvaged}, lost ${c.lost}, rec ${c.recycled}`,
   countdown: s => `All ready -- starting in ${s}...`,
   needAll: 'Race starts when everyone in the lobby is ready.',
   liveHeader: 'Live standings',

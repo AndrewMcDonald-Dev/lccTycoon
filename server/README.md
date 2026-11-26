@@ -44,6 +44,8 @@ Require a shared password by setting `SCRAP_PASSWORD`:
 SCRAP_PASSWORD=your-secret npm start
 ```
 
+When `SCRAP_PASSWORD` is set, an SSH key does **not** bypass the password: your SSH client presents its key first (to establish your ranked identity) and then prompts for the shared password.
+
 ## Options
 
 | Flag / Env | Default | Description |
@@ -51,12 +53,14 @@ SCRAP_PASSWORD=your-secret npm start
 | `--port <n>` | `2222` | TCP port to listen on |
 | `--host <addr>` | `0.0.0.0` | Address to bind |
 | `--max-players <n>` | `8` | Maximum concurrent players |
-| `--data-dir <dir>` | `server/data` | Directory for the generated `host_ed25519` key |
+| `--data-dir <dir>` | `server/data` | Directory for the SSH host key (`host_ed25519`), player profiles (`profiles.json`), and daily boards (`daily/`) |
 | `SCRAP_PASSWORD` | _(none)_ | Shared password required for SSH login |
 
 ## Lobby & controls
 
 - **`Enter` or `Space`** — toggle ready / not ready
+- **`d`** — toggle the next race (room-wide, for everyone) between today's shared daily seed and a random seed (restarts an active countdown so everyone sees the change)
+- **`Tab`** — cycle your own view: lobby → daily board & your record → last-race chronicle → lobby
 - **`q` or `Ctrl-C`** — disconnect from the lobby
 - When every player in the lobby is ready, a 3-second countdown starts and all ready players launch together.
 - Players who connect mid-race wait in the lobby with live standings and join the next race.
@@ -73,6 +77,30 @@ Standings rank racers in order:
 3. Still racing (beats eliminated/forfeited players at the same depth)
 4. More kills
 5. Fewer turns
+
+After a race finishes, press **`Tab`** twice from the lobby to view the **last-race chronicle**: each racer's floor splits, final loadout, cause of destruction, and salvaged/lost/recycled part counts (kept in memory until the next race or server restart).
+
+## Daily seed, profiles & guest play
+
+- **Daily seed**: Derived from a hash of the UTC date (`YYYY-MM-DD`), so every server shares the same daily seed all day. Press **`d`** in the lobby to switch the room to the daily seed before starting.
+- **Daily board**: Keeps each ranked player's **best** run of the day (repeat attempts are allowed). Entries are ordered by:
+  1. Reached the Surface first (fastest time)
+  2. Shallowest depth reached
+  3. Faster time
+  4. Fewer turns
+  Boards are scoped per game build, so a new build starts a fresh board.
+- **Ranked play (SSH key)**: Running `ssh -p 2222 <name>@<host>` offers your default SSH key automatically if you have one. After verifying your key's signature, the server tracks your persistent record (total races, wins — 1st place on the Surface — best depth, and fastest win) across all races and ranks your daily-seed runs on the daily board.
+- **Guest play (no key)**: Players without an SSH key — or anyone opting out with `ssh -p 2222 -o PubkeyAuthentication=no <name>@<host>` — join and race normally (including on the daily seed), but are never saved to a profile or the daily board.
+
+## Saved data & privacy
+
+Everything persisted lives under `--data-dir` (default `server/data`), written atomically via temp file + rename:
+
+- `host_ed25519` — SSH server host key
+- `profiles.json` — player records keyed by SSH public-key fingerprint
+- `daily/<date>_<buildId>_<seed>.json` — daily leaderboards
+
+**Privacy:** Only SSH public-key fingerprints (`SHA256:...`) and display handles are stored — never SSH keys themselves, passwords, or IP addresses.
 
 ## Isolation (what guests can and cannot do)
 
