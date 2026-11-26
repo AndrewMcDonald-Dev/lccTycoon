@@ -69,9 +69,11 @@
 ;   3. Transparent iff (kind == T_FLOOR || kind > T_DOOR) (i.e. opaque iff
 ;      kind in {T_ROCK=0, T_WALL=2, T_DOOR=3}). Relied on by:
 ;      dungeon.ap dun_opaque, fov.ap fov_scf_lp / fov_sc_col / fov_los_chk_op.
-;   4. T_KIND_COUNT <= 8, st_map high bits (4..15) == 0, and st_fov values in 0..3
-;      (FOV_VISIBLE=1, FOV_KNOWN=2). Relied on by:
-;      render.ap ren_slow4, which indexes 32-word ren_tbl_all with (fov << 3) + kind.
+;   4. T_KIND_COUNT <= 8, st_map high bits (4..15) == 0, st_fov values in 0..3
+;      (FOV_VISIBLE=1, FOV_KNOWN=2), st_rmap values in 0..RK_COUNT-1 (RK_COUNT == 32)
+;      and st_rmap == st_fov + MAP_SIZE. Relied on by: render.ap ren_slow4, which
+;      indexes a 128-word band table (ren_tbl_slag/conduit/intake) with
+;      (fov << 5) + st_rmap[idx].
 ;   5. MAP_W (== VIEW_COLS) is a multiple of 8 (MAP_SHIFT >= 3, so MAP_SIZE =
 ;      MAP_W*MAP_H is also a multiple of 8). Relied on by 8x-unrolled map/border
 ;      loops in actors.ap (act_bf_chk_border), dungeon.ap (dun_clear_map),
@@ -86,6 +88,26 @@
         .define T_STAIRS        5       ; '<' up to the next (shallower) depth
         .define T_RUBBLE        6       ; floor variant (cosmetic), walkable, see-through
         .define T_KIND_COUNT    7
+; st_rmap render kind per tile (W: dungeon, from st_map; read: render only). A pure
+; function of st_map, the tile's (x, y) and the floor depth — never the RNG:
+;   T_WALL  -> RK_WALL0 + join mask of its 4 neighbors in {T_WALL, T_DOOR, T_DOOR_OPEN}
+;              (bit 0 N, 1 E, 2 S, 3 W; off-map neighbors never join)
+;   T_FLOOR -> RK_ACCENT_A / RK_ACCENT_B (must be RK_ACCENT_A + 1) for ~1 in 12 floors
+;              picked by a (x, y, depth) hash, else RK = T_FLOOR
+;   other   -> RK = kind (0..T_KIND_COUNT-1)
+        .define RK_WALL0        8       ; 8..23
+        .define RK_ACCENT_A     24
+        .define RK_ACCENT_B     25
+        .define RK_COUNT        32      ; band tables: 4 fov blocks x RK_COUNT words
+        .define RK_SHIFT        5
+        .define J_N             1       ; wall join mask bits
+        .define J_E             2
+        .define J_S             4
+        .define J_W             8
+; depth bands (render tile sets): depth >= BAND_SLAG_MIN Slag Vaults (10-8),
+; depth >= BAND_CONDUIT_MIN Conduit Works (7-4), else Intake Shafts (3-1)
+        .define BAND_SLAG_MIN    8
+        .define BAND_CONDUIT_MIN 4
 ; st_fov visibility word per tile (W: fov only)
         .define FOV_VISIBLE     1       ; in line of sight this turn
         .define FOV_KNOWN       2       ; seen at least once on this floor (remembered)
@@ -458,6 +480,8 @@
         .define GL_PLAYER       '@'
         .define A_PLAYER        FG_BWHITE
         .define GL_FLOOR        250     ; ·
+; GL_WALL A_WALL A_DOOR A_RUBBLE (and the GL_/A_ tile pairs) only feed the
+; dungeon_view test viewer now: the game draws tiles from render.ap's band tables.
         .define GL_WALL         '#'
         .define GL_DOOR         '+'
         .define GL_DOOR_OPEN    39      ; '

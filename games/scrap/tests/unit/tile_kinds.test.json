@@ -2,7 +2,7 @@
   "game": "tile_kinds_driver.ap",
   "scenarios": [
     {
-      "name": "all T_* tile kinds satisfy fast-path walkable, opaque, border-mask, and LUT invariants",
+      "name": "all T_* tile kinds satisfy fast-path walkable, opaque, border-mask, and LUT invariants; render kinds fit the 32-word band blocks and st_rmap follows st_fov",
       "expect": {
         "status": "halted",
         "memory": {

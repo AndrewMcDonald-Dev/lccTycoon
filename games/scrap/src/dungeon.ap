@@ -3,14 +3,18 @@
 ; corridors, optional doors, one '<' stairs), tile access, walkability,
 ; opacity, random floor tiles for spawns, distance metric.
 ; Tile kinds and room layout: defs.ap (T_*, RM_*). st_map is the only
-; tile store; nothing else writes it.
+; tile store; nothing else writes it. st_rmap (render kinds) is derived from
+; it here: dun_rk_all after generation; dun_set refreshes the tile (dun_rk_at) or,
+; when its wall-joinability changes, every wall of the 3x3 around it (dun_rk_near).
 ; All routines: args r0..r4, result r0, all other registers preserved.
 ;
 ;; dun_generate     r0=depth                   -> -        fill st_map (T_ROCK, then rooms ROOMS_MIN..MAX_ROOMS of T_FLOOR walled by T_WALL, L-shaped corridors connecting
 ;;                   every room, T_DOOR at DOOR_PCT of room exits, T_RUBBLE sprinkled); writes st_rooms/st_room_count; puts T_STAIRS in a room far from st_start_room; sets st_px/st_py inside
 ;;                   st_start_room, st_stairs_x/y. Every floor tile reachable from the start. Deterministic for a given rand seed. Depth may tune size/density.
+;;                   Then fills st_rmap (render kinds, defs.ap RK_*) from st_map + depth without using the RNG.
 ;; dun_get          r0=x r1=y                  -> r0=tile kind T_*, T_OUT (-1) outside the map
-;; dun_set          r0=x r1=y r2=kind          -> -        store a tile kind (ignored outside)
+;; dun_set          r0=x r1=y r2=kind          -> -        store a tile kind (ignored outside); refreshes st_rmap: the tile only (~100 instr) unless the tile enters or leaves the joinable set {T_WALL, T_DOOR, T_DOOR_OPEN}, then also every wall in its 3x3 (~1K instr)
+;; dun_rk_all       ()                         -> -        recompute all of st_rmap from st_map; floor accents hash the depth of the last dun_generate (dun_depth), not st_depth (dun_generate calls it; for test drivers that poke st_map)
 ;; dun_walkable     r0=x r1=y                  -> r0=1 for T_FLOOR T_DOOR T_DOOR_OPEN T_STAIRS T_RUBBLE, 0 otherwise or outside (ignores actors and items)
 ;; dun_opaque       r0=x r1=y                  -> r0=1 for T_ROCK T_WALL T_DOOR or outside, 0 otherwise
 ;; dun_random_floor ()                         -> r0=index (y<<MAP_SHIFT)|x of a random T_FLOOR tile inside a room (callers check occupancy and retry)
@@ -81,11 +85,30 @@ dun_set:
         ld r3, dun_p_map1
         add r3, r3, r1
         and r2, r2, T_KIND_MASK
+        push r0
+        push r4
+        push lr
+        mov r4, r3
+        bl dun_rk_j             ; r4 = old tile joins walls
+        mov r0, r4
         str r2, r3, 0
+        mov r4, r3
+        bl dun_rk_j             ; r4 = new tile joins walls
+        cmp r4, r0
+        mov r0, r1              ; idx (mov keeps the flags)
+        brz dun_set_one
+        bl dun_rk_near          ; joinability changed: walls around it re-join
+        br dun_set_ver
+dun_set_one:
+        bl dun_rk_at            ; only this tile's render kind changed
+dun_set_ver:
         ld r3, dun_p_mver1
         ldr r2, r3, 0
         add r2, r2, 1
         str r2, r3, 0
+        pop lr
+        pop r4
+        pop r0
 dun_set_done:
         pop r3
         pop r2
@@ -400,6 +423,7 @@ dun_gen_d_ok:
         bl dun_place_doors
         bl dun_place_endpoints
         bl dun_place_rubble
+        bl dun_rk_all
         pop lr
         pop r4
         pop r3
@@ -1290,4 +1314,260 @@ dun_prub_next:
         sub r3, r3, 1
         brp dun_prub_loop
         pop lr
+        ret
+
+; ---- render kinds (st_rmap) ------------------------------------------
+; See defs.ap RK_*. Pure function of st_map, (x, y) and dun_depth; no RNG.
+dun_p_map6:     .word st_map
+dun_p_rmap6:    .word st_rmap
+dun_k_ms6:      .word MAP_SIZE
+
+; dun_rk_all () -> - : st_rmap[i] for every tile.
+dun_rk_all:
+        push r0
+        push r1
+        push lr
+        mov r0, 0
+        ld r1, dun_k_ms6
+dun_rka_lp:
+        bl dun_rk_at
+        add r0, r0, 1
+        sub r1, r1, 1
+        brp dun_rka_lp
+        pop lr
+        pop r1
+        pop r0
+        ret
+
+; internal: dun_rk_near (r0=idx) -> - : dun_rk_at on idx and on every in-map T_WALL
+; of the 3x3 block around it (a wall's render kind reads its 4 neighbors and, for
+; the parallel-run rule, its 4 diagonals; other kinds read only themselves).
+dun_rk_near:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        bl dun_rk_at
+        mov r3, r0
+        srl r3, MAP_SHIFT       ; r3 = y
+        mov r4, MAP_XMASK
+        and r4, r0, r4          ; r4 = x
+        sub r1, r3, 1           ; r1 = row y-1..y+1
+dun_rkn_y:
+        cmp r1, 0
+        brn dun_rkn_ny
+        mov r0, MAP_H-1
+        cmp r1, r0
+        brgt dun_rkn_done
+        sub r2, r4, 1           ; r2 = col x-1..x+1
+dun_rkn_x:
+        cmp r2, 0
+        brn dun_rkn_nx
+        mov r0, MAP_XMASK
+        cmp r2, r0
+        brgt dun_rkn_nx
+        mov r0, r1
+        sll r0, MAP_SHIFT
+        or r0, r2
+        push r1
+        ld r1, dun_p_map6
+        add r1, r1, r0
+        ldr r1, r1, 0
+        and r1, r1, T_KIND_MASK
+        cmp r1, T_WALL
+        pop r1                  ; pop keeps the flags
+        brnz dun_rkn_nx
+        bl dun_rk_at
+dun_rkn_nx:
+        add r2, r2, 1
+        sub r0, r2, r4
+        cmp r0, 1
+        brlt dun_rkn_x
+        bre dun_rkn_x
+dun_rkn_ny:
+        add r1, r1, 1
+        sub r0, r1, r3
+        cmp r0, 1
+        brlt dun_rkn_y
+        bre dun_rkn_y
+dun_rkn_done:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; internal: dun_rk_at (r0=idx 0..MAP_SIZE-1) -> - : st_rmap[idx] = render kind.
+; Preserves all registers.
+dun_rk_m0:      .word 0         ; wall join mask before the parallel-run rule
+dun_rk_at:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        ld r1, dun_p_map6
+        add r1, r1, r0          ; r1 = &st_map[idx]
+        ldr r2, r1, 0
+        and r2, r2, T_KIND_MASK ; r2 = kind (= render kind unless wall/floor)
+        cmp r2, T_WALL
+        brz dun_rka_wall
+        cmp r2, T_FLOOR
+        brz dun_rka_floor
+dun_rka_put:
+        ld r1, dun_p_rmap6
+        add r1, r1, r0
+        str r2, r1, 0
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+        ; join mask over in-map neighbors (r1 = &st_map[idx], r2 = mask)
+dun_rka_wall:
+        mov r2, 0
+        mov r3, r0
+        srl r3, MAP_SHIFT       ; y
+        brz dun_rka_no_n
+        mov r4, MAP_W
+        sub r4, r1, r4
+        bl dun_rk_j
+        brz dun_rka_no_n
+        add r2, r2, J_N
+dun_rka_no_n:
+        mov r4, MAP_H-1
+        cmp r4, r3
+        brz dun_rka_no_s
+        mov r4, MAP_W
+        add r4, r1, r4
+        bl dun_rk_j
+        brz dun_rka_no_s
+        add r2, r2, J_S
+dun_rka_no_s:
+        mov r3, MAP_XMASK
+        and r3, r0, r3          ; x
+        brz dun_rka_no_w
+        sub r4, r1, 1
+        bl dun_rk_j
+        brz dun_rka_no_w
+        add r2, r2, J_W
+dun_rka_no_w:
+        mov r4, MAP_XMASK
+        cmp r4, r3
+        brz dun_rka_no_e
+        add r4, r1, 1
+        bl dun_rk_j
+        brz dun_rka_no_e
+        add r2, r2, J_E
+dun_rka_no_e:
+        ; Parallel-run rule: two side-by-side wall runs do not join each other.
+        ; Horizontal run (E and W joined): drop N / S when that neighbor also has
+        ; joinable tiles on both sides (the two diagonals). Vertical run (N and S):
+        ; same for E / W. Conditions read the mask before any drop, so the rule is
+        ; symmetric. (Bounds hold: E+W means 1 <= x <= MAP_W-2, N+S 1 <= y <= MAP_H-2.)
+        st r2, dun_rk_m0
+        and r3, r2, J_E|J_W
+        cmp r3, J_E|J_W
+        brnz dun_rka_pv
+        and r3, r2, J_N
+        brz dun_rka_ps
+        mov r3, MAP_W+1
+        sub r4, r1, r3          ; NW
+        bl dun_rk_j
+        brz dun_rka_ps
+        mov r3, MAP_W-1
+        sub r4, r1, r3          ; NE
+        bl dun_rk_j
+        brz dun_rka_ps
+        sub r2, r2, J_N
+dun_rka_ps:
+        and r3, r2, J_S
+        brz dun_rka_pv
+        mov r3, MAP_W-1
+        add r4, r1, r3          ; SW
+        bl dun_rk_j
+        brz dun_rka_pv
+        mov r3, MAP_W+1
+        add r4, r1, r3          ; SE
+        bl dun_rk_j
+        brz dun_rka_pv
+        sub r2, r2, J_S
+dun_rka_pv:
+        ld r3, dun_rk_m0
+        and r3, r3, J_N|J_S
+        cmp r3, J_N|J_S
+        brnz dun_rka_pdone
+        and r3, r2, J_W
+        brz dun_rka_pe
+        mov r3, MAP_W+1
+        sub r4, r1, r3          ; NW
+        bl dun_rk_j
+        brz dun_rka_pe
+        mov r3, MAP_W-1
+        add r4, r1, r3          ; SW
+        bl dun_rk_j
+        brz dun_rka_pe
+        sub r2, r2, J_W
+dun_rka_pe:
+        and r3, r2, J_E
+        brz dun_rka_pdone
+        mov r3, MAP_W-1
+        sub r4, r1, r3          ; NE
+        bl dun_rk_j
+        brz dun_rka_pdone
+        mov r3, MAP_W+1
+        add r4, r1, r3          ; SE
+        bl dun_rk_j
+        brz dun_rka_pdone
+        sub r2, r2, J_E
+dun_rka_pdone:
+        add r2, r2, RK_WALL0
+        br dun_rka_put
+
+        ; accent hash h = ((x*29) ^ (y*71) ^ (depth*45))^2 >> 7 & 31: 0 -> A, 1 -> B
+dun_rka_floor:
+        mov r3, MAP_XMASK
+        and r3, r0, r3
+        mov r4, 29
+        mul r3, r4
+        mov r4, r0
+        srl r4, MAP_SHIFT
+        mov r1, 71
+        mul r4, r1
+        xor r3, r4
+        ld r4, dun_depth
+        mov r1, 45
+        mul r4, r1
+        xor r3, r4
+        mul r3, r3
+        srl r3, 7
+        mov r4, 31
+        and r3, r3, r4
+        cmp r3, 1
+        brgt dun_rka_put        ; r2 = T_FLOOR
+        mov r2, RK_ACCENT_A
+        add r2, r2, r3
+        br dun_rka_put
+
+; internal: dun_rk_j (r4 = &st_map tile) -> r4 = 1 if it joins walls (T_WALL,
+; T_DOOR, T_DOOR_OPEN) else 0, flags set from r4.
+dun_rk_j:
+        ldr r4, r4, 0
+        and r4, r4, T_KIND_MASK
+        sub r4, r4, T_WALL
+        brn dun_rkj_no
+        cmp r4, T_DOOR_OPEN-T_WALL
+        brgt dun_rkj_no
+        mov r4, 1
+        cmp r4, 0
+        ret
+dun_rkj_no:
+        mov r4, 0
+        cmp r4, 0
         ret

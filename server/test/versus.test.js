@@ -49,7 +49,9 @@ function runGame(seed) {
 async function climb(g, depth) {
   g.poke('st_climb', 1);
   g.pushKeys('.');
-  await until(() => g.stats().depth === depth && g.stats().state === GAME.PLAY);
+  // st_depth drops before main_new_floor builds the floor in the same frame, and the
+  // VM runs in batches: wait for the frame's sleep (!running) so the floor is complete.
+  await until(() => g.stats().depth === depth && g.stats().state === GAME.PLAY && !g.running);
 }
 
 test('racers with the same seed get the same loadout and floors even after playing differently', async () => {

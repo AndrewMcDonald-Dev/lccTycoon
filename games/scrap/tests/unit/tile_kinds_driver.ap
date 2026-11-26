@@ -6,6 +6,9 @@
 ;        dun_walkable(k) == ((k & 5) != 0)
 ;        dun_opaque(k)   == !(k == T_FLOOR || k > T_DOOR)
 ;        ((k & 13) == 0) == (dun_walkable(k) == 0)   (border-clean OR mask)
+;   3. Render kinds (invariant 4): RK_COUNT == 1 << RK_SHIFT == 32, every RK_*
+;      below RK_COUNT, wall kinds RK_WALL0..+15 clear of T_* and accents, and
+;      st_rmap == st_fov + MAP_SIZE (render.ap reads it at a fixed offset)
         .lccplus
         .start drv_main
         .include "video_defs.ap"
@@ -99,11 +102,58 @@ drv_op_ok:
         br drv_lp
 
 drv_done:
+        mov r0, 1
+        sll r0, RK_SHIFT
+        mov r1, RK_COUNT
+        cmp r0, r1
+        bre drv_rk1
+        add r4, r4, 1
+drv_rk1:
+        mov r0, RK_COUNT
+        mov r1, 32
+        cmp r0, r1
+        bre drv_rk2
+        add r4, r4, 1
+drv_rk2:
+        mov r0, RK_WALL0
+        cmp r0, T_KIND_COUNT
+        brlt drv_rk2b           ; wall kinds must start past every T_* kind
+        br drv_rk3
+drv_rk2b:
+        add r4, r4, 1
+drv_rk3:
+        mov r0, RK_WALL0+15
+        mov r1, RK_ACCENT_A
+        cmp r0, r1
+        brlt drv_rk4
+        add r4, r4, 1
+drv_rk4:
+        mov r0, RK_ACCENT_B
+        mov r1, RK_COUNT
+        cmp r0, r1
+        brlt drv_rk5
+        add r4, r4, 1
+drv_rk5:
+        mov r0, RK_ACCENT_A+1   ; dun_rka_floor adds the hash (0/1) to RK_ACCENT_A
+        mov r1, RK_ACCENT_B
+        cmp r0, r1
+        bre drv_rk5b
+        add r4, r4, 1
+drv_rk5b:
+        lea r0, st_rmap
+        lea r1, st_fov
+        sub r0, r0, r1
+        ld r1, drv_c_ms
+        cmp r0, r1
+        bre drv_rk6
+        add r4, r4, 1
+drv_rk6:
         st r4, drv_bad
         st r3, drv_kinds_checked
         halt
 
 drv_bad:           .word -1
+drv_c_ms:          .word MAP_SIZE
 drv_kinds_checked: .word 0
 
         .include "../../src/state.ap"

@@ -211,6 +211,8 @@ drv_case_perf_vis:
         mov r1, T_FLOOR
         ld r2, drv_c_map_size
         bl drv_fill_words
+        lea r0, st_rmap
+        bl drv_fill_words
         lea r0, st_fov
         mov r1, FOV_VISIBLE|FOV_KNOWN
         ld r2, drv_c_map_size
@@ -271,6 +273,8 @@ drv_case_perf_mem:
         lea r0, st_map
         mov r1, T_WALL
         ld r2, drv_c_map_size
+        bl drv_fill_words
+        lea r0, st_rmap
         bl drv_fill_words
         lea r0, st_fov
         mov r1, FOV_KNOWN
@@ -503,6 +507,8 @@ drv_clear_world:
         mov r1, 0
         ld r2, drv_c_map_size
         bl drv_fill_words
+        lea r0, st_rmap
+        bl drv_fill_words
         lea r0, st_fov
         mov r1, 0
         ld r2, drv_c_map_size
@@ -544,6 +550,9 @@ drv_set_tile:
         sll r1, MAP_SHIFT
         add r1, r1, r0
         lea r3, st_map
+        add r3, r3, r1
+        str r2, r3, 0
+        lea r3, st_rmap         ; render kind = the kind (unjoined; no dungeon.ap here)
         add r3, r3, r1
         str r2, r3, 0
         pop r3

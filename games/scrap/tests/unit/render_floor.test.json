@@ -10,7 +10,7 @@
         "frames": [
           {
             "frame": 0,
-            "screen": { "contains": ["@", "#", "·", "/", "r", "SCRAPCORE"] }
+            "screen": { "contains": ["@", "═", "║", "·", "/", "r", "SCRAPCORE"] }
           },
           {
             "frame": 1,
@@ -19,7 +19,7 @@
           },
           {
             "frame": 2,
-            "screen": { "contains": ["@", "<", "#", "·"] },
+            "screen": { "contains": ["@", "<", "═", "║", "·"] },
             "colors": { "contains": ["bbbbbb", "Y"] }
           }
         ]
