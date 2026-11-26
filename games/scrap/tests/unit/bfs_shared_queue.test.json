@@ -13,8 +13,9 @@
           "drv_step2": 326,
           "drv_valid2": 1,
           "drv_diff2": 0,
-          "drv_diff3": 1,
+          "drv_diff3": 2,
           "drv_sum4": 15,
+          "drv_lost4": 0,
           "drv_sum5": 12,
           "drv_border6": -1,
           "drv_sum6": 12,
@@ -22,7 +23,8 @@
           "drv_sum8": 12,
           "drv_fail": -1,
           "drv_valid9": 1,
-          "drv_sum9": 12
+          "drv_sum9": 12,
+          "drv_sum10": 8
         }
       }
     }

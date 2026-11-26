@@ -394,8 +394,9 @@ function build(entryFile, options = {}) {
         fixable.sort((a, b) => b.idx - a.idx);
         for (const x of fixable) {
           relaxed.push({ ...map[x.idx], text: lines[x.idx].trim(), extraWords: x.rewrite.extraWords });
+          const orig = { ...map[x.idx], srcText: map[x.idx].srcText || lines[x.idx] }; // author's line, for diagnostics
           lines.splice(x.idx, 1, ...x.rewrite.lines);
-          map.splice(x.idx, 1, ...x.rewrite.lines.map(() => map[x.idx]));
+          map.splice(x.idx, 1, ...x.rewrite.lines.map(() => orig));
         }
         continue;
       }
@@ -408,7 +409,8 @@ function build(entryFile, options = {}) {
       if (diagnostics.length >= MAX_ERRORS) break;
       const loc = map[e.lineNum - 1] || { file: path.resolve(entryFile), line: e.lineNum };
       if (diagnostics.some(d => d.file === loc.file && d.line === loc.line)) continue; // first error per line
-      diagnostics.push({ file: loc.file, line: loc.line, source: lines[e.lineNum - 1], message: e.message, hint: hintFor(e.message, lines[e.lineNum - 1] || '') });
+      const src = loc.srcText || lines[e.lineNum - 1];
+      diagnostics.push({ file: loc.file, line: loc.line, source: src, message: e.message, hint: hintFor(e.message, src || '') });
     }
     if (thrownErr && diagnostics.length < MAX_ERRORS && thrownErr.lineNum >= 1 && lines[thrownErr.lineNum - 1] !== undefined) {
       const ln = lines[thrownErr.lineNum - 1];

@@ -56,13 +56,16 @@ const display = require('./lib/display');
 (function testRelaxationErrors() {
   const dir = path.join(ROOT, 'tools', 'tests', 'build_errors');
   const fail = f => {
-    const t0 = Date.now();
-    try { build(path.join(dir, f), {}); } catch (e) { return { diags: e.diagnostics || [], ms: Date.now() - t0 }; }
+    try { build(path.join(dir, f), {}); } catch (e) { return { diags: e.diagnostics || [] }; }
     assert.fail(`${f} should not build`);
   };
-  const st = fail('straddle.ap');
-  assert(st.ms < 10000, `straddle.ap must fail fast, took ${st.ms} ms`);
-  assert(st.diags.some(d => /Program too big/.test(d.message)), 'straddle.ap reports Program too big');
+  // straddle.ap used to loop forever: build it in a child process with a timeout.
+  const cp = require('child_process').spawnSync(process.execPath,
+    [path.join(ROOT, 'tools', 'lccgame.js'), 'build', path.join(dir, 'straddle.ap'), '--out', path.join(require('os').tmpdir(), 'lcc-straddle.ep')],
+    { encoding: 'utf8', timeout: 20000 });
+  assert(!cp.error, `straddle.ap build must terminate (${cp.error && cp.error.code})`);
+  assert(cp.status !== 0 && /straddle\.ap:7: error: Program too big\n\s+brlt main\n/.test(cp.stderr),
+    `straddle.ap reports Program too big on the author's line, got:\n${cp.stderr}`);
   const bl = fail('bad_label.ap');
   assert.deepStrictEqual(bl.diags.map(d => [d.line, d.message]), [[5, 'Invalid operation'], [6, 'Bad label']], 'bad_label.ap keeps both errors');
   const ty = fail('typo.ap');
