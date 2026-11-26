@@ -1,0 +1,132 @@
+; Unit driver: act_player_path shares act_queue with the AI distance field.
+; It must wipe act_dist through the BFS visit list before reusing the queue,
+; invalidate the cache, and the next act_ensure_bfs must rebuild the same field.
+; Map: corridor y=5 x=5..9 and detour y=3 x=5..9 joined at (5,4) and (9,4).
+; 4-way distances from (5,5), stored as d+1, sum to 48 over the 12 floor tiles.
+        .lccplus
+        .start drv_main
+        .include "video_defs.ap"
+        .include "../../src/defs.ap"
+
+drv_main:
+        mov r0, 77
+        srand r0
+        mov r0, GAME_PLAY
+        st r0, st_game_state
+
+        mov r1, 0
+drv_w_y:
+        mov r0, 0
+drv_w_x:
+        mov r2, T_WALL
+        bl dun_set
+        add r0, r0, 1
+        mov r3, MAP_W
+        cmp r0, r3
+        brlt drv_w_x
+        add r1, r1, 1
+        mov r3, MAP_H
+        cmp r1, r3
+        brlt drv_w_y
+
+        mov r0, 5
+drv_c_lp:
+        mov r1, 5
+        mov r2, T_FLOOR
+        bl dun_set
+        mov r1, 3
+        mov r2, T_FLOOR
+        bl dun_set
+        add r0, r0, 1
+        cmp r0, 10
+        brlt drv_c_lp
+        mov r0, 5
+        mov r1, 4
+        mov r2, T_FLOOR
+        bl dun_set
+        mov r0, 9
+        mov r1, 4
+        mov r2, T_FLOOR
+        bl dun_set
+
+        mov r0, 5
+        st r0, st_px
+        st r0, st_py
+        mov r0, 8
+        st r0, st_sight
+        bl fov_reset
+        bl fov_update
+        bl act_clear
+
+        ; 1. Build the AI field.
+        bl act_ensure_bfs
+        ld r0, act_bfs_valid
+        st r0, drv_valid1       ; expect 1
+        bl drv_dist_sum
+        st r0, drv_sum1         ; expect 48
+
+        ; 2. Player path to (9,5) borrows the queue.
+        ld r0, drv_goal
+        bl act_player_path
+        st r0, drv_step         ; expect (6,5): index 5*MAP_W+6 = 326
+        ld r0, act_bfs_valid
+        st r0, drv_valid2       ; expect 0
+        bl drv_dist_sum
+        st r0, drv_sum2         ; expect 0: wiped before the queue was reused
+
+        ; 3. Same player position and map version: still rebuilds.
+        bl act_ensure_bfs
+        ld r0, act_bfs_valid
+        st r0, drv_valid3       ; expect 1
+        bl drv_dist_sum
+        st r0, drv_sum3         ; expect 48
+
+        ; 4. A second path right after a rebuild, then a rebuild: same again.
+        ld r0, drv_goal
+        bl act_player_path
+        st r0, drv_step2        ; expect same as drv_step
+        bl act_ensure_bfs
+        bl drv_dist_sum
+        st r0, drv_sum4         ; expect 48
+        halt
+
+; r0 = sum of act_dist over the whole map. Clobbers r1-r3.
+drv_dist_sum:
+        lea r1, act_dist
+        ld r2, drv_size
+        mov r0, 0
+drv_ds_lp:
+        ldr r3, r1, 0
+        add r0, r0, r3
+        add r1, r1, 1
+        sub r2, r2, 1
+        brp drv_ds_lp
+        ret
+
+; Stubs required by actors.ap
+cbt_enemy_attack:
+        ret
+ui_msg:
+        ret
+ui_msg_add:
+        ret
+ui_msg_attr:
+        ret
+
+drv_size:   .word MAP_SIZE
+drv_goal:   .word 5*MAP_W+9
+drv_valid1: .word 99
+drv_valid2: .word 99
+drv_valid3: .word 99
+drv_sum1:   .word 99
+drv_sum2:   .word 99
+drv_sum3:   .word 99
+drv_sum4:   .word 99
+drv_step:   .word 99
+drv_step2:  .word 99
+
+        .include "../../src/state.ap"
+        .include "../../src/rng.ap"
+        .include "../../src/dungeon.ap"
+        .include "../../src/fov.ap"
+        .include "../../src/actors.ap"

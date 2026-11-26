@@ -2,7 +2,7 @@
   "title": "SCRAPCORE",
   "entry": "main.ap",
   "size": "30x100",
-  "budget": { "words": 40000 },
+  "budget": { "words": 52000 },
   "modules": {
     "main.ap":         { "prefix": "main_", "owner": "architect", "description": "entry, title→game→end flow, frame loop (ply_handle → main_turn → ren_draw → ui_draw → present → sleep), new game/floor, climbing", "skills": ["lcc-architect"] },
     "src/defs.ap":     { "prefix": [],      "owner": "architect", "description": "shared .define constants only: sizes, record layouts, regions, palette, keys, tuning", "skills": ["lcc-architect"] },

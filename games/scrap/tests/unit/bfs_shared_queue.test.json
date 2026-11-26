@@ -1,0 +1,22 @@
+{
+  "game": "bfs_shared_queue_driver.ap",
+  "scenarios": [
+    {
+      "name": "act_player_path wipes and invalidates the AI distance field before reusing the shared queue; act_ensure_bfs rebuilds it",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_valid1": 1,
+          "drv_sum1": 48,
+          "drv_step": 326,
+          "drv_valid2": 0,
+          "drv_sum2": 0,
+          "drv_valid3": 1,
+          "drv_sum3": 48,
+          "drv_step2": 326,
+          "drv_sum4": 48
+        }
+      }
+    }
+  ]
+}

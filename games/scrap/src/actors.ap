@@ -35,7 +35,7 @@
 ;; act_nearest_visible ()               -> r0=nearest visible living robot of any type, -1 if none
 ;; act_hostile_visible ()               -> r0=1 if a living non-worker robot is visible, 0 otherwise
 ;; act_player_path  r0=tile index or -1 -> r0=first step's tile index, -1 if no step. BFS over known walkable tiles (8-way), avoiding visible robots.
-;;                   -1 searches for the nearest reachable tile with an unknown in-bounds neighbour. Uses its own queue and leaves the AI distance cache intact.
+;;                   -1 searches for the nearest reachable tile with an unknown in-bounds neighbour. Shares act_queue with the AI distance field and invalidates it (the next act_ensure_bfs rebuilds).
 ; ---------------------------------------------------------------------
 
 ; ---- local pool 1 (placed before routines: negative PC offsets) -----
@@ -676,8 +676,9 @@ act_eb_ok:
         pop r0
         ret
 
-act_bfs_body:
-        ; 1. Selectively clear only tiles visited in the previous BFS
+; Clear the act_dist cells the previous BFS visited (listed in act_queue) and
+; empty that list. Clobbers r0-r3.
+act_bfs_clear:
         ; Count = prev_tail - act_queue (0..MAP_SIZE); avoids signed pointer compares
         ld r0, act_p_queue
         ld r2, act_bfs_prev_tail
@@ -711,6 +712,32 @@ act_bf_clr1:
 act_bf_clr_done:
         ld r0, act_p_queue
         st r0, act_bfs_prev_tail
+        ret
+
+; act_player_path reuses act_queue as its own queue, which destroys the visit
+; list act_bfs_clear needs. Called before that: wipe the field while the list
+; is intact and force the next act_ensure_bfs to rebuild. Preserves all regs.
+act_bfs_release:
+        push r0
+        push r1
+        push r2
+        push r3
+        push lr
+        bl act_bfs_clear
+        mov r0, 0
+        st r0, act_bfs_valid
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+act_bfs_body:
+        ; 1. Selectively clear only tiles visited in the previous BFS
+        push lr
+        bl act_bfs_clear
+        pop lr
 
         ; 2. Seed player position & map version
         ld r2, act_p_mver3
@@ -2700,6 +2727,7 @@ act_player_path:
         push r4
         push lr
         st r0, act_pp_goal
+        bl act_bfs_release      ; act_path_queue is act_queue
         ld r0, act_pp_first_ptr
         mov r1, 0
         ld r2, act_pp_size
@@ -3082,8 +3110,10 @@ act_drop_leech:
 act_drop_sapper:
         .word 0
 
-; Private BFS arrays (3072 words, budgeted in DESIGN.md)
+; Private BFS arrays (3 x MAP_SIZE words, budgeted in DESIGN.md). The enemy BFS
+; and act_player_path share one queue; act_player_path calls act_bfs_release
+; before it writes there.
 act_dist:       .zero MAP_SIZE
-act_queue:      .zero MAP_SIZE
 act_path_first: .zero MAP_SIZE
+act_queue:
 act_path_queue: .zero MAP_SIZE
