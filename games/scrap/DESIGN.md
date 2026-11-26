@@ -295,7 +295,9 @@ SPAWN_SAFE 6 tiles of the player.
 ## AI
 
 Distance field: `act_run` runs a BFS from the player over `dun_walkable` tiles once per
-player action (private to actors, 1536 words + queue).
+player action (1536 words, private to actors; one MAP_SIZE 1536-word BFS queue is shared
+with player pathing `act_player_path` for travel/explore via `act_bfs_release`, keeping
+the field valid so the next rebuild clears it in full instead of using the visit list).
 
 - **Sighting:** an enemy sees the player when the distance is ≤ ET_SIGHT and `fov_los`
   is clear. It enters ES_HUNT, sets E_TX/E_TY to the player, and sets E_ALERT to
