@@ -7,7 +7,7 @@
       "expect": {
         "status": "halted",
         "memory": {
-          "drv_tc_vis": [32, 2042, 803, 2859, 2855, 2876, 300],
+          "drv_tc_vis": [32, 1018, 803, 2859, 2855, 2876, 2092],
           "drv_tc_mem": [32, 1274, 1059, 1067, 1063, 1084, 1068],
           "drv_tc_neg": 32,
           "drv_tc_oob": 32,
@@ -38,7 +38,7 @@
         },
         "colors": {
           "lines": {
-            "0": " wyYYYr                                                         .",
+            "0": " yyYYYK                                                         .",
             "1": " bbbbbb",
             "2": "",
             "4": " wCMb",

@@ -218,16 +218,16 @@ the robot types are `act_types` in actors.ap.
 - **Why a shadow map (`st_rmap`):** packing a wall join mask into `st_map` bits 4–7 would have required auditing ~10 `st_map` readers across `actors`, `fov`, `items` and `ui` that compare unmasked tile kinds. Keeping `st_rmap` separate preserves every `st_map` invariant and keeps `ren_slow4` branchless at the same per-tile cost.
 - **Wall joining:** each `T_WALL` gets `RK_WALL0` (8) + 4-bit join mask (N=1, E=2, S=4, W=8). A neighbor joins if it is `T_WALL`, `T_DOOR` or `T_DOOR_OPEN`; off-map neighbors never join. Unjoined walls (mask 0, or `ren_tile_cell(T_WALL)`) draw `#`.
 - **Parallel-run rule:** two side-by-side wall runs do not join each other — a horizontal run (E+W joined) drops its N or S join when that neighbor also has joinable tiles on both sides, and a vertical run (N+S joined) does the same for E or W — so double walls draw as two clean lines instead of rows of tees.
-- **Floor accents:** ~1 in 16 `T_FLOOR` tiles gets `RK_ACCENT_A` or `RK_ACCENT_B` from a pure hash of `(x, y, depth)` — never the RNG — so shared-seed versus races see identical floors and RNG streams (unit-tested: `dun_rk_all` leaves `rand` output unchanged).
-- **Depth bands:** `render.ap` selects one of three 128-word tables from `st_depth` each frame (`BAND_SLAG_MIN` 8, `BAND_CONDUIT_MIN` 4), indexed by `(fov << 5) + render kind` (4 blocks of 32: unknown blank, visible, remembered in `A_MEMORY` blue, visible). Floors (`·` white) and stairs (`<` bright yellow) are shared across all bands:
+- **Floor accents:** `T_FLOOR` tiles get `RK_ACCENT_A` on hash value 0 and `RK_ACCENT_B` on value 1 of 32 from a pure squared hash of `(x, y, dun_depth)` — using the depth of the last `dun_generate` (`dun_depth`), not `st_depth`, and never the RNG — so shared-seed versus races see identical floors and RNG streams (unit-tested: `dun_rk_all` leaves `rand` output unchanged). Because the squared hash is non-uniform, accents appear on about 1 in 12 floors with A roughly twice as common as B (measured over the full 64×24 map: 76 A + 52 B = 128/1536 at depth 10, 82 A + 40 B = 122/1536 at depth 3).
+- **Depth bands:** `render.ap` selects one of three 128-word tables from `st_depth` each frame (`BAND_SLAG_MIN` 8, `BAND_CONDUIT_MIN` 4), indexed by `(fov << 5) + render kind` (4 blocks of 32: unknown blank, visible, remembered in `A_MEMORY` blue, visible). Visible colors per band below; remembered tiles stay `A_MEMORY` blue, stairs (`<` bright yellow) are shared across all bands, and unjoined walls draw `#`:
 
-| Band | Depths | Walls | Doors | Rubble | Floor accents (A / B) |
-|---|---|---|---|---|---|
-| Slag Vaults | 10–8 | double-line yellow (`═║`) | bright yellow | red | red `∙` slag beads / yellow `°` cinders |
-| Conduit Works | 7–4 | single-line cyan (`─│`) | yellow | gray | gray `:` grating / cyan `∙` cable studs |
-| Intake Shafts | 3–1 | bright-white double-H / single-V (`═│`) | yellow | green | green `"` moss tufts / gray `∙` grit |
+| Band | Depths | Walls | Floor | Doors | Rubble | Floor accents (A / B) |
+|---|---|---|---|---|---|---|
+| Slag Vaults | 10–8 | double-line yellow (`═║`) | `·` yellow | bright yellow | gray | red `∙` slag beads / gray `°` cinders |
+| Conduit Works | 7–4 | single-line cyan (`─│`) | `·` gray | yellow | gray | white `:` grating / cyan `∙` cable studs |
+| Intake Shafts | 3–1 | bright-white double-H / single-V (`═│`) | `·` white | bright cyan | green | gray `∙` grit / green `"` moss tufts |
 
-- **Cost & scope:** per-frame render cost is unchanged; the new-floor frame rises from ~82K to ~154K instructions (`dun_rk_all`), well inside the 500K per-frame target. A plain-ASCII fallback tile set is deliberately deferred to issue #13 (host-side glyph packs).
+- **Cost & scope:** per-frame render cost is unchanged; the new-floor frame rises from ~82K to ~154K instructions (`dun_rk_all`), well inside the 500K per-frame target. `dun_set` refreshes only the changed tile (~100 instructions) unless wall-joinability changes (wall ↔ non-wall), in which case it also refreshes every wall in its 3×3 (~1K instructions); gameplay only calls `dun_set` for door open/close, which never changes joinability, and any future bulk wall-destruction feature should rebuild with `dun_rk_all` instead of per-tile `dun_set`. A plain-ASCII fallback tile set is deliberately deferred to issue #13 (host-side glyph packs).
 
 ## Part catalog
 

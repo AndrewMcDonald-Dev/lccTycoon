@@ -101,6 +101,24 @@ drv_main:
         mov r2, T_WALL
         bl drv_set_chk
 
+        ; Diagonal refresh: (5,6) wall -> floor un-pairs the parallel run, so (4,5)
+        ; (diagonal to it) keeps its S join; back to wall restores the pair.
+        lea r4, drv_diag
+        mov r0, 5
+        mov r1, 6
+        mov r2, T_FLOOR
+        bl dun_set
+        mov r0, 4
+        mov r1, 5
+        bl drv_rk
+        mov r0, 5
+        mov r1, 6
+        mov r2, T_WALL
+        bl dun_set
+        mov r0, 4
+        mov r1, 5
+        bl drv_rk
+
         ; Accents: whole map floor at depth 10, then 3 -> counts of A and B
         lea r4, drv_acc
         mov r0, 10
@@ -243,6 +261,7 @@ drv_room:       .zero 9
 drv_edge:       .zero 6
 drv_set:        .zero 12
 drv_acc:        .zero 4
+drv_diag:       .zero 2
 drv_rng_a:      .word -1
 drv_rng_b:      .word -2
 

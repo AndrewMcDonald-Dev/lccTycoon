@@ -2,7 +2,7 @@
   "game": "render_bands_driver.ap",
   "scenarios": [
     {
-      "name": "render band tile set: depth 10 Slag Vaults: double-line yellow walls, red rubble/beads, bright-yellow doors",
+      "name": "render band tile set: depth 10 Slag Vaults: double-line yellow walls, yellow floor, bright-yellow doors, gray rubble, red beads",
       "keys": "a",
       "expect": {
         "status": "halted",
@@ -14,14 +14,14 @@
         },
         "colors": {
           "lines": {
-            "4": "   yrwwwwwrwwwwwy         yyyyyywyyyyy",
-            "9": "   yyyyyyywyyyyyy              ywy     yywwwYwwwrrwwwwwwwwwwwwyy"
+            "4": "   yKyyyyyryyyyyy         yyyyyyyyyyyy",
+            "9": "   yyyyyyyyyyyyyy              yyy     yKyyyYyyyrKyyyyyyyyyyyyKy"
           }
         }
       }
     },
     {
-      "name": "render band tile set: depth 5 Conduit Works: single-line cyan walls, gray grating, yellow doors",
+      "name": "render band tile set: depth 5 Conduit Works: single-line cyan walls, gray floor, yellow doors, white grating",
       "keys": "b",
       "expect": {
         "status": "halted",
@@ -33,27 +33,27 @@
         },
         "colors": {
           "lines": {
-            "4": "   cwwcwwKwwwwwwc         ccccccwccccc",
-            "9": "   cccccccycccccc              cwc     cwwwwwwwKwwwwwwKwwwcwwwwc"
+            "4": "   cKKcKKwKKKKKKc         ccccccKccccc",
+            "9": "   cccccccycccccc              cKc     cKKKKKKKKKKKKKKwKKKcKKKKc"
           }
         }
       }
     },
     {
-      "name": "render band tile set: depth 2 Intake Shafts: double-horizontal/single-vertical bright-white walls, green moss",
+      "name": "render band tile set: depth 2 Intake Shafts: double-horizontal/single-vertical bright-white walls, white floor, bright-cyan doors, green moss",
       "keys": "c",
       "expect": {
         "status": "halted",
         "screen": {
           "lines": {
             "4": "   │············│         ╘════╤+╤╤+╤╛",
-            "9": "   ╘═════╕·╒════╛              │·││\"│  │∙@··│     │············│"
+            "9": "   ╘═════╕·╒════╛              │·││∙│  │\"@··│     │············│"
           }
         },
         "colors": {
           "lines": {
-            "4": "   WwwwwwwwwwwwwW         WWWWWWyWWyWW",
-            "9": "   WWWWWWWwWWWWWW              WwWWgW  WKWwwW     WwwwwwwwwwwwwW"
+            "4": "   WwwwwwwwwwwwwW         WWWWWWCWWCWW",
+            "9": "   WWWWWWWwWWWWWW              WwWWKW  WgWwwW     WwwwwwwwwwwwwW"
           }
         }
       }
@@ -66,7 +66,7 @@
         "screen": {
           "lines": {
             "4": "   │············│         ╘════╤+╤╤+╤╛",
-            "9": "   ╘═════╕·╒════╛              │·││\"│  │∙@··│     │············│"
+            "9": "   ╘═════╕·╒════╛              │·││∙│  │\"@··│     │············│"
           }
         },
         "colors": {

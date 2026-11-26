@@ -4,7 +4,8 @@
 ; opacity, random floor tiles for spawns, distance metric.
 ; Tile kinds and room layout: defs.ap (T_*, RM_*). st_map is the only
 ; tile store; nothing else writes it. st_rmap (render kinds) is derived from
-; it here: dun_rk_all after generation, dun_rk_cross on every dun_set.
+; it here: dun_rk_all after generation; dun_set refreshes the tile (dun_rk_at) or,
+; when its wall-joinability changes, every wall of the 3x3 around it (dun_rk_near).
 ; All routines: args r0..r4, result r0, all other registers preserved.
 ;
 ;; dun_generate     r0=depth                   -> -        fill st_map (T_ROCK, then rooms ROOMS_MIN..MAX_ROOMS of T_FLOOR walled by T_WALL, L-shaped corridors connecting
@@ -12,8 +13,8 @@
 ;;                   st_start_room, st_stairs_x/y. Every floor tile reachable from the start. Deterministic for a given rand seed. Depth may tune size/density.
 ;;                   Then fills st_rmap (render kinds, defs.ap RK_*) from st_map + depth without using the RNG.
 ;; dun_get          r0=x r1=y                  -> r0=tile kind T_*, T_OUT (-1) outside the map
-;; dun_set          r0=x r1=y r2=kind          -> -        store a tile kind (ignored outside); refreshes st_rmap for the tile and its 4 neighbors
-;; dun_rk_all       ()                         -> -        recompute all of st_rmap from st_map (dun_generate calls it; for test drivers that poke st_map)
+;; dun_set          r0=x r1=y r2=kind          -> -        store a tile kind (ignored outside); refreshes st_rmap: the tile only (~100 instr) unless wall-joinability changes (wall <-> non-wall), then also every wall in its 3x3 (~1K instr)
+;; dun_rk_all       ()                         -> -        recompute all of st_rmap from st_map; floor accents hash the depth of the last dun_generate (dun_depth), not st_depth (dun_generate calls it; for test drivers that poke st_map)
 ;; dun_walkable     r0=x r1=y                  -> r0=1 for T_FLOOR T_DOOR T_DOOR_OPEN T_STAIRS T_RUBBLE, 0 otherwise or outside (ignores actors and items)
 ;; dun_opaque       r0=x r1=y                  -> r0=1 for T_ROCK T_WALL T_DOOR or outside, 0 otherwise
 ;; dun_random_floor ()                         -> r0=index (y<<MAP_SHIFT)|x of a random T_FLOOR tile inside a room (callers check occupancy and retry)

@@ -92,8 +92,8 @@
 ; function of st_map, the tile's (x, y) and the floor depth — never the RNG:
 ;   T_WALL  -> RK_WALL0 + join mask of its 4 neighbors in {T_WALL, T_DOOR, T_DOOR_OPEN}
 ;              (bit 0 N, 1 E, 2 S, 3 W; off-map neighbors never join)
-;   T_FLOOR -> RK_ACCENT_A / RK_ACCENT_B for ~1 in 8 floors picked by a (x, y, depth)
-;              hash, else RK = T_FLOOR
+;   T_FLOOR -> RK_ACCENT_A / RK_ACCENT_B (must be RK_ACCENT_A + 1) for ~1 in 12 floors
+;              picked by a (x, y, depth) hash, else RK = T_FLOOR
 ;   other   -> RK = kind (0..T_KIND_COUNT-1)
         .define RK_WALL0        8       ; 8..23
         .define RK_ACCENT_A     24
@@ -480,6 +480,8 @@
         .define GL_PLAYER       '@'
         .define A_PLAYER        FG_BWHITE
         .define GL_FLOOR        250     ; ·
+; GL_WALL A_WALL A_DOOR A_RUBBLE (and the GL_/A_ tile pairs) only feed the
+; dungeon_view test viewer now: the game draws tiles from render.ap's band tables.
         .define GL_WALL         '#'
         .define GL_DOOR         '+'
         .define GL_DOOR_OPEN    39      ; '

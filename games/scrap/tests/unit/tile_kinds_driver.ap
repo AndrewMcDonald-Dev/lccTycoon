@@ -134,6 +134,12 @@ drv_rk4:
         brlt drv_rk5
         add r4, r4, 1
 drv_rk5:
+        mov r0, RK_ACCENT_A+1   ; dun_rka_floor adds the hash (0/1) to RK_ACCENT_A
+        mov r1, RK_ACCENT_B
+        cmp r0, r1
+        bre drv_rk5b
+        add r4, r4, 1
+drv_rk5b:
         lea r0, st_rmap
         lea r1, st_fov
         sub r0, r0, r1

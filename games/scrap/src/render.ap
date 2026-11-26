@@ -429,12 +429,12 @@ ren_tbl_slag:
         .word G_SPACE
         .word G_SPACE
         .word G_SPACE                   ; vis RK 0 T_ROCK
-        .word GL_FLOOR|A_FLOOR          ; vis RK 1 T_FLOOR
+        .word GL_FLOOR|FG_YELLOW        ; vis RK 1 T_FLOOR
         .word '#'|FG_YELLOW             ; vis RK 2 T_WALL (unjoined: ren_tile_cell)
         .word GL_DOOR|FG_BYELLOW        ; vis RK 3 T_DOOR
         .word GL_DOOR_OPEN|FG_BYELLOW   ; vis RK 4 T_DOOR_OPEN
         .word GL_STAIRS|A_STAIRS        ; vis RK 5 T_STAIRS
-        .word GL_RUBBLE|FG_RED          ; vis RK 6 T_RUBBLE
+        .word GL_RUBBLE|FG_GRAY         ; vis RK 6 T_RUBBLE
         .word G_SPACE                   ; vis RK 7 unused
         .word '#'|FG_YELLOW             ; vis RK 8 wall mask 0000 (WSEN)
         .word 186|FG_YELLOW             ; vis RK 9 wall mask 0001 (WSEN)
@@ -453,7 +453,7 @@ ren_tbl_slag:
         .word 203|FG_YELLOW             ; vis RK 22 wall mask 1110 (WSEN)
         .word 206|FG_YELLOW             ; vis RK 23 wall mask 1111 (WSEN)
         .word 249|FG_RED                ; vis RK 24 floor accent A ∙ slag bead
-        .word 248|FG_YELLOW             ; vis RK 25 floor accent B ° cinder
+        .word 248|FG_GRAY               ; vis RK 25 floor accent B ° cinder
         .word G_SPACE                   ; vis RK 26 unused
         .word G_SPACE                   ; vis RK 27 unused
         .word G_SPACE                   ; vis RK 28 unused
@@ -493,12 +493,12 @@ ren_tbl_slag:
         .word G_SPACE                   ; mem RK 30 unused
         .word G_SPACE                   ; mem RK 31 unused
         .word G_SPACE                   ; vis RK 0 T_ROCK
-        .word GL_FLOOR|A_FLOOR          ; vis RK 1 T_FLOOR
+        .word GL_FLOOR|FG_YELLOW        ; vis RK 1 T_FLOOR
         .word '#'|FG_YELLOW             ; vis RK 2 T_WALL (unjoined: ren_tile_cell)
         .word GL_DOOR|FG_BYELLOW        ; vis RK 3 T_DOOR
         .word GL_DOOR_OPEN|FG_BYELLOW   ; vis RK 4 T_DOOR_OPEN
         .word GL_STAIRS|A_STAIRS        ; vis RK 5 T_STAIRS
-        .word GL_RUBBLE|FG_RED          ; vis RK 6 T_RUBBLE
+        .word GL_RUBBLE|FG_GRAY         ; vis RK 6 T_RUBBLE
         .word G_SPACE                   ; vis RK 7 unused
         .word '#'|FG_YELLOW             ; vis RK 8 wall mask 0000 (WSEN)
         .word 186|FG_YELLOW             ; vis RK 9 wall mask 0001 (WSEN)
@@ -517,7 +517,7 @@ ren_tbl_slag:
         .word 203|FG_YELLOW             ; vis RK 22 wall mask 1110 (WSEN)
         .word 206|FG_YELLOW             ; vis RK 23 wall mask 1111 (WSEN)
         .word 249|FG_RED                ; vis RK 24 floor accent A ∙ slag bead
-        .word 248|FG_YELLOW             ; vis RK 25 floor accent B ° cinder
+        .word 248|FG_GRAY               ; vis RK 25 floor accent B ° cinder
         .word G_SPACE                   ; vis RK 26 unused
         .word G_SPACE                   ; vis RK 27 unused
         .word G_SPACE                   ; vis RK 28 unused
@@ -561,7 +561,7 @@ ren_tbl_conduit:
         .word G_SPACE
         .word G_SPACE
         .word G_SPACE                   ; vis RK 0 T_ROCK
-        .word GL_FLOOR|A_FLOOR          ; vis RK 1 T_FLOOR
+        .word GL_FLOOR|FG_GRAY          ; vis RK 1 T_FLOOR
         .word '#'|FG_CYAN               ; vis RK 2 T_WALL (unjoined: ren_tile_cell)
         .word GL_DOOR|FG_YELLOW         ; vis RK 3 T_DOOR
         .word GL_DOOR_OPEN|FG_YELLOW    ; vis RK 4 T_DOOR_OPEN
@@ -584,7 +584,7 @@ ren_tbl_conduit:
         .word 180|FG_CYAN               ; vis RK 21 wall mask 1101 (WSEN)
         .word 194|FG_CYAN               ; vis RK 22 wall mask 1110 (WSEN)
         .word 197|FG_CYAN               ; vis RK 23 wall mask 1111 (WSEN)
-        .word ':'|FG_GRAY               ; vis RK 24 floor accent A : grating
+        .word ':'|FG_WHITE              ; vis RK 24 floor accent A : grating
         .word 249|FG_CYAN               ; vis RK 25 floor accent B ∙ cable stud
         .word G_SPACE                   ; vis RK 26 unused
         .word G_SPACE                   ; vis RK 27 unused
@@ -625,7 +625,7 @@ ren_tbl_conduit:
         .word G_SPACE                   ; mem RK 30 unused
         .word G_SPACE                   ; mem RK 31 unused
         .word G_SPACE                   ; vis RK 0 T_ROCK
-        .word GL_FLOOR|A_FLOOR          ; vis RK 1 T_FLOOR
+        .word GL_FLOOR|FG_GRAY          ; vis RK 1 T_FLOOR
         .word '#'|FG_CYAN               ; vis RK 2 T_WALL (unjoined: ren_tile_cell)
         .word GL_DOOR|FG_YELLOW         ; vis RK 3 T_DOOR
         .word GL_DOOR_OPEN|FG_YELLOW    ; vis RK 4 T_DOOR_OPEN
@@ -648,7 +648,7 @@ ren_tbl_conduit:
         .word 180|FG_CYAN               ; vis RK 21 wall mask 1101 (WSEN)
         .word 194|FG_CYAN               ; vis RK 22 wall mask 1110 (WSEN)
         .word 197|FG_CYAN               ; vis RK 23 wall mask 1111 (WSEN)
-        .word ':'|FG_GRAY               ; vis RK 24 floor accent A : grating
+        .word ':'|FG_WHITE              ; vis RK 24 floor accent A : grating
         .word 249|FG_CYAN               ; vis RK 25 floor accent B ∙ cable stud
         .word G_SPACE                   ; vis RK 26 unused
         .word G_SPACE                   ; vis RK 27 unused
@@ -693,10 +693,10 @@ ren_tbl_intake:
         .word G_SPACE
         .word G_SPACE
         .word G_SPACE                   ; vis RK 0 T_ROCK
-        .word GL_FLOOR|A_FLOOR          ; vis RK 1 T_FLOOR
+        .word GL_FLOOR|FG_WHITE         ; vis RK 1 T_FLOOR
         .word '#'|FG_BWHITE             ; vis RK 2 T_WALL (unjoined: ren_tile_cell)
-        .word GL_DOOR|FG_YELLOW         ; vis RK 3 T_DOOR
-        .word GL_DOOR_OPEN|FG_YELLOW    ; vis RK 4 T_DOOR_OPEN
+        .word GL_DOOR|FG_BCYAN          ; vis RK 3 T_DOOR
+        .word GL_DOOR_OPEN|FG_BCYAN     ; vis RK 4 T_DOOR_OPEN
         .word GL_STAIRS|A_STAIRS        ; vis RK 5 T_STAIRS
         .word GL_RUBBLE|FG_GREEN        ; vis RK 6 T_RUBBLE
         .word G_SPACE                   ; vis RK 7 unused
@@ -716,8 +716,8 @@ ren_tbl_intake:
         .word 181|FG_BWHITE             ; vis RK 21 wall mask 1101 (WSEN)
         .word 209|FG_BWHITE             ; vis RK 22 wall mask 1110 (WSEN)
         .word 216|FG_BWHITE             ; vis RK 23 wall mask 1111 (WSEN)
-        .word '"'|FG_GREEN              ; vis RK 24 floor accent A " moss tuft
-        .word 249|FG_GRAY               ; vis RK 25 floor accent B ∙ grit
+        .word 249|FG_GRAY               ; vis RK 24 floor accent A ∙ grit
+        .word '"'|FG_GREEN              ; vis RK 25 floor accent B " moss tuft
         .word G_SPACE                   ; vis RK 26 unused
         .word G_SPACE                   ; vis RK 27 unused
         .word G_SPACE                   ; vis RK 28 unused
@@ -748,8 +748,8 @@ ren_tbl_intake:
         .word 181|A_MEMORY              ; mem RK 21 wall mask 1101 (WSEN)
         .word 209|A_MEMORY              ; mem RK 22 wall mask 1110 (WSEN)
         .word 216|A_MEMORY              ; mem RK 23 wall mask 1111 (WSEN)
-        .word '"'|A_MEMORY              ; mem RK 24 floor accent A " moss tuft
-        .word 249|A_MEMORY              ; mem RK 25 floor accent B ∙ grit
+        .word 249|A_MEMORY              ; mem RK 24 floor accent A ∙ grit
+        .word '"'|A_MEMORY              ; mem RK 25 floor accent B " moss tuft
         .word G_SPACE                   ; mem RK 26 unused
         .word G_SPACE                   ; mem RK 27 unused
         .word G_SPACE                   ; mem RK 28 unused
@@ -757,10 +757,10 @@ ren_tbl_intake:
         .word G_SPACE                   ; mem RK 30 unused
         .word G_SPACE                   ; mem RK 31 unused
         .word G_SPACE                   ; vis RK 0 T_ROCK
-        .word GL_FLOOR|A_FLOOR          ; vis RK 1 T_FLOOR
+        .word GL_FLOOR|FG_WHITE         ; vis RK 1 T_FLOOR
         .word '#'|FG_BWHITE             ; vis RK 2 T_WALL (unjoined: ren_tile_cell)
-        .word GL_DOOR|FG_YELLOW         ; vis RK 3 T_DOOR
-        .word GL_DOOR_OPEN|FG_YELLOW    ; vis RK 4 T_DOOR_OPEN
+        .word GL_DOOR|FG_BCYAN          ; vis RK 3 T_DOOR
+        .word GL_DOOR_OPEN|FG_BCYAN     ; vis RK 4 T_DOOR_OPEN
         .word GL_STAIRS|A_STAIRS        ; vis RK 5 T_STAIRS
         .word GL_RUBBLE|FG_GREEN        ; vis RK 6 T_RUBBLE
         .word G_SPACE                   ; vis RK 7 unused
@@ -780,8 +780,8 @@ ren_tbl_intake:
         .word 181|FG_BWHITE             ; vis RK 21 wall mask 1101 (WSEN)
         .word 209|FG_BWHITE             ; vis RK 22 wall mask 1110 (WSEN)
         .word 216|FG_BWHITE             ; vis RK 23 wall mask 1111 (WSEN)
-        .word '"'|FG_GREEN              ; vis RK 24 floor accent A " moss tuft
-        .word 249|FG_GRAY               ; vis RK 25 floor accent B ∙ grit
+        .word 249|FG_GRAY               ; vis RK 24 floor accent A ∙ grit
+        .word '"'|FG_GREEN              ; vis RK 25 floor accent B " moss tuft
         .word G_SPACE                   ; vis RK 26 unused
         .word G_SPACE                   ; vis RK 27 unused
         .word G_SPACE                   ; vis RK 28 unused

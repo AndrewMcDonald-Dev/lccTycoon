@@ -1160,9 +1160,11 @@ drv_mor_w:
         add r0, r0, 1
         sub r1, r1, 1
         brp drv_mor_w
-        ; Interior [1..62] x [1..22] = T_FLOOR, written straight into st_map (this
-        ; driver never renders, so st_rmap is not rebuilt), then one st_map_ver bump
-        ; as dun_set would have made.
+        ; Interior [1..62] x [1..22] = T_FLOOR, written straight into st_map, then one
+        ; st_map_ver bump as dun_set would have made. Not dun_set: each wall -> floor
+        ; change re-joins the walls around it (~1K instr), and 12 rooms of 1364 tiles
+        ; would pass the 2M-instruction frame limit. This driver never renders, so
+        ; st_rmap is not rebuilt.
         mov r1, 1
 drv_mor_y:
         mov r0, 1
