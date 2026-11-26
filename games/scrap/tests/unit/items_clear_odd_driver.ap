@@ -25,7 +25,8 @@
         .define T_FLOOR         1
         .define T_WALL          2
         .define T_STAIRS        5
-        .define T_KIND_COUNT    7
+        .define T_FIXTURE       7
+        .define T_KIND_COUNT    8
         .define ROOM_SIZE       4
         .define RM_X            0
         .define RM_Y            1

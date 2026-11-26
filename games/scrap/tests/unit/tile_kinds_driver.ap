@@ -140,6 +140,18 @@ drv_rk5:
         bre drv_rk5b
         add r4, r4, 1
 drv_rk5b:
+        mov r0, RK_FIX_SPENT    ; spent fixtures: a free render kind past the accents
+        mov r1, RK_ACCENT_B
+        cmp r0, r1
+        brgt drv_rk5c
+        add r4, r4, 1
+drv_rk5c:
+        mov r0, RK_FIX_SPENT
+        mov r1, RK_COUNT
+        cmp r0, r1
+        brlt drv_rk5d
+        add r4, r4, 1
+drv_rk5d:
         lea r0, st_rmap
         lea r1, st_fov
         sub r0, r0, r1

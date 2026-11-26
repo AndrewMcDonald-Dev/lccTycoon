@@ -1,0 +1,86 @@
+; Service bay (issue #14) scenes on the real game modules: a bay at (11,10)
+; east of the player at (10,10). First key picks the setup:
+;   d  Stub Legs in slot 1 at 5/20; carried Rivet Gun 12/12 and Cell Pack 15/15
+;   c  as d, but the legs are at 19/20 (repair caps at missing integrity)
+;   u  nothing damaged; carried Rivet Gun
+;   e  legs at 5/20, nothing carried
+;   i  itm_place onto the bay tile, then halt (items never land on a fixture)
+        .include "../../main.ap"
+        .start drv_start
+
+drv_start:
+        lea r0, st_screen
+        bl video_bind
+        bl prt_init
+        bl ply_init
+        bl ui_init
+        mov r0, GAME_PLAY
+        st r0, st_game_state
+        mov r0, 10
+        st r0, st_px
+        st r0, st_py
+        mov r1, r0
+        mov r2, T_FLOOR
+        bl dun_set
+        mov r0, 12
+        mov r1, 10
+        bl dun_set
+        ; bay record 0 at (11,10), then its tile (dun_set computes its render kind)
+        lea r3, st_fixtures
+        mov r0, 11
+        str r0, r3, F_X
+        mov r1, 10
+        str r1, r3, F_Y
+        mov r2, FX_BAY
+        str r2, r3, F_TYPE
+        mov r2, BAY_CHARGES
+        str r2, r3, F_CHARGES
+        mov r2, T_FIXTURE
+        bl dun_set
+        bl fov_update
+
+        nbain r0
+        mov r1, 'i'
+        cmp r0, r1
+        brz drv_item
+        mov r1, 'u'
+        cmp r0, r1
+        brz drv_carry
+        mov r2, 5
+        mov r1, 'c'
+        cmp r0, r1
+        brnz drv_dmg
+        mov r2, 19
+drv_dmg:
+        lea r3, st_slots
+        str r2, r3, S_HP
+        mov r1, 'e'
+        cmp r0, r1
+        brz drv_loop
+drv_carry:
+        mov r0, PT_RIVET_GUN
+        mov r1, 12
+        bl prt_inv_add
+        mov r0, PT_CELL_PACK
+        mov r1, 15
+        bl prt_inv_add
+drv_loop:
+        bl ply_handle
+        st r0, drv_result
+        bl ren_draw
+        bl ui_draw
+        bl video_present
+        mov r0, FRAME_MS
+        sleep r0
+        br drv_loop
+
+drv_item:
+        mov r0, 11
+        mov r1, 10
+        mov r2, PT_RIVET_GUN
+        mov r3, 12
+        bl itm_place
+        st r0, drv_result
+        halt
+
+drv_result: .word -1

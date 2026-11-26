@@ -1,0 +1,449 @@
+{
+  "game": "bay_driver.ap",
+  "scenarios": [
+    {
+      "name": "stepping on a bay announces it; a, 1, 1 repairs the legs by 2x the Rivet Gun's recycle value, eats the part, spends 150 TU and leaves a gray spent bay",
+      "keys": "d l a 1 1 h ; l",
+      "frames": 8,
+      "expect": {
+        "frames": [
+          {
+            "frame": 1,
+            "screen": {
+              "contains": [
+                "Service bay here. Press a to repair a part.",
+                "Here: Service bay (1 use)"
+              ]
+            }
+          },
+          {
+            "frame": 2,
+            "screen": {
+              "contains": [
+                "BAY: 1-8 pick damaged part to repair   Esc cancel",
+                "1 Stub Legs",
+                "8 -"
+              ]
+            },
+            "colors": {
+              "matches": [
+                "^ {64}Kk wwwwwwwww"
+              ]
+            }
+          },
+          {
+            "frame": 3,
+            "screen": {
+              "contains": [
+                "BAY: 1-4 feed carried part to the bay   Esc cancel"
+              ]
+            },
+            "colors": {
+              "matches": [
+                "^ {64}Kk C wwwwwwwww"
+              ]
+            }
+          },
+          {
+            "frame": 4,
+            "screen": {
+              "contains": [
+                "Bay repaired Stub Legs +14."
+              ]
+            }
+          },
+          {
+            "frame": 5,
+            "screen": {
+              "matches": [
+                "^ {10}@Ω· "
+              ]
+            },
+            "colors": {
+              "matches": [
+                "^ {10}WKy "
+              ]
+            }
+          }
+        ],
+        "screen": {
+          "contains": [
+            "Service bay (spent)"
+          ]
+        },
+        "memory": {
+          "st_slots": [
+            1,
+            19,
+            1,
+            20
+          ],
+          "st_inv": [
+            0,
+            0,
+            9,
+            15,
+            0,
+            0,
+            0,
+            0
+          ],
+          "st_fixtures": [
+            11,
+            10,
+            1,
+            0
+          ],
+          "st_ply_next": 350,
+          "st_mode": 7
+        }
+      }
+    },
+    {
+      "name": "a spent bay refuses a second use at no time cost",
+      "keys": "d l a 1 1 a",
+      "frames": 7,
+      "expect": {
+        "screen": {
+          "contains": [
+            "This service bay is spent."
+          ]
+        },
+        "memory": {
+          "st_slots": [
+            1,
+            19
+          ],
+          "st_fixtures": [
+            11,
+            10,
+            1,
+            0
+          ],
+          "st_ply_next": 250,
+          "st_mode": 0,
+          "drv_result": 0
+        }
+      }
+    },
+    {
+      "name": "repair caps at the part's missing integrity",
+      "keys": "c l a 1 1",
+      "frames": 6,
+      "expect": {
+        "screen": {
+          "contains": [
+            "Bay repaired Stub Legs +1."
+          ]
+        },
+        "memory": {
+          "st_slots": [
+            1,
+            20
+          ],
+          "st_inv": [
+            0,
+            0,
+            9,
+            15
+          ],
+          "st_fixtures": [
+            11,
+            10,
+            1,
+            0
+          ],
+          "st_ply_next": 250
+        }
+      }
+    },
+    {
+      "name": "the look cursor names a usable bay",
+      "keys": "d ; l",
+      "frames": 3,
+      "expect": {
+        "screen": {
+          "contains": [
+            "Service bay (1 use)"
+          ]
+        }
+      }
+    },
+    {
+      "name": "an undamaged slot closes the picker at no time cost",
+      "keys": "d l a 3",
+      "frames": 5,
+      "expect": {
+        "screen": {
+          "contains": [
+            "That part is undamaged."
+          ]
+        },
+        "memory": {
+          "st_slots": [
+            1,
+            5
+          ],
+          "st_inv": [
+            13,
+            12,
+            9,
+            15,
+            0,
+            0,
+            0,
+            0
+          ],
+          "st_fixtures": [
+            11,
+            10,
+            1,
+            1
+          ],
+          "st_ply_next": 100,
+          "st_mode": 0,
+          "drv_result": 0
+        }
+      }
+    },
+    {
+      "name": "an empty slot closes the picker at no time cost",
+      "keys": "d l a 8",
+      "frames": 5,
+      "expect": {
+        "screen": {
+          "contains": [
+            "Slot is empty."
+          ]
+        },
+        "memory": {
+          "st_slots": [
+            1,
+            5
+          ],
+          "st_inv": [
+            13,
+            12,
+            9,
+            15,
+            0,
+            0,
+            0,
+            0
+          ],
+          "st_fixtures": [
+            11,
+            10,
+            1,
+            1
+          ],
+          "st_ply_next": 100,
+          "st_mode": 0,
+          "drv_result": 0
+        }
+      }
+    },
+    {
+      "name": "an empty carried entry closes the picker and leaves the bay charged",
+      "keys": "d l a 1 4",
+      "frames": 6,
+      "expect": {
+        "screen": {
+          "contains": [
+            "No carried part there."
+          ]
+        },
+        "memory": {
+          "st_slots": [
+            1,
+            5
+          ],
+          "st_inv": [
+            13,
+            12,
+            9,
+            15,
+            0,
+            0,
+            0,
+            0
+          ],
+          "st_fixtures": [
+            11,
+            10,
+            1,
+            1
+          ],
+          "st_ply_next": 100,
+          "st_mode": 0,
+          "drv_result": 0
+        }
+      }
+    },
+    {
+      "name": "Esc in the part step changes nothing",
+      "keys": "d l a 1 <esc>",
+      "frames": 6,
+      "expect": {
+        "screen": {
+          "contains": [
+            "Service bay here. Press a to repair a part."
+          ]
+        },
+        "memory": {
+          "st_slots": [
+            1,
+            5
+          ],
+          "st_inv": [
+            13,
+            12,
+            9,
+            15,
+            0,
+            0,
+            0,
+            0
+          ],
+          "st_fixtures": [
+            11,
+            10,
+            1,
+            1
+          ],
+          "st_ply_next": 100,
+          "st_mode": 0,
+          "drv_result": 0
+        }
+      }
+    },
+    {
+      "name": "a with nothing damaged costs no time",
+      "keys": "u l a",
+      "frames": 4,
+      "expect": {
+        "screen": {
+          "contains": [
+            "No attached part needs repair."
+          ]
+        },
+        "memory": {
+          "st_slots": [
+            1,
+            20
+          ],
+          "st_inv": [
+            13,
+            12,
+            9,
+            15,
+            0,
+            0,
+            0,
+            0
+          ],
+          "st_fixtures": [
+            11,
+            10,
+            1,
+            1
+          ],
+          "st_ply_next": 100,
+          "st_mode": 0,
+          "drv_result": 0
+        }
+      }
+    },
+    {
+      "name": "a with nothing carried costs no time",
+      "keys": "e l a",
+      "frames": 4,
+      "expect": {
+        "screen": {
+          "contains": [
+            "Carry a spare part to feed the bay."
+          ]
+        },
+        "memory": {
+          "st_slots": [
+            1,
+            5
+          ],
+          "st_inv": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "st_fixtures": [
+            11,
+            10,
+            1,
+            1
+          ],
+          "st_ply_next": 100,
+          "st_mode": 0,
+          "drv_result": 0
+        }
+      }
+    },
+    {
+      "name": "a off a bay costs no time",
+      "keys": "d a",
+      "frames": 3,
+      "expect": {
+        "screen": {
+          "contains": [
+            "No service bay here."
+          ]
+        },
+        "memory": {
+          "st_slots": [
+            1,
+            5
+          ],
+          "st_inv": [
+            13,
+            12,
+            9,
+            15,
+            0,
+            0,
+            0,
+            0
+          ],
+          "st_fixtures": [
+            11,
+            10,
+            1,
+            1
+          ],
+          "st_ply_next": 0,
+          "st_mode": 0,
+          "drv_result": 0
+        }
+      }
+    },
+    {
+      "name": "itm_place never puts an item on a fixture tile",
+      "keys": "i",
+      "frames": 1,
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_result": 0,
+          "st_items": [
+            13,
+            12,
+            10,
+            12
+          ]
+        }
+      }
+    }
+  ]
+}

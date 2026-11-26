@@ -25,6 +25,8 @@
 ;; prt_inv_clear    r0=inv index     -> -        empty an inventory entry (callers read S_PART/S_HP first, e.g. to drop it)
 ;; prt_recycle      r0=inv index     -> r0=core HP restored, 0 empty, -1 core full. Heal = 1 + (RECYCLE_BASE + RECYCLE_TIER × tier) × hp / maxhp, capped at missing core HP.
 ;;                   On success, clears the entry and increments st_stat_recycled.
+;; prt_bay_repair   r0=slot r1=inv index -> r0=integrity restored to that slot's part, 0 (empty slot or entry, or the part is undamaged; nothing changed).
+;;                   Repair = BAY_MULT × the entry's recycle heal (formula above, uncapped), capped at missing integrity; clears the entry.
 ;; prt_damage       r0=damage r1=out_destroyed -> r0=slot hit 0..NUM_SLOTS-1, -1 core, or -2 fully absorbed. Sets st_absorbed to damage absorbed by the shield (0 if none)
 ;;                   and spends SHIELD_COST energy per point absorbed. If r1 != 0, stores destroyed part id (1..PART_COUNT) or -1 (none) to [r1]. Core hit chance
 ;;                   CORE_HIT_PCT + CORE_HIT_EMPTY × empty slots, else a random attached part weighted by P_COVER; armor reduces damage to itself by P_U_VALUE (min 1).
@@ -625,36 +627,17 @@ prt_recycle:
         push r3
         push r4
         push lr
-        cmp r0, 0
-        brn prt_recycle_empty
-        cmp r0, NUM_INV-1
-        brgt prt_recycle_empty
         mov r4, r0              ; inv index
-        sll r0, SLOT_SHIFT
-        lea r1, st_inv
-        add r1, r1, r0
-        ldr r0, r1, S_PART
-        bl prt_info
-        cmp r0, 0
-        brz prt_recycle_empty
-        ld r2, st_core_hp
-        mov r3, CORE_MAX
-        cmp r2, r3
-        brz prt_recycle_full
-        brgt prt_recycle_full    ; core at or above CORE_MAX
-
-        ldr r3, r0, P_TIER
-        mov r2, RECYCLE_TIER
-        mul r3, r2
-        add r3, r3, RECYCLE_BASE
-        ldr r0, r0, P_MAXHP
-        ldr r1, r1, S_HP
-        mul r3, r1
-        div r3, r0
-        add r3, r3, 1
+        bl prt_inv_value
+        mov r3, r0
+        brz prt_recycle_out     ; empty entry -> 0
         ld r1, st_core_hp
         mov r2, CORE_MAX
         sub r2, r2, r1          ; HP missing
+        brp prt_recycle_cap
+        mov r0, -1              ; core at or above CORE_MAX
+        br prt_recycle_out
+prt_recycle_cap:
         cmp r3, r2
         brlt prt_recycle_apply
         mov r3, r2
@@ -667,13 +650,94 @@ prt_recycle_apply:
         add r1, r1, 1
         st r1, st_stat_recycled
         mov r0, r3
-        br prt_recycle_out
-prt_recycle_empty:
-        mov r0, 0
-        br prt_recycle_out
-prt_recycle_full:
-        mov r0, -1
 prt_recycle_out:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        ret
+
+; internal: prt_inv_value (r0=inv index) -> r0 = 1 + (RECYCLE_BASE + RECYCLE_TIER*tier)*hp/maxhp,
+; 0 for an empty entry or bad index. Flags set from r0.
+prt_inv_value:
+        push r1
+        push r2
+        push r3
+        push lr
+        cmp r0, 0
+        brn prt_iv_none
+        cmp r0, NUM_INV-1
+        brgt prt_iv_none
+        sll r0, SLOT_SHIFT
+        lea r1, st_inv
+        add r1, r1, r0
+        ldr r0, r1, S_PART
+        bl prt_info
+        cmp r0, 0
+        brz prt_iv_out
+        ldr r2, r0, P_TIER
+        mov r3, RECYCLE_TIER
+        mul r2, r3
+        add r2, r2, RECYCLE_BASE
+        ldr r1, r1, S_HP
+        mul r2, r1
+        ldr r0, r0, P_MAXHP
+        div r2, r0
+        add r0, r2, 1
+        br prt_iv_out
+prt_iv_none:
+        mov r0, 0
+prt_iv_out:
+        pop lr
+        pop r3
+        pop r2
+        pop r1
+        cmp r0, 0
+        ret
+
+prt_bay_repair:
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        cmp r0, 0
+        brn prt_br_none
+        cmp r0, NUM_SLOTS-1
+        brgt prt_br_none
+        sll r0, SLOT_SHIFT
+        lea r4, st_slots
+        add r4, r4, r0          ; r4 = &st_slots[slot]
+        ldr r0, r4, S_PART
+        bl prt_info
+        cmp r0, 0
+        brz prt_br_out
+        ldr r2, r0, P_MAXHP
+        ldr r3, r4, S_HP
+        sub r2, r2, r3          ; integrity missing
+        brp prt_br_val
+prt_br_none:
+        mov r0, 0
+        br prt_br_out
+prt_br_val:
+        mov r0, r1
+        bl prt_inv_value
+        brz prt_br_out
+        mov r3, BAY_MULT
+        mul r0, r3
+        cmp r0, r2
+        brlt prt_br_apply
+        mov r0, r2
+prt_br_apply:
+        ldr r3, r4, S_HP
+        add r3, r3, r0
+        str r3, r4, S_HP
+        mov r2, r0
+        mov r0, r1
+        bl prt_inv_clear
+        mov r0, r2
+prt_br_out:
         pop lr
         pop r4
         pop r3

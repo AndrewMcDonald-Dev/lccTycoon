@@ -7,7 +7,7 @@
         "status": "halted",
         "memory": {
           "drv_bad": 0,
-          "drv_kinds_checked": 7
+          "drv_kinds_checked": 8
         }
       }
     }

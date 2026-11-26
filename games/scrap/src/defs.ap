@@ -60,7 +60,7 @@
 ; st_map tile word: bits 0-3 kind (T_*); bits 4-15 reserved (0)
 ; INVARIANTS relied on by fast paths (verified by tests/unit/tile_kinds.test.json):
 ;   1. Walkable iff (kind & 5) != 0 (T_ROCK=0 and T_WALL=2 clear bits 0 and 2;
-;      all walkable kinds 1,3,4,5,6 set bit 0 or bit 2). Relied on by:
+;      all walkable kinds 1,3,4,5,6,7 set bit 0 or bit 2). Relied on by:
 ;      actors.ap act_bf_lp (fast 4-neighbor BFS loop).
 ;   2. Border clean iff (OR(border) & 13) == 0 (for every kind 0..T_KIND_COUNT-1,
 ;      (kind & 13) == 0 iff non-walkable {T_ROCK=0, T_WALL=2}; bit 3 in 13=0b1101
@@ -87,17 +87,20 @@
         .define T_DOOR_OPEN     4       ; open door: walkable, see-through
         .define T_STAIRS        5       ; '<' up to the next (shallower) depth
         .define T_RUBBLE        6       ; floor variant (cosmetic), walkable, see-through
-        .define T_KIND_COUNT    7
+        .define T_FIXTURE       7       ; fixture (st_fixtures record at this tile), walkable, see-through; items never land here
+        .define T_KIND_COUNT    8
 ; st_rmap render kind per tile (W: dungeon, from st_map; read: render only). A pure
 ; function of st_map, the tile's (x, y) and the floor depth — never the RNG:
 ;   T_WALL  -> RK_WALL0 + join mask of its 4 neighbors in {T_WALL, T_DOOR, T_DOOR_OPEN}
 ;              (bit 0 N, 1 E, 2 S, 3 W; off-map neighbors never join)
 ;   T_FLOOR -> RK_ACCENT_A / RK_ACCENT_B (must be RK_ACCENT_A + 1) for ~1 in 12 floors
 ;              picked by a (x, y, depth) hash, else RK = T_FLOOR
+;   T_FIXTURE -> RK_FIX_SPENT if its st_fixtures record has 0 F_CHARGES, else RK = T_FIXTURE
 ;   other   -> RK = kind (0..T_KIND_COUNT-1)
         .define RK_WALL0        8       ; 8..23
         .define RK_ACCENT_A     24
         .define RK_ACCENT_B     25
+        .define RK_FIX_SPENT    26      ; used-up fixture (dun_set(x, y, T_FIXTURE) refreshes it)
         .define RK_COUNT        32      ; band tables: 4 fov blocks x RK_COUNT words
         .define RK_SHIFT        5
         .define J_N             1       ; wall join mask bits
@@ -128,6 +131,21 @@
         .define DOOR_PCT        35      ; chance a room/corridor junction gets a door
         .define RUBBLE_PCT      4       ; chance a floor tile is rubble
 
+; ---- fixtures: st_fixtures pool (W: dungeon places, player spends charges) ----
+; One service bay per floor at the center of the first room (st_rooms order) that is
+; neither the start room nor the stairs room; no RNG, so race floors stay identical.
+        .define MAX_FIXTURES    4
+        .define FIX_SIZE        4
+        .define FIX_SHIFT       2
+        .define F_X             0
+        .define F_Y             1
+        .define F_TYPE          2       ; FX_* (FX_NONE = free record)
+        .define F_CHARGES       3       ; uses left; 0 = spent
+        .define FX_NONE         0
+        .define FX_BAY          1       ; service bay: sacrifice a carried part to repair an attached one
+        .define BAY_CHARGES     1
+        .define BAY_MULT        2       ; bay repair = BAY_MULT x the part's recycle value, capped at missing integrity
+
 ; ---- directions (dx,dy tables live in player/actors; these name them) ---
         .define DIR_N           0
         .define DIR_NE          1
@@ -150,6 +168,7 @@
         .define TIME_STAIRS     100     ; '<'
         .define TIME_CLOSE      100     ; 'c' close a door
         .define TIME_RECYCLE    150     ; 'R' recycle an inventory part
+        .define TIME_BAY        150     ; 'a' service-bay repair
         .define TIME_REBASE     16384   ; act_run subtracts this from all times when st_time reaches it
 ; player movement cost by propulsion (P_M_COST in the catalog); no propulsion:
         .define CRAWL_COST      250     ; core dragging itself
@@ -413,7 +432,9 @@
         .define MODE_TOGGLE     9       ; 'w': pick weapon 1-3 (slots 3-5) to hold / release fire
         .define MODE_CLOSE      10      ; 'c': pick a direction to close an adjacent open door
         .define MODE_RECYCLE    11      ; 'R': pick inventory 1-4 to recycle into core integrity
-        .define MODE_LAST       11      ; highest MODE_* (table bounds)
+        .define MODE_BAY_SLOT   12      ; 'a' on a service bay: pick loadout slot 1-8 to repair
+        .define MODE_BAY_PART   13      ; then: pick inventory 1-4 to feed the bay (st_bay_slot)
+        .define MODE_LAST       13      ; highest MODE_* (table bounds)
 ; st_auto: multi-turn automatic action in progress (W: player). One step per frame;
 ; any key, a visible hostile robot or a new message stops it.
         .define AUTO_NONE       0
@@ -468,6 +489,7 @@
         .define KEY_EXPLORE     'o'
         .define KEY_QFIRE       'F'     ; fire at once at the last / nearest target
         .define KEY_RECYCLE     'R'     ; recycle an inventory part
+        .define KEY_USE         'a'     ; use the fixture on the player's tile (service bay)
         .define KEY_SHIFT       32      ; run keys = vi-key - KEY_SHIFT (H J K L Y U B N)
         .define KEY_ESC         27
         .define KEY_CSI         91      ; '[' right after ESC: arrow sequence
@@ -487,6 +509,9 @@
         .define GL_DOOR_OPEN    39      ; '
         .define GL_STAIRS       '<'
         .define GL_RUBBLE       ','
+        .define GL_BAY          234     ; Ω service bay (T_FIXTURE), same in every depth band
+        .define A_BAY           FG_BGREEN
+        .define A_BAY_SPENT     FG_GRAY
         .define A_FLOOR         FG_WHITE        ; visible tiles
         .define A_WALL          FG_BWHITE
         .define A_DOOR          FG_YELLOW

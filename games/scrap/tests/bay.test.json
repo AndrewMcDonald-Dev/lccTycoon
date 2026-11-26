@@ -1,0 +1,50 @@
+{
+  "scenarios": [
+    {
+      "name": "clock 75: the floor's service bay is visible down the corridor, walking onto it announces it, and a with nothing damaged says so",
+      "clock": 75,
+      "keys": "<enter> j j j j j j j j a",
+      "frames": 11,
+      "expect": {
+        "status": "frames-complete",
+        "frames": [
+          {
+            "frame": 1,
+            "screen": {
+              "matches": [
+                "^ {12}Ω {51}│"
+              ]
+            },
+            "colors": {
+              "matches": [
+                "^ {12}G {51}K"
+              ]
+            }
+          }
+        ],
+        "screen": {
+          "contains": [
+            "Service bay here. Press a to repair a part.",
+            "No attached part needs repair.",
+            "Here: Service bay (1 use)"
+          ]
+        },
+        "memory": {
+          "st_px": 12,
+          "st_py": 13,
+          "st_fixtures": [
+            12,
+            13,
+            1,
+            1,
+            0,
+            0,
+            0,
+            0
+          ],
+          "st_mode": 0
+        }
+      }
+    }
+  ]
+}

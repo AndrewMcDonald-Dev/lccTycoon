@@ -6,7 +6,7 @@
 ;
 ;; itm_clear        ()                         -> -        free every record (new floor / new game)
 ;; itm_place        r0=x r1=y r2=part r3=hp    -> r0=item index, or -1 (pool full or no free walkable tile). If (x,y) already holds an item, uses the nearest walkable
-;;                   item-free tile within distance 2 (not stairs).
+;;                   item-free tile within distance 2 (never T_STAIRS or T_FIXTURE, including (x,y) itself).
 ;; itm_at           r0=x r1=y                  -> r0=item index on that tile, -1 none
 ;; itm_remove       r0=item index              -> -        free the record
 ;; itm_spawn_floor  r0=depth                   -> -        place LOOT_MIN..LOOT_MAX random parts (prt_random_part) at 50-100% integrity on random room floor tiles
@@ -166,7 +166,7 @@ itm_pl_off_lp:
         str r0, fp, -6
         str r1, fp, -7
 
-        ; Inline check: in-bounds, walkable, not T_STAIRS
+        ; Inline check: in-bounds, walkable, not T_STAIRS / T_FIXTURE
         cmp r0, 0
         brn itm_pl_off_next
         mov r2, MAP_W-1
@@ -189,7 +189,7 @@ itm_pl_off_lp:
         bre itm_pl_off_next
         cmp r2, T_STAIRS
         bre itm_pl_off_next
-        cmp r2, T_KIND_COUNT-1
+        cmp r2, T_FIXTURE-1    ; T_FIXTURE and unknown kinds: never
         brgt itm_pl_off_next
 
         ldr r1, fp, -7
@@ -377,7 +377,7 @@ itm_sf_done:
         ret
 
 ; ---- internal: check (r0=x, r1=y) is valid for floor loot spawn -------------
-; Valid = walkable, not T_STAIRS, not player tile, not stairs coords, no item.
+; Valid = walkable, not T_STAIRS or T_FIXTURE, not player tile, not stairs coords, no item.
 itm_spawn_tile_ok:
         push r1
         push r2
@@ -422,7 +422,7 @@ itm_sto_not_st:
         bre itm_sto_no
         cmp r2, T_STAIRS
         bre itm_sto_no
-        cmp r2, T_KIND_COUNT-1
+        cmp r2, T_FIXTURE-1    ; T_FIXTURE and unknown kinds: never
         brgt itm_sto_no
         bl itm_at
         cmp r0, 0
