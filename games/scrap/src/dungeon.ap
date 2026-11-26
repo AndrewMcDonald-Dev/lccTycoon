@@ -13,7 +13,7 @@
 ;;                   st_start_room, st_stairs_x/y. Every floor tile reachable from the start. Deterministic for a given rand seed. Depth may tune size/density.
 ;;                   Then fills st_rmap (render kinds, defs.ap RK_*) from st_map + depth without using the RNG.
 ;; dun_get          r0=x r1=y                  -> r0=tile kind T_*, T_OUT (-1) outside the map
-;; dun_set          r0=x r1=y r2=kind          -> -        store a tile kind (ignored outside); refreshes st_rmap: the tile only (~100 instr) unless wall-joinability changes (wall <-> non-wall), then also every wall in its 3x3 (~1K instr)
+;; dun_set          r0=x r1=y r2=kind          -> -        store a tile kind (ignored outside); refreshes st_rmap: the tile only (~100 instr) unless the tile enters or leaves the joinable set {T_WALL, T_DOOR, T_DOOR_OPEN}, then also every wall in its 3x3 (~1K instr)
 ;; dun_rk_all       ()                         -> -        recompute all of st_rmap from st_map; floor accents hash the depth of the last dun_generate (dun_depth), not st_depth (dun_generate calls it; for test drivers that poke st_map)
 ;; dun_walkable     r0=x r1=y                  -> r0=1 for T_FLOOR T_DOOR T_DOOR_OPEN T_STAIRS T_RUBBLE, 0 otherwise or outside (ignores actors and items)
 ;; dun_opaque       r0=x r1=y                  -> r0=1 for T_ROCK T_WALL T_DOOR or outside, 0 otherwise

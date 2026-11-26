@@ -227,7 +227,7 @@ the robot types are `act_types` in actors.ap.
 | Conduit Works | 7–4 | single-line cyan (`─│`) | `·` gray | yellow | gray | white `:` grating / cyan `∙` cable studs |
 | Intake Shafts | 3–1 | bright-white double-H / single-V (`═│`) | `·` white | bright cyan | green | gray `∙` grit / green `"` moss tufts |
 
-- **Cost & scope:** per-frame render cost is unchanged; the new-floor frame rises from ~82K to ~154K instructions (`dun_rk_all`), well inside the 500K per-frame target. `dun_set` refreshes only the changed tile (~100 instructions) unless wall-joinability changes (wall ↔ non-wall), in which case it also refreshes every wall in its 3×3 (~1K instructions); gameplay only calls `dun_set` for door open/close, which never changes joinability, and any future bulk wall-destruction feature should rebuild with `dun_rk_all` instead of per-tile `dun_set`. A plain-ASCII fallback tile set is deliberately deferred to issue #13 (host-side glyph packs).
+- **Cost & scope:** per-frame render cost is unchanged; the new-floor frame rises from ~82K to ~154K instructions (`dun_rk_all`), well inside the 500K per-frame target. `dun_set` refreshes only the changed tile (~100 instructions) unless the tile enters or leaves the joinable set {`T_WALL`, `T_DOOR`, `T_DOOR_OPEN`}, in which case it also refreshes every wall in its 3×3 (~1K instructions); gameplay only calls `dun_set` for door open/close, which never changes joinability, and any future bulk wall-destruction feature should rebuild with `dun_rk_all` instead of per-tile `dun_set`. A plain-ASCII fallback tile set is deliberately deferred to issue #13 (host-side glyph packs).
 
 ## Part catalog
 
