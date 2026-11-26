@@ -224,7 +224,8 @@ test('the lobby ignores arrow keys, only Tab and q work off the lobby view, and 
     room.input(m, Buffer.from('\x1b['));         // Left arrow split across two packets
     room.input(m, Buffer.from('D'));
     assert.strictEqual(room.daily, false);
-    for (const parts of [['\x1b', 'O', 'Q'], ['\x1b[1;', '5', 'D'], ['\x1b', '[', 'D']]) {   // F2 / Ctrl-Left / Left in pieces
+    // F2 / Ctrl-Left / Left in pieces; Linux console F4 (ESC [ [ D) whole and split
+    for (const parts of [['\x1b', 'O', 'Q'], ['\x1b[1;', '5', 'D'], ['\x1b', '[', 'D'], ['\x1b[[D'], ['\x1b[', '[', 'D']]) {
       for (const p of parts) room.input(m, Buffer.from(p));
       assert.ok(room.members.includes(m) && room.daily === false, JSON.stringify(parts));
     }

@@ -129,15 +129,20 @@ class Room {
     }
   }
 
-  // Drop terminal escape sequences (arrow / function keys: ESC [ ... final, ESC O x),
+  // Drop terminal escape sequences (arrow / function keys: ESC [ ... final, ESC O x,
+  // and the Linux console's F1-F5, ESC [ [ x),
   // even when they arrive split across packets; a lone Esc is just dropped.
   stripEscapes(m, s) {
     let out = '';
     for (const ch of s) {
       if (m.esc === 1) {                         // after ESC
-        if (ch === '[' || ch === 'O') { m.esc = ch === '[' ? 2 : 3; continue; }
+        if (ch === '[' || ch === 'O') { m.esc = ch === '[' ? 4 : 3; continue; }
         m.esc = 0;                               // lone Esc: this byte is an ordinary key
-      } else if (m.esc === 2) {                  // CSI: parameters until a final byte @..~
+      } else if (m.esc === 4 && ch === '[') {    // ESC [ [: Linux console F1-F5, one more byte
+        m.esc = 3;
+        continue;
+      } else if (m.esc === 2 || m.esc === 4) {   // CSI: parameters until a final byte @..~
+        m.esc = 2;
         if (ch >= '@' && ch <= '~') m.esc = 0;
         continue;
       } else if (m.esc === 3) { m.esc = 0; continue; }   // SS3: one final byte
