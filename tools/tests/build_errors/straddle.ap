@@ -1,0 +1,7 @@
+; Build-error fixture (tools/selftest.js): rewriting the last branch pushes its
+; far form past 65,536 words. The build must fail, not loop.
+        .lccplus
+        .start main
+main:   halt
+        .zero 65534
+        brlt main

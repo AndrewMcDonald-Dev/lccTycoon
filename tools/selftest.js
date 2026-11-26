@@ -52,6 +52,27 @@ const display = require('./lib/display');
   assert.strictEqual(display.detectColorMode({ LCC_COLOR_MODE: 'ansi', COLORTERM: 'truecolor' }), 'ansi');
 })();
 
+// Far-reference relaxation must stop and report genuine errors (fixtures in tools/tests/build_errors).
+(function testRelaxationErrors() {
+  const dir = path.join(ROOT, 'tools', 'tests', 'build_errors');
+  const fail = f => {
+    try { build(path.join(dir, f), {}); } catch (e) { return { diags: e.diagnostics || [] }; }
+    assert.fail(`${f} should not build`);
+  };
+  // straddle.ap used to loop forever: build it in a child process with a timeout.
+  const cp = require('child_process').spawnSync(process.execPath,
+    [path.join(ROOT, 'tools', 'lccgame.js'), 'build', path.join(dir, 'straddle.ap'), '--out', path.join(require('os').tmpdir(), 'lcc-straddle.ep')],
+    { encoding: 'utf8', timeout: 20000 });
+  assert(!cp.error, `straddle.ap build must terminate (${cp.error && cp.error.code})`);
+  assert(cp.status !== 0 && /straddle\.ap:7: error: Program too big\n\s+brlt main\n/.test(cp.stderr),
+    `straddle.ap reports Program too big on the author's line, got:\n${cp.stderr}`);
+  const bl = fail('bad_label.ap');
+  assert.deepStrictEqual(bl.diags.map(d => [d.line, d.message]), [[5, 'Invalid operation'], [6, 'Bad label']], 'bad_label.ap keeps both errors');
+  const ty = fail('typo.ap');
+  assert.deepStrictEqual(ty.diags.map(d => [d.line, d.message, d.source.trim()]), [[6, 'Undefined label', 'ld r0, no_such_var']], 'typo.ap reports its own source line');
+  console.log('ok   far relaxation stops and reports genuine errors');
+})();
+
 const files = [];
 const demoDir = path.join(VENDOR, 'plusdemos');
 for (const f of fs.readdirSync(demoDir).sort()) if (f.endsWith('.ap')) files.push(path.join(demoDir, f));

@@ -294,6 +294,19 @@ class CollectingAssembler extends AssemblerPlus {
     this.collected.push({ lineNum: this.lineNum, locCtr: this.locCtr, message, pass: this.pass });
     this.errorFlag = true;
   }
+  // Upstream emits no word when an encoder fails in pass 2 (e.g. pcoffset9 out of
+  // range), so every later instruction lands one word below the address pass 1
+  // gave its label. Hundreds of real far refs then made nearby short branches look
+  // out of range too. Keep pass 2 in step with pass 1 by emitting a placeholder.
+  handleInstruction(mnemonic, operands) {
+    const loc = this.locCtr;
+    const errs = this.collected.length;
+    super.handleInstruction(mnemonic, operands);
+    if (this.pass === 2 && this.locCtr === loc && this.collected.length > errs) {
+      this.writeMachineWord(0);
+      this.locCtr += 1;
+    }
+  }
 }
 
 function assembleOnce(lines, inputName) {
@@ -360,13 +373,20 @@ function build(entryFile, options = {}) {
   const relaxed = [];
   let res;
 
-  for (let iter = 0; iter < 60; iter++) {
+  // A chain of near-limit branches can need one relaxation pass per branch, so
+  // relaxation passes are bounded by the source size; error-recovery retries keep
+  // their own cap of 60.
+  const maxIter = lines.length + 60;
+  for (let iter = 0, retries = 0; retries < 60 && iter < maxIter; iter++) {
     res = assembleOnce(lines, inputName);
     if (!res.failed) break;
 
     if (relaxOn) {
+      // A line with another error too (undefined or bad label) also reports a bogus
+      // pcoffset error: report it rather than rewrite it.
+      const otherErr = new Set(res.errors.filter(e => !/pcoffset/i.test(e.message)).map(e => e.lineNum));
       const fixable = res.errors
-        .filter(e => !e.thrown && /pcoffset/i.test(e.message))
+        .filter(e => !e.thrown && /pcoffset/i.test(e.message) && !otherErr.has(e.lineNum))
         .map(e => ({ e, idx: e.lineNum - 1, rewrite: far.relaxLine(lines[e.lineNum - 1], `${iter}_${e.lineNum}`) }))
         .filter(x => x.rewrite);
       if (fixable.length) {
@@ -374,8 +394,9 @@ function build(entryFile, options = {}) {
         fixable.sort((a, b) => b.idx - a.idx);
         for (const x of fixable) {
           relaxed.push({ ...map[x.idx], text: lines[x.idx].trim(), extraWords: x.rewrite.extraWords });
+          const orig = { ...map[x.idx], srcText: map[x.idx].srcText || lines[x.idx] }; // author's line, for diagnostics
           lines.splice(x.idx, 1, ...x.rewrite.lines);
-          map.splice(x.idx, 1, ...x.rewrite.lines.map(() => map[x.idx]));
+          map.splice(x.idx, 1, ...x.rewrite.lines.map(() => orig));
         }
         continue;
       }
@@ -388,13 +409,14 @@ function build(entryFile, options = {}) {
       if (diagnostics.length >= MAX_ERRORS) break;
       const loc = map[e.lineNum - 1] || { file: path.resolve(entryFile), line: e.lineNum };
       if (diagnostics.some(d => d.file === loc.file && d.line === loc.line)) continue; // first error per line
-      diagnostics.push({ file: loc.file, line: loc.line, source: lines[e.lineNum - 1], message: e.message, hint: hintFor(e.message, lines[e.lineNum - 1] || '') });
+      const src = loc.srcText || lines[e.lineNum - 1];
+      diagnostics.push({ file: loc.file, line: loc.line, source: src, message: e.message, hint: hintFor(e.message, src || '') });
     }
     if (thrownErr && diagnostics.length < MAX_ERRORS && thrownErr.lineNum >= 1 && lines[thrownErr.lineNum - 1] !== undefined) {
       const ln = lines[thrownErr.lineNum - 1];
       const label = /label/i.test(thrownErr.message) ? null : (ln.match(/^([A-Za-z_$@][\w$@]*):/) || [])[1];
       const placeholder = `${label ? label + ':' : ''}        .word 0`;
-      if (ln !== placeholder) { lines[thrownErr.lineNum - 1] = placeholder; continue; }
+      if (ln !== placeholder) { lines[thrownErr.lineNum - 1] = placeholder; retries++; continue; }
     }
     break;
   }

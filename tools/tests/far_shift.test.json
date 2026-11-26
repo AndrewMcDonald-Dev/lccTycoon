@@ -1,0 +1,7 @@
+{
+  "game": "far_shift.ap",
+  "scenarios": [
+    { "name": "300 real far calls leave a later short loop in its near form",
+      "expect": { "status": "halted", "memory": { "span": 3, "calls": 300, "loops": 5 } } }
+  ]
+}

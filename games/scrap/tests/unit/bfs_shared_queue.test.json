@@ -1,0 +1,32 @@
+{
+  "game": "bfs_shared_queue_driver.ap",
+  "scenarios": [
+    {
+      "name": "act_player_path shares act_queue but keeps the AI distance field valid; the next rebuild clears the whole field and rechecks the border",
+      "expect": {
+        "status": "halted",
+        "memory": {
+          "drv_alias": 0,
+          "drv_sum1": 48,
+          "drv_border1": 1,
+          "drv_step": 326,
+          "drv_step2": 326,
+          "drv_valid2": 1,
+          "drv_diff2": 0,
+          "drv_diff3": 2,
+          "drv_sum4": 15,
+          "drv_lost4": 0,
+          "drv_sum5": 12,
+          "drv_border6": -1,
+          "drv_sum6": 12,
+          "drv_sum7": 45,
+          "drv_sum8": 12,
+          "drv_fail": -1,
+          "drv_valid9": 1,
+          "drv_sum9": 12,
+          "drv_sum10": 8
+        }
+      }
+    }
+  ]
+}

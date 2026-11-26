@@ -1,0 +1,7 @@
+; Build-error fixture (tools/selftest.js): both genuine errors are reported;
+; the out-of-reach "br 0" must not be rewritten into a valid far jump.
+        .lccplus
+        .zero 255
+        madeup r0
+        br 0
+        halt

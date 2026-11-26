@@ -9,7 +9,7 @@ from any existing game.
 
 | Constraint (LCC+ on lccjs) | Consequence for the design |
 |---|---|
-| 16-bit words, 64K-word address space (code + data + stack) | One 64x24 floor in memory at a time, fixed pools (24 enemies, 32 floor items), budget 40K words |
+| 16-bit words, 64K-word address space (code + data + stack) | One 64x24 floor in memory at a time, fixed pools (24 enemies, 32 floor items), budget 52K words |
 | 8 registers (5 scratch), 16-bit `mul/div` | Power-of-two records, table-driven parts and robots, small integers everywhere (hp ≤ 70, time in TU ≤ 16K, rebased) |
 | ~100M instr/s fast player (~5M/s upstream) | Turn-based: idle frames only draw. One BFS (1536 tiles) + one FOV + AI per player action, target ≤ 500K instructions per action frame |
 | 100x30 cells, 16 colors, CP437 | Whole floor visible at once (64x24 viewport = map, no scrolling), 36-column side panel, 5-row message log |
@@ -295,7 +295,9 @@ SPAWN_SAFE 6 tiles of the player.
 ## AI
 
 Distance field: `act_run` runs a BFS from the player over `dun_walkable` tiles once per
-player action (private to actors, 1536 words + queue).
+player action (1536 words, private to actors; one MAP_SIZE 1536-word BFS queue is shared
+with player pathing `act_player_path` for travel/explore via `act_bfs_release`, keeping
+the field valid so the next rebuild clears it in full instead of using the visit list).
 
 - **Sighting:** an enemy sees the player when the distance is ≤ ET_SIGHT and `fov_los`
   is clear. It enters ES_HUNT, sets E_TX/E_TY to the player, and sets E_ALERT to
@@ -355,15 +357,30 @@ player action (private to actors, 1536 words + queue).
 |---|---|
 | display block 100x30 | 3004 |
 | map + fov 2 × 1536 | 3072 |
-| actors distance field + BFS queue (private) | 3072 |
+| actors distance field, player-path first steps, shared BFS queue (3 × 1536, private) | 4608 |
 | enemies 24×16, items 32×4, slots/inv 24, rooms 48 | ~590 |
 | messages 16×64 + 17 | ~1041 |
 | other state | ~60 |
 | part catalog 26×16 + names, robot types 9×16 + names + drop lists | ~920 |
-| code (estimate) | 12–18K |
-| **total estimate / budget.words** | **~24–30K / 40000** |
+| **measured total / budget.words** | **28,690 / 52000** |
 
-WP0 skeleton: 8,510 words (7,211 of them state + display).
+WP0 skeleton: 8,510 words (7,211 of them state + display). Measured program size is
+28,690 words (was 34,141 on `main`), including 772 far-reference rewrites (+1,609 words;
+was 2,318 / +5,550). Far references dropped after fixing `tools/lib/assemble.js`, where
+the upstream assembler emitted no word for an out-of-range instruction in pass 2,
+shifting later addresses and forcing needless far rewrites. In `actors`, `act_player_path`
+calls `act_bfs_release` before reusing the shared queue; the AI distance field stays valid
+and its next rebuild clears the whole field.
+
+Budget policy: `games/scrap/game.json` sets `budget.words` to 52000 (was 40000; harness
+warns at 56,000), deliberately above the `lcc-architect` skill's general ~48K guidance.
+The program grows up from `0x0000` and the stack down from `0xFFFF` with no heap, leaving
+13,536 words of stack at 52,000 words. Measured stack peaks are 153 words across all game
+scenario tests and fuzzed play, and ~845–887 words with a scratch 24-Sapper chain-reaction
+driver (not committed; `cbt_blast` → `cbt_damage_enemy`, ~35 words/level, capped at
+`MAX_ENEMIES` = 24 because each Sapper is freed before the next blast). The only other
+recursion is the FOV scan, bounded by `SIGHT_MAX` = 14 (~210 words). Worst-case stack
+stays under 1K words (>10× margin).
 
 ## Modules
 
