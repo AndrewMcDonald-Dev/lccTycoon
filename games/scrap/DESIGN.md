@@ -376,11 +376,11 @@ Budget policy: `games/scrap/game.json` sets `budget.words` to 52000 (was 40000; 
 warns at 56,000), deliberately above the `lcc-architect` skill's general ~48K guidance.
 The program grows up from `0x0000` and the stack down from `0xFFFF` with no heap, leaving
 13,536 words of stack at 52,000 words. Measured stack peaks are 153 words across all game
-scenario tests and fuzzed play, and ~845–887 words in a 24-Sapper chain-reaction unit
-test (`cbt_blast` → `cbt_damage_enemy`, ~35 words/level, capped at `MAX_ENEMIES` = 24
-because each Sapper is freed before the next blast). The only other recursion is the FOV
-scan, bounded by `SIGHT_MAX` = 14 (~210 words). Worst-case stack stays under 1K words
-(>10× margin).
+scenario tests and fuzzed play, and ~845–887 words with a scratch 24-Sapper chain-reaction
+driver (not committed; `cbt_blast` → `cbt_damage_enemy`, ~35 words/level, capped at
+`MAX_ENEMIES` = 24 because each Sapper is freed before the next blast). The only other
+recursion is the FOV scan, bounded by `SIGHT_MAX` = 14 (~210 words). Worst-case stack
+stays under 1K words (>10× margin).
 
 ## Modules
 
