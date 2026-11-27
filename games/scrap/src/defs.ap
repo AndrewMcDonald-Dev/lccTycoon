@@ -201,6 +201,22 @@
         .define SLOT_SHIFT      1
         .define S_PART          0       ; part id, PART_NONE = empty
         .define S_HP            1       ; current integrity 1..P_MAXHP
+;  equip preview (prt_preview): PV_COUNT signed deltas, new minus old, in this order
+        .define PV_DMG          0       ; weapon: (dmin+dmax) delta, i.e. 2x average damage
+        .define PV_RNG          1       ; weapon: range
+        .define PV_NRG          2       ; weapon: energy per shot (lower is better)
+        .define PV_ACC          3       ; weapon: base accuracy %
+        .define PV_MOVE         4       ; st_move_cost (lower is better)
+        .define PV_EVADE        5       ; st_evade
+        .define PV_REGEN        6       ; st_regen
+        .define PV_ECAP         7       ; st_energy_max
+        .define PV_SIGHT        8       ; st_sight
+        .define PV_AIM          9       ; st_acc_bonus
+        .define PV_SHIELD       10      ; st_shield
+        .define PV_SALV         11      ; st_salvage
+        .define PV_ARMOR        12      ; armor P_U_VALUE of the part itself
+        .define PV_REPAIR       13      ; self-repair: +1 gained/faster, -1 lost/slower, 0 same
+        .define PV_COUNT        14
 ; part kinds
         .define PK_NONE         0
         .define PK_PROP         1

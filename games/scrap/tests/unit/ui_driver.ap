@@ -720,6 +720,10 @@ drv_setup_world:
 ; Minimal contract-faithful stubs for dependencies (parts/actors/items/combat)
 ; =====================================================================
 
+; equip preview stub (ui_draw_equip): no slot, nothing to preview
+prt_preview:
+        mov r0, -1
+        ret
 prt_info:
         cmp r0, PT_STUB_LEGS
         brz drv_pi_legs

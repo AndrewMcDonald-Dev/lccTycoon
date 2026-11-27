@@ -1,0 +1,118 @@
+; Equip preview (issue #38) on the real game modules. First key picks the setup,
+; then the real input loop runs (e opens the menu, a digit equips):
+;   a  slot 2 Stub Legs at 10/20, slot 6 Scatter at 7/14; carried Pulse Rifle,
+;      Strut Legs, Optic Mast, Arc Battery
+;   b  Arc Battery attached, energy 55/55, Rivet Gun at 6/12, Spark Prods in
+;      slots 5 and 6; carried Cell Pack, Patch Drone, Scatter, Jolt Caster
+;   c  slot 2 Stub Legs at 10/20; carried Stub Legs (nothing changes)
+        .include "../../main.ap"
+        .start drv_start
+
+drv_start:
+        lea r0, st_screen
+        bl video_bind
+        bl prt_init
+        bl ply_init
+        bl ui_init
+        mov r0, GAME_PLAY
+        st r0, st_game_state
+        mov r0, 10
+        st r0, st_px
+        st r0, st_py
+        mov r1, r0
+        mov r2, T_FLOOR
+        bl dun_set
+        bl fov_update
+        lea r4, st_slots
+
+        nbain r0
+        mov r1, 'b'
+        cmp r0, r1
+        brz drv_b
+        mov r1, 'c'
+        cmp r0, r1
+        brz drv_c
+
+        mov r0, 10
+        str r0, r4, SLOT_SIZE+S_HP
+        mov r0, PT_SCATTER
+        str r0, r4, 5*SLOT_SIZE+S_PART
+        mov r0, 7
+        str r0, r4, 5*SLOT_SIZE+S_HP
+        mov r0, PT_PULSE_RIFLE
+        mov r1, 18
+        bl prt_inv_add
+        mov r0, PT_STRUT_LEGS
+        mov r1, 32
+        bl prt_inv_add
+        mov r0, PT_OPTIC_MAST
+        mov r1, 8
+        bl prt_inv_add
+        mov r0, PT_ARC_BATTERY
+        mov r1, 22
+        bl prt_inv_add
+        br drv_go
+
+drv_b:
+        mov r0, PT_ARC_BATTERY
+        str r0, r4, SLOT_POWER*SLOT_SIZE+S_PART
+        mov r0, 22
+        str r0, r4, SLOT_POWER*SLOT_SIZE+S_HP
+        mov r0, 6
+        str r0, r4, SLOT_WEAP0*SLOT_SIZE+S_HP
+        mov r0, PT_SPARK_PROD
+        str r0, r4, 5*SLOT_SIZE+S_PART
+        mov r0, 15
+        str r0, r4, 5*SLOT_SIZE+S_HP
+        bl prt_recalc
+        ld r0, st_energy_max
+        st r0, st_energy
+        mov r0, PT_CELL_PACK
+        mov r1, 15
+        bl prt_inv_add
+        mov r0, PT_PATCH_DRONE
+        mov r1, 10
+        bl prt_inv_add
+        mov r0, PT_SCATTER
+        mov r1, 14
+        bl prt_inv_add
+        mov r0, PT_JOLT_CASTER
+        mov r1, 14
+        bl prt_inv_add
+        br drv_go
+
+drv_c:
+        mov r0, 10
+        str r0, r4, SLOT_SIZE+S_HP
+        mov r0, PT_STUB_LEGS
+        mov r1, 20
+        bl prt_inv_add
+
+drv_go:
+        bl prt_recalc
+        ; every entry's preview once, straight from prt_preview
+        lea r3, drv_pv
+        lea r4, drv_slot
+        mov r2, 0
+drv_pv_lp:
+        mov r0, r2
+        mov r1, r3
+        bl prt_preview
+        str r0, r4, 0
+        add r4, r4, 1
+        add r3, r3, PV_COUNT-1
+        add r3, r3, 1
+        add r2, r2, 1
+        cmp r2, NUM_INV
+        brlt drv_pv_lp
+drv_loop:
+        bl ply_handle
+        bl ren_draw
+        bl ui_draw
+        bl video_present
+        mov r0, FRAME_MS
+        sleep r0
+        br drv_loop
+
+drv_slot:   .zero NUM_INV
+drv_pv:     .zero NUM_INV*PV_COUNT
