@@ -220,7 +220,7 @@ function printResult(r, opt) {
     frames = r.frames.filter(f => want.has(f.frame));
   }
   const shown = frames.map(f => f.text).concat(show === 'final' ? [r.screen] : []);
-  const W = Math.max(10, ...shown.flatMap(t => t.split('\n').map(l => [...l].length)));
+  const W = shown.reduce((w, t) => t.split('\n').reduce((m, l) => Math.max(m, [...l].length), w), 10);  // no spread: thousands of frames overflow the stack
   const colorMaps = (fg, bg) => { console.log('    fg:'); console.log(formatScreen(fg, W)); console.log('    bg:'); console.log(formatScreen(bg, W)); };
   for (const f of frames) {
     const w = Object.keys(f.watch).length ? '  ' + Object.entries(f.watch).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(' ') : '';
