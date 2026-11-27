@@ -111,6 +111,11 @@
 ; depth >= BAND_CONDUIT_MIN Conduit Works (7-4), else Intake Shafts (3-1)
         .define BAND_SLAG_MIN    8
         .define BAND_CONDUIT_MIN 4
+; depth banner: map row 0 shows "DEPTH n · <band name>" on floor arrival until
+; the player has taken BANNER_TURNS actions there (st_banner counts down)
+        .define BANNER_TURNS     5
+        .define BANNER_COL       16      ; strip cols BANNER_COL..BANNER_COL+BANNER_W-1
+        .define BANNER_W         32
 ; st_fov visibility word per tile (W: fov only)
         .define FOV_VISIBLE     1       ; in line of sight this turn
         .define FOV_KNOWN       2       ; seen at least once on this floor (remembered)

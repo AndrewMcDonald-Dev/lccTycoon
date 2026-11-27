@@ -26,6 +26,7 @@
 ;; race       st_race (poked by the versus server; read: main_race_seed)
 ;; fixtures   st_fixtures MAX_FIXTURES × FIX_SIZE (F_*)          W: dungeon (per floor), player (F_CHARGES); st_bay_slot W: player
 ;; run stats  st_stat_salvaged (player) st_stat_lost st_stat_recycled (parts); reset in main_new_game
+;; banner     st_banner (actions left showing the depth banner; set per floor, counted down by main_turn)  W: main; read: ui
 ; =====================================================================
 
 ; ---- game / loop -------------------------------------------------------
@@ -115,3 +116,6 @@ st_race:        .word 0             ; 1 = versus race: main reseeds from st_seed
 ; ---- fixtures (appended) ----
 st_fixtures:    .zero MAX_FIXTURES*FIX_SIZE ; F_* records, cleared + placed by dun_generate — W: dungeon, player (F_CHARGES)
 st_bay_slot:    .word 0             ; loadout slot picked in MODE_BAY_SLOT, repaired in MODE_BAY_PART — W: player
+
+; ---- depth banner (appended) ----
+st_banner:      .word 0             ; player actions left showing the floor-arrival depth banner, 0 hidden — W: main; read: ui

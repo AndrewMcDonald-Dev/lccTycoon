@@ -17,6 +17,7 @@
 ;   'i'  panel with st_depth=0 (Surface), all 4 part kinds in Carried, Rivet Gun on Here:
 ;   'u'  panel with utility subtypes (sensor, repair, target) in Carried, Stub Legs on Here:
 ;   'l'  low-energy target preview (st_energy=1 < Rivet Gun e2) + longest weapon stat (Ram Hammer)
+;   'B'  depth banner: one frame per drv_bn_cases row (st_depth, st_banner, st_mode)
         .lccplus
         .start drv_main
         .include "video_defs.ap"
@@ -74,6 +75,9 @@ drv_main:
         mov r1, 'S'
         cmp r0, r1
         brz drv_case_status_row
+        mov r1, 'B'
+        cmp r0, r1
+        brz drv_case_banner
         ; '0'..'9' -> st_mode
         mov r1, '0'
         sub r0, r0, r1
@@ -96,6 +100,55 @@ drv_case_close:
         mov r0, FRAME_MS
         sleep r0
         halt
+
+; ---- 'B': depth banner per band, then hidden (st_banner 0, MODE_LOOK) --
+drv_case_banner:
+        lea r4, drv_bn_cases
+drv_bn_lp:
+        ldr r0, r4, 0
+        cmp r0, 0
+        brz drv_bn_done
+        st r0, st_depth
+        ldr r0, r4, 1
+        st r0, st_banner
+        ldr r0, r4, 2
+        st r0, st_mode
+        mov r0, G_SPACE
+        bl video_clear
+        bl ui_draw
+        bl video_present
+        mov r0, FRAME_MS
+        sleep r0
+        add r4, r4, 3
+        br drv_bn_lp
+drv_bn_done:
+        halt
+drv_bn_cases:                   ; depth, st_banner, st_mode; depth 0 ends
+        .word 10
+        .word BANNER_TURNS
+        .word MODE_MAP
+        .word 8
+        .word 1
+        .word MODE_MAP
+        .word 7
+        .word 1
+        .word MODE_MAP
+        .word 4
+        .word 1
+        .word MODE_MAP
+        .word 3
+        .word 1
+        .word MODE_MAP
+        .word 1
+        .word 1
+        .word MODE_MAP
+        .word 5
+        .word 0
+        .word MODE_MAP
+        .word 5
+        .word 1
+        .word MODE_LOOK
+        .word 0
 
 ; ---- 'p': full panel + ui_score checks ------------------------------
 drv_case_panel:

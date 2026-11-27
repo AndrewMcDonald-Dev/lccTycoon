@@ -23,7 +23,8 @@
 ;;                   <bar>" with [HOLD] for held weapons, 4 inventory rows "<digit> <kind> <name> <stat> <hp>/<max>", target or MODE_LOOK cursor inspection,
 ;;                   floor alarm meter, row 22 status line for st_auto / visible hostiles, item under player "Here: <name> [<kind> <stat>]" or else a fixture
 ;;                   "Here: <fixture name>"), message rows (identical consecutive messages collapse to one row ending " xN"), help row;
-;;                   menu highlights and MODE_HELP/MODE_LOG overlays by st_mode; MODE_QUIT help row reads "Quit? y = yes, any other key = no";
+;;                   menu highlights and MODE_HELP/MODE_LOG overlays by st_mode; in MODE_MAP while st_banner > 0, a depth banner on map row 0
+;;                   ("═══ DEPTH n · <band name> ═══": SLAG VAULTS 10-8, CONDUIT WORKS 7-4, INTAKE SHAFTS 3-1); MODE_QUIT help row reads "Quit? y = yes, any other key = no";
 ;;                   draws into st_cells (the game display, 100x30); st_screen must be the bound display
 ;; ui_end_screen  ()                -> r0=1 play again, 0 quit   death (cause = st_death_cause type name, depth) or win screen ("Surface" for depth 0) with st_kills, st_turn, st_depth_best and
 ;;                   ui_score and parts salvaged/lost/recycled; drains pending input, ignores keys for END_GRACE_FRAMES (10) frames, then waits for a key (Q quits, any other key plays again);
@@ -545,8 +546,12 @@ ui_draw_noeq:
         add r0, r0, r2
         bl ui_draw_help_row     ; r0 = &st_cells[2900], r1 = st_game_state
 
-        ; 12. Viewport overlays: MODE_HELP / MODE_LOG
+        ; 12. Viewport overlays: depth banner (MODE_MAP only) / MODE_HELP / MODE_LOG
         ldr r0, r1, UI_ST_MODE
+        cmp r0, MODE_MAP
+        brnz ui_draw_nobanner
+        bl ui_draw_depth_banner
+ui_draw_nobanner:
         cmp r0, MODE_HELP
         brz ui_draw_do_help
         cmp r0, MODE_LOG
@@ -2343,6 +2348,74 @@ ui_draw_help_overlay:
         pop r0
         ret
 
+; ---- depth banner (map row 0) while st_banner > 0 --------------------
+; A BANNER_W-wide strip of '═' (A_LABEL) at BANNER_COL, a blank cell at each
+; end, and " DEPTH n · <band name> " (A_TITLE) roughly centered. Preserves all registers.
+ui_draw_depth_banner:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        ld r0, st_banner
+        cmp r0, 0
+        brp ui_dbn_draw
+        br ui_dbn_ret
+ui_dbn_draw:
+        mov r0, VIEW_ROW        ; blank one cell past each end so the strip never joins a row-0 wall
+        mov r1, BANNER_COL-1
+        mov r2, 1
+        mov r3, BANNER_W+2
+        mov r4, G_SPACE
+        bl ui_fast_fill
+        add r1, r1, 1
+        sub r3, r3, 2
+        mov r4, A_LABEL>>8
+        sll r4, 8
+        mov r2, G_DHORIZ
+        or r4, r2
+        mov r2, 1
+        bl ui_fast_fill
+        ld r4, st_depth         ; band name by depth (defs.ap BAND_*), text start col
+        lea r2, ui_s_bn_intake
+        mov r1, BANNER_COL+3
+        cmp r4, BAND_CONDUIT_MIN
+        brlt ui_dbn_text
+        lea r2, ui_s_bn_conduit
+        cmp r4, BAND_SLAG_MIN
+        brlt ui_dbn_text
+        lea r2, ui_s_bn_slag
+        add r1, r1, 1           ; 2 chars shorter: centered one cell right
+ui_dbn_text:
+        push r2
+        bl ui_cell_addr
+        lea r2, ui_s_bn_depth
+        mov r3, A_TITLE>>8
+        sll r3, 8
+        bl ui_put_pstr          ; " DEPTH "
+        mov r2, r4
+        bl ui_put_num
+        mov r4, ' '
+        or r4, r3
+        str r4, r0, 0
+        str r4, r0, 2
+        mov r2, G_DOT
+        or r2, r3
+        str r2, r0, 1
+        add r0, r0, 3
+        pop r2
+        bl ui_put_pstr          ; band name
+        str r4, r0, 0           ; trailing space
+ui_dbn_ret:
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
 ; ---- message log overlay (MODE_LOG, over 64x24 viewport) ------------
 ; Lists all 16 ring slots oldest -> newest (newest at bottom), skipping
 ; empty slots, each in its stored st_msg_attr color.
@@ -3675,6 +3748,10 @@ ui_s_alarm:        .string "Alarm "
 ui_c_alarm_empty:  .word G_LIGHT|A_DIM
 ui_s_title:       .pstring "SCRAPCORE"
 ui_s_depth:       .pstring "Depth "
+ui_s_bn_depth:    .pstring " DEPTH "
+ui_s_bn_slag:     .pstring "SLAG VAULTS"
+ui_s_bn_conduit:  .pstring "CONDUIT WORKS"
+ui_s_bn_intake:   .pstring "INTAKE SHAFTS"
 ui_s_surface:     .pstring "Surface"
 ui_s_turn:        .pstring "Turn "
 ui_s_core:        .pstring "Core"

@@ -271,6 +271,134 @@
           }
         ]
       }
+    },
+    {
+      "name": "depth banner: new game shows DEPTH 10 · SLAG VAULTS on map row 0 for the first 5 actions, then clears",
+      "clock": 1000,
+      "keys": "<enter> _ .*5",
+      "expect": {
+        "status": "frames-complete",
+        "maxStepsPerFrame": 500000,
+        "frames": [
+          {
+            "frame": 1,
+            "screen": {
+              "lines": {
+                "0": "                ════ DEPTH 10 · SLAG VAULTS ════                │SCRAPCORE  Depth 10  Turn 0"
+              }
+            }
+          },
+          {
+            "frame": 5,
+            "screen": {
+              "contains": [
+                "DEPTH 10 · SLAG VAULTS",
+                "Turn 4"
+              ]
+            }
+          },
+          {
+            "frame": 6,
+            "screen": {
+              "contains": [
+                "Turn 5"
+              ],
+              "notContains": [
+                "DEPTH 10"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "depth banner: climbing to depth 9 (clock 123 qa1 route) shows a fresh banner for 5 actions",
+      "clock": 123,
+      "keys": "<enter> l*7 F*5 l*5 u*2 l*2 y k*3 u l*2 k*2 u l F*4 n j n*2 g e1 l*3 u l*7 j*7 n l*3 u*2 k*15 F u*3 k g e1 l n*2 <lt> k*2 u*2 k u l*5 F*5 l*2 F l*5 n l F l*2 F*2 l j*3 g e1 l*3 u*2 k*2 y*2 g e1 n*3 l*16 u k*6 u l*2 u*2 <lt> j b*2 j*2 b",
+      "expect": {
+        "status": "frames-complete",
+        "maxStepsPerFrame": 500000,
+        "frames": [
+          {
+            "frame": 91,
+            "screen": {
+              "contains": [
+                "Depth 10  Turn 91"
+              ],
+              "notContains": [
+                "DEPTH"
+              ]
+            }
+          },
+          {
+            "frame": 92,
+            "screen": {
+              "contains": [
+                "════ DEPTH 9 · SLAG VAULTS ═════",
+                "You climb to depth 9"
+              ]
+            }
+          },
+          {
+            "frame": 96,
+            "screen": {
+              "contains": [
+                "DEPTH 9 · SLAG VAULTS",
+                "Turn 96"
+              ]
+            }
+          },
+          {
+            "frame": 97,
+            "screen": {
+              "contains": [
+                "Turn 97"
+              ],
+              "notContains": [
+                "DEPTH 9"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "depth banner (clock 9): a blank cell separates the strip from a room wall on map row 0; look mode shows the wall",
+      "clock": 9,
+      "keys": "<enter> _ ; <esc>",
+      "expect": {
+        "status": "frames-complete",
+        "maxStepsPerFrame": 500000,
+        "frames": [
+          {
+            "frame": 1,
+            "screen": {
+              "contains": [
+                "════ DEPTH 10 · SLAG VAULTS ════ ═╗"
+              ]
+            }
+          },
+          {
+            "frame": 2,
+            "screen": {
+              "contains": [
+                "═════════╗"
+              ],
+              "notContains": [
+                "DEPTH 10"
+              ]
+            }
+          },
+          {
+            "frame": 3,
+            "screen": {
+              "contains": [
+                "SLAG VAULTS ════ ═╗"
+              ]
+            }
+          }
+        ]
+      }
     }
   ]
 }
