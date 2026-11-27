@@ -205,6 +205,10 @@ drv_bad_cells:  .word -1
 drv_done_flag:  .word 0
 
 ; Stubs required by src/ui.ap
+; equip preview stub (ui_draw_equip): no slot, nothing to preview
+prt_preview:
+        mov r0, -1
+        ret
 prt_info:
 prt_name:
 act_type_info:

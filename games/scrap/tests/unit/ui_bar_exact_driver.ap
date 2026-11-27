@@ -45,6 +45,10 @@ drv_r1_c5:  .word 0
 drv_r1_c6:  .word 0
 
 ; Stubs required by src/ui.ap
+; equip preview stub (ui_draw_equip): no slot, nothing to preview
+prt_preview:
+        mov r0, -1
+        ret
 prt_info:
 prt_name:
 act_type_info:

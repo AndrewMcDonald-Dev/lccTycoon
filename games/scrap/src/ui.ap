@@ -518,6 +518,16 @@ ui_draw_turn:
         sll r2, 2
         add r0, r0, r2
         bl ui_draw_status       ; r0 = &st_cells[UI_PR_STATUS*100 + 64]
+        ldr r2, r1, UI_ST_MODE
+        cmp r2, MODE_EQUIP
+        brnz ui_draw_noeq
+        push r0
+        mov r2, ((UI_PR_STATUS-PR_TGT_HDR)*SCR_COLS)>>2
+        sll r2, 2
+        sub r0, r0, r2
+        bl ui_draw_equip        ; r0 = &st_cells[PR_TGT_HDR*100 + 64]
+        pop r0
+ui_draw_noeq:
 
         mov r2, (PR_HERE-UI_PR_STATUS)*SCR_COLS
         add r0, r0, r2
@@ -945,6 +955,290 @@ ui_di_next:
         cmp r0, NUM_INV
         brlt ui_di_lp
 
+        mov sp, fp
+        pop fp
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; ---- MODE_EQUIP preview over the target panel rows PR_TGT_HDR..UI_PR_STATUS
+; (r0=&st_cells[PR_TGT_HDR*100+64]). Header, then one row per carried entry:
+; "<digit>" + G_ARROW_R + "<slot 1-8> <part it replaces | empty> <deltas>".
+; Deltas (prt_preview) are drawn in ui_pv_tbl order, nonzero only, A_GOOD when
+; better and A_BAD when worse, until the next one would pass the panel edge.
+        .define UI_EQ_NAME      4       ; offsets from PANEL_COL+1
+        .define UI_EQ_DELTA     17      ; names are <= PART_NAME_MAX (12): one gap
+        .define UI_EQ_END       PANEL_COLS-1
+        .define UI_PVF_LOW      1       ; ui_pv_tbl flags: lower is better
+        .define UI_PVF_HALF     2       ; value is 2x: print n/2 with ".5"
+        .define UI_PVF_SIGN     4       ; sign only, no number
+ui_draw_equip:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        push fp
+        mov fp, sp
+        sub sp, sp, 2
+        add r0, r0, 1
+        mov r2, UI_PR_STATUS-PR_TGT_HDR+1
+        mov r3, PANEL_COLS-1
+        mov r4, G_SPACE
+        bl ui_fill_ptr
+        lea r2, ui_s_eq_hdr
+        mov r3, A_LABEL>>8
+        sll r3, 8
+        bl ui_put_pstr
+        ldr r0, fp, 6           ; saved r0 (row PR_TGT_HDR, col 64)
+        add r0, r0, 1
+        str r0, fp, -1          ; row pointer (col 65), advanced per entry
+        mov r0, 0
+        str r0, fp, -2          ; inv index
+ui_deq_lp:
+        ldr r0, fp, -1
+        mov r1, SCR_COLS
+        add r0, r0, r1
+        str r0, fp, -1
+        ldr r1, fp, -2
+        sll r1, SLOT_SHIFT
+        lea r2, st_inv
+        add r1, r1, r2
+        ldr r1, r1, S_PART
+        ldr r2, fp, -2
+        mov r3, '1'
+        add r2, r2, r3
+        cmp r1, PART_NONE
+        brz ui_deq_empty
+        mov r3, A_SELECT>>8
+        sll r3, 8
+        or r2, r3
+        str r2, r0, 0
+        ldr r0, fp, -2
+        lea r1, ui_pv_buf
+        bl prt_preview
+        cmp r0, -1
+        bre ui_deq_next
+        ldr r1, fp, -1
+        mov r3, A_DIM>>8
+        sll r3, 8
+        mov r2, G_ARROW_R
+        or r2, r3
+        str r2, r1, 1
+        mov r2, '1'
+        add r2, r2, r0
+        mov r3, A_TEXT>>8
+        sll r3, 8
+        or r2, r3
+        str r2, r1, 2
+        sll r0, SLOT_SHIFT
+        lea r2, st_slots
+        add r0, r0, r2
+        ldr r0, r0, S_PART
+        cmp r0, PART_NONE
+        brz ui_deq_slot_empty
+        bl prt_name
+        mov r2, r0
+        add r0, r1, UI_EQ_NAME
+        mov r4, UI_PART_NAME_W
+        bl ui_put_str_n
+        mov r4, 1               ; replacing a part: say when nothing changes
+        br ui_deq_deltas
+ui_deq_slot_empty:
+        lea r2, ui_s_eq_empty
+        add r0, r1, UI_EQ_NAME
+        mov r3, A_DIM>>8
+        sll r3, 8
+        bl ui_put_pstr
+        mov r4, 0
+ui_deq_deltas:
+        ldr r0, fp, -1
+        mov r1, UI_EQ_DELTA
+        add r0, r0, r1
+        mov r1, UI_EQ_END-UI_EQ_DELTA
+        add r1, r0, r1          ; end pointer (exclusive)
+        mov r2, r4
+        bl ui_eq_deltas
+        br ui_deq_next
+ui_deq_empty:
+        mov r3, A_DIM>>8
+        sll r3, 8
+        or r2, r3
+        str r2, r0, 0
+        mov r2, '-'
+        or r2, r3
+        str r2, r0, 2
+ui_deq_next:
+        ldr r0, fp, -2
+        add r0, r0, 1
+        str r0, fp, -2
+        cmp r0, NUM_INV
+        brlt ui_deq_lp
+        mov sp, fp
+        pop fp
+        pop lr
+        pop r4
+        pop r3
+        pop r2
+        pop r1
+        pop r0
+        ret
+
+; ---- ui_eq_deltas (r0=dst, r1=end ptr, r2=1 to print "no change" when all are 0)
+ui_eq_deltas:
+        push r0
+        push r1
+        push r2
+        push r3
+        push r4
+        push lr
+        push fp
+        mov fp, sp
+        sub sp, sp, 7
+        str r1, fp, -1          ; end
+        str r2, fp, -2          ; say-same flag, cleared once anything prints
+        lea r0, ui_pv_tbl
+        str r0, fp, -3          ; table row
+        mov r0, PV_COUNT
+        str r0, fp, -4          ; rows left
+        ldr r0, fp, 6           ; dst (saved r0)
+        str r0, fp, -5          ; cursor
+        mov r0, 0
+        str r0, fp, -6          ; printed count
+ui_eqd_lp:
+        ldr r4, fp, -3
+        ldr r0, r4, 0           ; PV index
+        lea r1, ui_pv_buf
+        add r1, r1, r0
+        ldr r2, r1, 0           ; v
+        cmp r2, 0
+        brz ui_eqd_next
+        ; good = (v > 0) xor LOW; attr
+        ldr r3, r4, 3           ; flags
+        mov r1, 0
+        cmp r2, 0
+        brn ui_eqd_neg
+        mov r1, 1
+ui_eqd_neg:
+        and r0, r3, UI_PVF_LOW
+        xor r1, r0
+        mov r0, A_GOOD>>8
+        cmp r1, 0
+        brnz ui_eqd_attr
+        mov r0, A_BAD>>8
+ui_eqd_attr:
+        sll r0, 8
+        str r0, fp, -7          ; attr
+        ; magnitude
+        cmp r2, 0
+        brp ui_eqd_mag
+        not r2, r2
+        add r2, r2, 1
+ui_eqd_mag:
+        ; width = label len + 1 sign (+ digits (+2 for ".5")), +1 gap if not first
+        ldr r1, r4, 2
+        add r1, r1, 1
+        and r0, r3, UI_PVF_SIGN
+        brnz ui_eqd_wgap
+        and r0, r3, UI_PVF_HALF
+        brz ui_eqd_wdig
+        mov r0, r2
+        and r0, r0, 1
+        brz ui_eqd_whalf
+        add r1, r1, 2
+ui_eqd_whalf:
+        srl r2, 1
+ui_eqd_wdig:
+        add r1, r1, 1
+        cmp r2, 10
+        brlt ui_eqd_wgap
+        add r1, r1, 1
+        mov r0, 100
+        cmp r2, r0
+        brlt ui_eqd_wgap
+        add r1, r1, 1
+ui_eqd_wgap:
+        ldr r0, fp, -6
+        cmp r0, 0
+        brz ui_eqd_fit
+        add r1, r1, 1
+ui_eqd_fit:
+        ldr r0, fp, -5
+        add r1, r0, r1
+        ldr r0, fp, -1
+        cmp r1, r0
+        brgt ui_eqd_done        ; next one would pass the edge: stop
+        ; draw: [gap] label sign [number[.5]]
+        ldr r0, fp, -5
+        ldr r1, fp, -6
+        cmp r1, 0
+        brz ui_eqd_lbl
+        add r0, r0, 1
+ui_eqd_lbl:
+        push r2
+        ldr r2, r4, 1
+        ldr r3, fp, -7
+        bl ui_put_str
+        pop r2
+        ldr r1, r4, 0
+        lea r4, ui_pv_buf
+        add r4, r4, r1
+        ldr r4, r4, 0           ; v again, for its sign
+        mov r1, '+'
+        cmp r4, 0
+        brp ui_eqd_sign
+        mov r1, '-'
+ui_eqd_sign:
+        or r1, r3
+        str r1, r0, 0
+        add r0, r0, 1
+        ldr r4, fp, -3
+        ldr r1, r4, 3
+        and r1, r1, UI_PVF_SIGN
+        brnz ui_eqd_drawn
+        bl ui_put_num           ; r2 = magnitude (halved for UI_PVF_HALF)
+        ldr r1, r4, 3
+        and r1, r1, UI_PVF_HALF
+        brz ui_eqd_drawn
+        ldr r1, r4, 0
+        lea r2, ui_pv_buf
+        add r2, r2, r1
+        ldr r2, r2, 0
+        and r2, r2, 1           ; odd (two's complement keeps the low bit)
+        brz ui_eqd_drawn
+        lea r2, ui_s_eq_half
+        bl ui_put_str
+ui_eqd_drawn:
+        str r0, fp, -5
+        ldr r0, fp, -6
+        add r0, r0, 1
+        str r0, fp, -6
+ui_eqd_next:
+        ldr r0, fp, -3
+        add r0, r0, 4
+        str r0, fp, -3
+        ldr r0, fp, -4
+        sub r0, r0, 1
+        str r0, fp, -4
+        brp ui_eqd_lp
+ui_eqd_done:
+        ldr r0, fp, -6
+        cmp r0, 0
+        brnz ui_eqd_out
+        ldr r0, fp, -2
+        cmp r0, 0
+        brz ui_eqd_out
+        ldr r0, fp, -5
+        lea r2, ui_s_eq_same
+        mov r3, A_DIM>>8
+        sll r3, 8
+        bl ui_put_pstr
+ui_eqd_out:
         mov sp, fp
         pop fp
         pop lr
@@ -3295,7 +3589,7 @@ ui_art_packed: ; 5 rows x 9 words (2-bit packed, 8 chars/word MSB-first, 71 char
 
 ui_s_help_map:    .pstring "hjkl/yubn/arrows move  f/F fire  g/e/r/x/R parts  ; look  m log  z rest  o explore  < up  ? help"
 ui_s_help_target: .pstring "TARGET: Tab / ] / [ cycle target   f or Enter fire   Esc cancel"
-ui_s_help_equip:  .pstring "EQUIP: 1-4 attach carried part   Esc cancel"
+ui_s_help_equip:  .pstring "EQUIP: 1-4 attach carried part   d=dmg r=range e=energy a=acc (green better)   Esc cancel"
 ui_s_help_remove: .pstring "REMOVE: 1-8 detach loadout slot   Esc cancel"
 ui_s_help_drop:   .pstring "DROP: 1-4 drop carried part on floor   Esc cancel"
 ui_s_help_help:   .pstring "HELP: press any key to close"
@@ -3425,3 +3719,82 @@ ui_se_salvaged:   .string "Parts: picked up "
 ui_se_lost:       .string ", lost "
 ui_se_recycled:   .string ", recycled "
 ui_se_prompt:     .pstring "  Press any key to play again  |  Q to quit  "
+
+; MODE_EQUIP preview: scratch for prt_preview and the delta table
+; (PV index, label .string, label length, UI_PVF_* flags), drawn in this order
+ui_pv_buf:      .zero PV_COUNT
+ui_pv_tbl:
+        .word PV_DMG
+        .word ui_s_pv_dmg
+        .word 1
+        .word UI_PVF_HALF
+        .word PV_RNG
+        .word ui_s_pv_rng
+        .word 1
+        .word 0
+        .word PV_NRG
+        .word ui_s_pv_nrg
+        .word 1
+        .word UI_PVF_LOW
+        .word PV_ACC
+        .word ui_s_pv_acc
+        .word 1
+        .word 0
+        .word PV_MOVE
+        .word ui_s_pv_move
+        .word 2
+        .word UI_PVF_LOW
+        .word PV_EVADE
+        .word ui_s_pv_evade
+        .word 2
+        .word 0
+        .word PV_REGEN
+        .word ui_s_pv_regen
+        .word 2
+        .word 0
+        .word PV_ECAP
+        .word ui_s_pv_ecap
+        .word 2
+        .word 0
+        .word PV_SIGHT
+        .word ui_s_pv_sight
+        .word 2
+        .word 0
+        .word PV_AIM
+        .word ui_s_pv_aim
+        .word 2
+        .word 0
+        .word PV_ARMOR
+        .word ui_s_pv_armor
+        .word 2
+        .word 0
+        .word PV_SHIELD
+        .word ui_s_pv_shield
+        .word 2
+        .word 0
+        .word PV_SALV
+        .word ui_s_pv_salv
+        .word 2
+        .word 0
+        .word PV_REPAIR
+        .word ui_s_pv_repair
+        .word 2
+        .word UI_PVF_SIGN
+ui_s_pv_dmg:    .string "d"
+ui_s_pv_rng:    .string "r"
+ui_s_pv_nrg:    .string "e"
+ui_s_pv_acc:    .string "a"
+ui_s_pv_move:   .string "mv"
+ui_s_pv_evade:  .string "ev"
+ui_s_pv_regen:  .string "rg"
+ui_s_pv_ecap:   .string "en"
+ui_s_pv_sight:  .string "si"
+ui_s_pv_aim:    .string "ai"
+ui_s_pv_armor:  .string "ar"
+ui_s_pv_shield: .string "sh"
+ui_s_pv_salv:   .string "sv"
+ui_s_pv_repair: .string "rp"
+ui_s_eq_half:   .string ".5"
+ui_s_eq_hdr:    .pstring "-- Equip preview --"
+ui_s_eq_empty:  .pstring "empty"
+ui_s_eq_same:   .pstring "same stats"

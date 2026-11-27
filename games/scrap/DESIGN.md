@@ -525,6 +525,14 @@ chosen part regains `BAY_MULT × (1 + (RECYCLE_BASE + RECYCLE_TIER × tier) × h
 (`BAY_MULT` = 2, capped at missing integrity). Costs `TIME_BAY` (150 TU), spends the bay, and logs
 `Bay repaired <Part> +<N>.` (bay messages live in `src/player.ap`).
 
+### Equip preview
+
+In `MODE_EQUIP`, panel rows 18–22 replace `-- Target --` and hide the row 22 status line, showing `-- Equip preview --` and one row per carried entry (`1`–`4`).
+Each occupied row shows `<inv>→<slot>` (1–8), the replaced part's name or `empty`, and non-zero stat deltas (or `same stats` when a replacement changes no stat), colored green when better and red when worse.
+Target slot prediction uses the same rule as attaching: the first free slot of the part's kind, else the attached part of that kind with the lowest integrity ratio (ties go to the last slot).
+Non-weapon deltas (`mv` move cost, `ev` evade, `rg` regen, `en` energy capacity, `si` sight, `ai` aim, `sh` shield, `sv` salvage) come from a side-effect-free trial recompute of derived stats; armor (`ar`) is taken directly from the part, and repair (`rp`) is shown as a `+` or `-` sign only.
+Weapon deltas (`d` average damage in `.5` steps, `r` range, `e` energy, `a` accuracy) are always shown, measured against all zeros for an empty weapon slot (higher per-shot energy cost is worse, so positive `e` deltas are colored red), and fit within the 18-cell delta area for every weapon pair or empty slot.
+
 ### New robots (`act_types` ids 8–9)
 
 | id | Name | Glyph | HP | Step TU | Atk TU | Damage | Range | Acc | AI | Depths | Sight | Drop % | Drops | Weight |
