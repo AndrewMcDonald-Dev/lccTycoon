@@ -28,7 +28,7 @@ COMMANDS
           --frames N          stop after N frames (default: script length + --tail)
           --tail N            extra frames after the last key batch (default 1)
           --show final|all|changed|N,M,...|none   which frames to print (default final;
-                              changed = text changed, or colors too with --colors)
+                              changed = text changes, plus fg/bg color changes with --colors)
           --colors            also print fg/bg color maps of shown frames
           --watch "a,b:4,msg:s"  labeled memory (signed words; :N = N words; :s = string)
           --profile           instructions per routine & module (performance)
