@@ -361,6 +361,44 @@
           }
         ]
       }
+    },
+    {
+      "name": "depth banner (clock 9): a blank cell separates the strip from a room wall on map row 0; look mode shows the wall",
+      "clock": 9,
+      "keys": "<enter> _ ; <esc>",
+      "expect": {
+        "status": "frames-complete",
+        "maxStepsPerFrame": 500000,
+        "frames": [
+          {
+            "frame": 1,
+            "screen": {
+              "contains": [
+                "════ DEPTH 10 · SLAG VAULTS ════ ═╗"
+              ]
+            }
+          },
+          {
+            "frame": 2,
+            "screen": {
+              "contains": [
+                "═════════╗"
+              ],
+              "notContains": [
+                "DEPTH 10"
+              ]
+            }
+          },
+          {
+            "frame": 3,
+            "screen": {
+              "contains": [
+                "SLAG VAULTS ════ ═╗"
+              ]
+            }
+          }
+        ]
+      }
     }
   ]
 }

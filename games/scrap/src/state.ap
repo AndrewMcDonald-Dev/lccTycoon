@@ -26,6 +26,7 @@
 ;; race       st_race (poked by the versus server; read: main_race_seed)
 ;; fixtures   st_fixtures MAX_FIXTURES × FIX_SIZE (F_*)          W: dungeon (per floor), player (F_CHARGES); st_bay_slot W: player
 ;; run stats  st_stat_salvaged (player) st_stat_lost st_stat_recycled (parts); reset in main_new_game
+;; banner     st_banner (actions left showing the depth banner; set per floor, counted down by main_turn)  W: main; read: ui
 ; =====================================================================
 
 ; ---- game / loop -------------------------------------------------------

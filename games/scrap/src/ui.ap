@@ -24,7 +24,7 @@
 ;;                   floor alarm meter, row 22 status line for st_auto / visible hostiles, item under player "Here: <name> [<kind> <stat>]" or else a fixture
 ;;                   "Here: <fixture name>"), message rows (identical consecutive messages collapse to one row ending " xN"), help row;
 ;;                   menu highlights and MODE_HELP/MODE_LOG overlays by st_mode; in MODE_MAP while st_banner > 0, a depth banner on map row 0
-;;                   ("═══ DEPTH n · <band name> ═══": Slag Vaults 10-8, Conduit Works 7-4, Intake Shafts 3-1); MODE_QUIT help row reads "Quit? y = yes, any other key = no";
+;;                   ("═══ DEPTH n · <band name> ═══": SLAG VAULTS 10-8, CONDUIT WORKS 7-4, INTAKE SHAFTS 3-1); MODE_QUIT help row reads "Quit? y = yes, any other key = no";
 ;;                   draws into st_cells (the game display, 100x30); st_screen must be the bound display
 ;; ui_end_screen  ()                -> r0=1 play again, 0 quit   death (cause = st_death_cause type name, depth) or win screen ("Surface" for depth 0) with st_kills, st_turn, st_depth_best and
 ;;                   ui_score and parts salvaged/lost/recycled; drains pending input, ignores keys for END_GRACE_FRAMES (10) frames, then waits for a key (Q quits, any other key plays again);
@@ -2349,8 +2349,8 @@ ui_draw_help_overlay:
         ret
 
 ; ---- depth banner (map row 0) while st_banner > 0 --------------------
-; A BANNER_W-wide strip of '═' (A_LABEL) at BANNER_COL with
-; " DEPTH n · <band name> " (A_TITLE) roughly centered. Preserves all registers.
+; A BANNER_W-wide strip of '═' (A_LABEL) at BANNER_COL, a blank cell at each
+; end, and " DEPTH n · <band name> " (A_TITLE) roughly centered. Preserves all registers.
 ui_draw_depth_banner:
         push r0
         push r1
@@ -2363,10 +2363,14 @@ ui_draw_depth_banner:
         brp ui_dbn_draw
         br ui_dbn_ret
 ui_dbn_draw:
-        mov r0, VIEW_ROW
-        mov r1, BANNER_COL
+        mov r0, VIEW_ROW        ; blank one cell past each end so the strip never joins a row-0 wall
+        mov r1, BANNER_COL-1
         mov r2, 1
-        mov r3, BANNER_W
+        mov r3, BANNER_W+2
+        mov r4, G_SPACE
+        bl ui_fast_fill
+        add r1, r1, 1
+        sub r3, r3, 2
         mov r4, A_LABEL>>8
         sll r4, 8
         mov r2, G_DHORIZ
