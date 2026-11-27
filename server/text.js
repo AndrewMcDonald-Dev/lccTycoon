@@ -20,9 +20,11 @@ module.exports = {
   racing: 'RACING',
   you: '(you)',
   lobbyKeys: '[Enter / Space] ready   [d] daily / random   [Tab] board / chronicle   [q] leave',
+  lobbyKeysRematch: '[Enter / Space] ready   [d] daily   [r] rematch   [Tab] board / chronicle   [q] leave',
   waitingKeys: 'Race in progress -- you will join the next one.   [Tab] board / chronicle   [q] leave',
   seedDaily: date => `Next race: daily seed for ${date} UTC (ranked on daily board; [d] for random).`,
   seedRandom: 'Next race: random seed (press [d] to switch the room to the daily seed).',
+  seedRematch: seed => `Next race: rematch on seed ${hex(seed)} (not ranked on daily board; [r] for random).`,
   viewKeys: '[Tab] next view (lobby / board / chronicle)   [q] leave',
   boardTitle: (date, seed) => `DAILY BOARD -- ${date} UTC (seed ${hex(seed)})`,
   boardEmpty: '  No ranked runs yet today.',
@@ -32,7 +34,7 @@ module.exports = {
   profile: p => (p
     ? `Your record: ${plural(p.races, 'race')}, ${plural(p.wins, 'win')}, best ${loc(p.bestDepth)}${p.fastestWinMs === null ? '' : `, fastest win ${clock(p.fastestWinMs)}`}`
     : 'Your record: no races yet.'),
-  chronicleTitle: last => (last ? `LAST RACE -- ${last.daily ? `daily seed ${hex(last.seed)} (${last.daily.date} UTC)` : `random seed ${hex(last.seed)}`}` : 'LAST RACE'),
+  chronicleTitle: last => (last ? `LAST RACE -- ${last.daily ? `daily seed ${hex(last.seed)} (${last.daily.date} UTC)` : `seed ${hex(last.seed)}`}` : 'LAST RACE'),
   chronicleEmpty: 'No race has finished since the server started.',
   chronicleHead: (r, c = {}, width = 96) => {
     const kills = r.kills ?? c.kills ?? 0;
@@ -89,7 +91,7 @@ module.exports = {
   countdown: s => `All ready -- starting in ${s}...`,
   needAll: 'Race starts when everyone in the lobby is ready.',
   liveHeader: 'Live standings',
-  lastHeader: 'Last race',
+  lastHeader: last => `Last race -- ${last.daily ? `daily seed ${hex(last.seed)} (${last.daily.date} UTC)` : `seed ${hex(last.seed)}`}`,
   tooSmall: (c, r) => `Window is ${c}x${r} -- resize to at least 100x31 to play.`,
   full: 'This SCRAPCORE versus server is full. Try again later.\r\n',
   badPassword: 'Incorrect password.',

@@ -31,6 +31,7 @@ class Room {
     this.store = opts.store || null;
     this.now = opts.now || Date.now;
     this.daily = false;               // next race runs on the daily seed (lobby 'd' toggles)
+    this.rematch = false;             // next race reuses the last race's seed, off the daily board (lobby 'r' toggles)
     this.shownDay = utcDate(this.now());   // UTC day the lobbies last showed
     this.countdownMs = opts.countdownMs === undefined ? 3000 : opts.countdownMs;
     this.pollMs = opts.pollMs || 250;
@@ -112,8 +113,10 @@ class Room {
     if (/[qQ]/.test(s)) { this.leave(m); return; }
     if (s.includes('\t')) { m.view = VIEWS[(VIEWS.indexOf(m.view) + 1) % VIEWS.length]; this.requestLobbies(); return; }
     if (m.view !== 'lobby') return;             // board / chronicle: only Tab and q do anything
-    if (/[dD]/.test(s) && this.phase !== 'race') {
-      this.daily = !this.daily;
+    const seedKey = this.phase === 'race' ? null : /[dD]/.test(s) ? 'd' : /[rR]/.test(s) && this.lastRace ? 'r' : null;
+    if (seedKey) {
+      if (seedKey === 'd') { this.daily = !this.daily; this.rematch = false; }
+      else { this.rematch = !this.rematch; this.daily = false; }
       const restart = this.phase === 'countdown';
       this.cancelCountdown();     // everyone sees which seed the race will use before it starts
       if (restart) this.maybeCountdown();
@@ -179,7 +182,8 @@ class Room {
     this.phase = 'race';
     const date = utcDate(this.now());
     const daily = this.daily ? { date, build: this.buildId, seed: dailySeed(date) } : null;
-    this.race = { seed: daily ? daily.seed : this.nextSeed(), daily, racers, startedAt: Date.now() };
+    const seed = daily ? daily.seed : this.rematch && this.lastRace ? this.lastRace.seed : this.nextSeed();
+    this.race = { seed, daily, racers, startedAt: Date.now() };
     for (const m of racers) {
       m.ready = false;
       m.result = null;
@@ -334,14 +338,14 @@ class Room {
       lines.push(`  ${p === m ? '>' : ' '} ${p.name.padEnd(13)}${tag}${p === m ? ' ' + T.you : ''}`);
     }
     lines.push('');
-    if (!inRace) lines.push(this.daily ? T.seedDaily(utcDate(this.now())) : T.seedRandom);
+    if (!inRace) lines.push(this.daily ? T.seedDaily(utcDate(this.now())) : this.rematch && this.lastRace ? T.seedRematch(this.lastRace.seed) : T.seedRandom);
     if (this.phase === 'countdown') lines.push(T.countdown(Math.max(1, Math.ceil((this.countdownEnds - Date.now()) / 1000))));
     else if (!inRace) lines.push(T.needAll);
     if (this.lastResults && !inRace) {
-      lines.push('', T.lastHeader);
+      lines.push('', T.lastHeader(this.lastRace));
       for (const r of this.lastResults) lines.push(`  ${r.place}. ${T.standing(r)}`);
     }
-    lines.push('', inRace && !m.game ? T.waitingKeys : T.lobbyKeys);
+    lines.push('', inRace && !m.game ? T.waitingKeys : this.lastRace ? T.lobbyKeysRematch : T.lobbyKeys);
     return lines;
   }
 
