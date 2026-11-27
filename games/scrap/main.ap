@@ -12,11 +12,11 @@
 ; main_turn (after each player action, DESIGN.md "Turn system"):
 ;        stairs taken? climb (new floor + core reinforce +CLIMB_CORE_HEAL, or win)
 ;        else act_run (enemies act until the player's next-act time)
-;        → prt_tick (energy regen, self-repair) → st_turn++ → fov_update
+;        → prt_tick (energy regen, self-repair) → st_banner-- (to 0) → st_turn++ → fov_update
 ;
 ;; main_start      (entry)  seed RNG, bind display, title → game → end loop; halts on quit
 ;; main_new_game   ()       reset game cells, ui_init prt_init act_init ply_init, depth START_DEPTH, first floor, GAME_PLAY
-;; main_new_floor  ()       dun_generate(st_depth), act_clear, itm_clear, act_spawn_floor, itm_spawn_floor, fov_reset, fov_update; player acts first
+;; main_new_floor  ()       dun_generate(st_depth), act_clear, itm_clear, act_spawn_floor, itm_spawn_floor, fov_reset, fov_update; player acts first; st_banner = BANNER_TURNS
 ;; main_turn       ()       advance the world after a player action (see above)
 ;; main_race_seed  r0=salt  if st_race: srand(st_seed + salt*RACE_SALT) so every racer gets the same draws (r0 clobbered)
 ; =====================================================================
@@ -136,6 +136,8 @@ main_new_floor:
         st r0, st_ply_next
         mov r0, -1
         st r0, st_target
+        mov r0, BANNER_TURNS    ; show the depth banner for the first actions here
+        st r0, st_banner
         bl fov_reset
         bl fov_update
         pop lr
@@ -232,6 +234,11 @@ main_turn_world:
         mov r0, r1
         bl prt_tick
 main_turn_count:
+        ld r0, st_banner        ; depth banner counts down to 0
+        sub r0, r0, 1
+        brn main_turn_tick
+        st r0, st_banner
+main_turn_tick:
         ld r0, st_turn          ; saturating turn counter
         add r0, r0, 1
         brn main_turn_fov

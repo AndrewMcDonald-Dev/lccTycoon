@@ -115,3 +115,6 @@ st_race:        .word 0             ; 1 = versus race: main reseeds from st_seed
 ; ---- fixtures (appended) ----
 st_fixtures:    .zero MAX_FIXTURES*FIX_SIZE ; F_* records, cleared + placed by dun_generate — W: dungeon, player (F_CHARGES)
 st_bay_slot:    .word 0             ; loadout slot picked in MODE_BAY_SLOT, repaired in MODE_BAY_PART — W: player
+
+; ---- depth banner (appended) ----
+st_banner:      .word 0             ; player actions left showing the floor-arrival depth banner, 0 hidden — W: main; read: ui

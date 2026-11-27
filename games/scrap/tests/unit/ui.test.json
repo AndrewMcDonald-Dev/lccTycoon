@@ -564,6 +564,93 @@
           }
         }
       }
+    },
+    {
+      "name": "depth banner: band name per depth (10/8 Slag, 7/4 Conduit, 3/1 Intake), hidden when st_banner is 0 or outside MODE_MAP",
+      "keys": "B _8",
+      "expect": {
+        "status": "halted",
+        "maxStepsPerFrame": 120000,
+        "frames": [
+          {
+            "frame": 0,
+            "screen": {
+              "contains": [
+                "════ DEPTH 10 · SLAG VAULTS ════"
+              ]
+            },
+            "colors": {
+              "lines": {
+                "0": "                CCCCYYYYYYYYYYYYYYYYYYYYYYYYCCCC                KYYYYYYYYY  wwwwwwww  wwwwwwww"
+              }
+            }
+          },
+          {
+            "frame": 1,
+            "screen": {
+              "contains": [
+                "════ DEPTH 8 · SLAG VAULTS ═════"
+              ]
+            }
+          },
+          {
+            "frame": 2,
+            "screen": {
+              "contains": [
+                "═══ DEPTH 7 · CONDUIT WORKS ════"
+              ]
+            }
+          },
+          {
+            "frame": 3,
+            "screen": {
+              "contains": [
+                "═══ DEPTH 4 · CONDUIT WORKS ════"
+              ]
+            }
+          },
+          {
+            "frame": 4,
+            "screen": {
+              "contains": [
+                "═══ DEPTH 3 · INTAKE SHAFTS ════"
+              ]
+            }
+          },
+          {
+            "frame": 5,
+            "screen": {
+              "contains": [
+                "═══ DEPTH 1 · INTAKE SHAFTS ════"
+              ]
+            }
+          },
+          {
+            "frame": 6,
+            "screen": {
+              "contains": [
+                "Depth 5"
+              ],
+              "notContains": [
+                "DEPTH",
+                "═"
+              ]
+            }
+          },
+          {
+            "frame": 7,
+            "screen": {
+              "contains": [
+                "Depth 5"
+              ],
+              "notContains": [
+                "DEPTH",
+                "═"
+              ]
+            }
+          }
+        ]
+      }
     }
   ]
 }
