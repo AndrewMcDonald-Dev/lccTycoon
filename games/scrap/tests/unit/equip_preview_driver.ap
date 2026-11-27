@@ -4,7 +4,10 @@
 ;      Strut Legs, Optic Mast, Arc Battery
 ;   b  Arc Battery attached, energy 55/55, Rivet Gun at 6/12, Spark Prods in
 ;      slots 5 and 6; carried Cell Pack, Patch Drone, Scatter, Jolt Caster
-;   c  slot 2 Stub Legs at 10/20; carried Stub Legs (nothing changes)
+;   c  slot 2 Stub Legs at 10/20, slot 6 Pulse Rifle at 9/18, slot 7 Scrap Plate,
+;      slot 8 Patch Drone, repair progress 2; carried Stub Legs (nothing changes),
+;      Cutter Arm (an 18-cell delta row), Hex Armor (armor up, repair lost)
+;   d  starting loadout (slot 6 empty); carried Coil Lance
         .include "../../main.ap"
         .start drv_start
 
@@ -32,6 +35,9 @@ drv_start:
         mov r1, 'c'
         cmp r0, r1
         brz drv_c
+        mov r1, 'd'
+        cmp r0, r1
+        brz drv_d
 
         mov r0, 10
         str r0, r4, SLOT_SIZE+S_HP
@@ -84,12 +90,43 @@ drv_b:
 drv_c:
         mov r0, 10
         str r0, r4, SLOT_SIZE+S_HP
+        mov r0, PT_PULSE_RIFLE
+        str r0, r4, 5*SLOT_SIZE+S_PART
+        mov r0, 9
+        str r0, r4, 5*SLOT_SIZE+S_HP
+        mov r0, PT_SCRAP_PLATE
+        str r0, r4, 6*SLOT_SIZE+S_PART
+        mov r0, 30
+        str r0, r4, 6*SLOT_SIZE+S_HP
+        mov r0, PT_PATCH_DRONE
+        str r0, r4, 7*SLOT_SIZE+S_PART
+        mov r0, 10
+        str r0, r4, 7*SLOT_SIZE+S_HP
+        bl prt_recalc
+        mov r0, 2
+        st r0, st_repair_acc
         mov r0, PT_STUB_LEGS
         mov r1, 20
         bl prt_inv_add
+        mov r0, PT_CUTTER_ARM
+        mov r1, 25
+        bl prt_inv_add
+        mov r0, PT_HEX_ARMOR
+        mov r1, 50
+        bl prt_inv_add
+        br drv_go
+
+drv_d:
+        mov r0, PT_COIL_LANCE
+        mov r1, 22
+        bl prt_inv_add
 
 drv_go:
+        ld r0, st_repair_acc
+        push r0
         bl prt_recalc
+        pop r0
+        st r0, st_repair_acc
         ; every entry's preview once, straight from prt_preview
         lea r3, drv_pv
         lea r4, drv_slot

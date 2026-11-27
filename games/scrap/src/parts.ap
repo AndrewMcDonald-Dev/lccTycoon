@@ -22,7 +22,7 @@
 ;;                   attached part of that kind with the lowest integrity ratio (ties → last slot; old part goes to the vacated inventory entry). prt_recalc.
 ;; prt_attach_slot r0=inv index   -> r0=slot prt_attach would use (same rule, nothing changed), -1 empty entry
 ;; prt_preview      r0=inv index r1=buf -> r0=that slot, -1 empty entry (buf untouched). buf[PV_COUNT] = stat after attaching minus now (defs.ap PV_*):
-;;                   weapon catalog deltas when replacing a weapon, derived stats via a trial prt_recalc, armor value, repair sign. Restores loadout,
+;;                   weapon catalog deltas (an empty slot counts as zeros), derived stats via a trial prt_recalc, armor value, repair sign. Restores loadout,
 ;;                   derived stats, st_energy and st_repair_acc (no side effects)
 ;; prt_detach       r0=slot          -> r0=inventory index it went to, -1 slot empty, -2 inventory full (nothing changed). prt_recalc.
 ;; prt_inv_add      r0=part r1=hp    -> r0=inventory index used, -1 inventory full
@@ -404,16 +404,6 @@ prt_sk_ok:
         ret
 
 ; ---- attach / detach / inventory --------------------------------------------
-; Locals relative to fp:
-;   fp-1  inv_ptr
-;   fp-2  part
-;   fp-3  hp
-;   fp-4  kind
-;   fp-5  swap_slot (-1 if none yet)
-;   fp-6  swap_hp
-;   fp-7  swap_max
-;   fp-8  cur_hp
-;   fp-9  cur_max
 prt_attach:
         push r1
         push lr
@@ -428,8 +418,8 @@ prt_at_out:
         pop r1
         ret
 
-; ---- prt_swap (r0=slot, r1=inv index) -> -  exchange the two records; an
-; empty slot moves into the inventory entry as (PART_NONE, 0). No recalc.
+; ---- prt_swap (r0=slot, r1=inv index) -> -  exchange the two records word
+; for word (an empty slot's HP is 0 on every game path). No recalc.
 prt_swap:
         push r0
         push r1
@@ -444,10 +434,6 @@ prt_swap:
         add r1, r1, r2          ; inv ptr
         ldr r2, r0, S_PART
         ldr r3, r0, S_HP
-        cmp r2, PART_NONE
-        brnz prt_sw_go
-        mov r3, 0
-prt_sw_go:
         ldr r4, r1, S_PART
         str r4, r0, S_PART
         ldr r4, r1, S_HP
@@ -464,6 +450,8 @@ prt_sw_go:
 ; ---- prt_attach_slot (r0=inv index) -> r0=slot prt_attach would use, -1 none
 ; First free slot of the part's kind; if all are full, the attached part of
 ; that kind with the lowest integrity ratio (ties -> last slot). Pure.
+; Locals: fp-1 kind, fp-2 swap_slot (-1 none yet), fp-3 swap_hp, fp-4 swap_max,
+; fp-5 cur_hp, fp-6 cur_max.
 prt_attach_slot:
         push r1
         push r2
@@ -472,7 +460,7 @@ prt_attach_slot:
         push lr
         push fp
         mov fp, sp
-        sub sp, sp, 7
+        sub sp, sp, 6
 
         cmp r0, 0
         brn prt_as_fail
@@ -697,8 +685,8 @@ prt_pvd_add:
         ret
 
 ; ---- prt_pv_catalog (r0=buf, r1=new rec, r2=old rec or 0)
-; weapons: PV_DMG/RNG/NRG/ACC, only when replacing a weapon (an empty slot
-; leaves them 0: the carried row already shows the new weapon's numbers);
+; weapons: PV_DMG/RNG/NRG/ACC against the replaced weapon (an empty slot
+; counts as all zeros);
 ; utility: PV_ARMOR from either side's UT_ARMOR value.
 prt_pv_catalog:
         push r0
@@ -714,7 +702,9 @@ prt_pv_catalog:
         cmp r0, PK_WEAPON
         brnz prt_pvc_done
         cmp r2, 0
-        brz prt_pvc_done
+        brnz prt_pvc_wold
+        lea r2, prt_pv_zero     ; empty slot: deltas against nothing
+prt_pvc_wold:
         ldr r0, r1, P_W_DMIN
         ldr r3, r1, P_W_DMAX
         add r0, r0, r3
@@ -1473,6 +1463,7 @@ prt_fs_next:
 ; ---- tables & strings -------------------------------------------------------
 prt_s_none:     .string "-"
 
+prt_pv_zero:    .zero PART_SIZE      ; stand-in catalog record for an empty weapon slot
 prt_pv_cells:   .word st_move_cost   ; PV_MOVE..PV_SALV, in PV order
                 .word st_evade
                 .word st_regen

@@ -108,17 +108,17 @@
         "screen": {
           "contains": [
             "-- Equip preview --",
-            "1→6 Scatter Tube  d+2 r+4 e+1 a-5",
-            "2→2 Stub Legs     mv-5 ev+3",
-            "3→7 empty         si+3",
-            "4→3 Cell Pack     rg+1 en+15",
+            "1→6 Scatter Tube d+2 r+4 e+1 a-5",
+            "2→2 Stub Legs    mv-5 ev+3",
+            "3→7 empty        si+3",
+            "4→3 Cell Pack    rg+1 en+15",
             "EQUIP: 1-4 attach carried part   d=dmg r=range e=energy a=acc (green better)   Esc cancel"
           ]
         },
         "colors": {
           "lines": {
-            "19": "                                                                KkKw wwwwwwwwwwww  GGG GGG RRR RRR ",
-            "21": "                                                                KkKw KKKKK         GGGG            "
+            "19": "                                                                KkKw wwwwwwwwwwww GGG GGG RRR RRR",
+            "21": "                                                                KkKw KKKKK        GGGG"
           }
         }
       }
@@ -217,15 +217,15 @@
         },
         "screen": {
           "contains": [
-            "1→3 Arc Battery   rg-1 en-15",
-            "2→7 empty         rp+",
-            "3→4 Rivet Gun     d+0.5 r-3 e+1 a+5",
-            "4→4 Rivet Gun     d-1 r-2 e+1 a+5"
+            "1→3 Arc Battery  rg-1 en-15",
+            "2→7 empty        rp+",
+            "3→4 Rivet Gun    d+0.5 r-3 e+1 a+5",
+            "4→4 Rivet Gun    d-1 r-2 e+1 a+5"
           ]
         },
         "colors": {
           "lines": {
-            "21": "                                                                KkKw wwwwwwwww     GGGGG RRR RRR GGG"
+            "21": "                                                                KkKw wwwwwwwww    GGGGG RRR RRR GGG"
           }
         }
       }
@@ -259,15 +259,15 @@
       }
     },
     {
-      "name": "c: an identical replacement has all-zero deltas",
+      "name": "c: identical legs say same stats; Cutter Arm over a Pulse Rifle fits all four deltas (18 cells, to col 99); Hex Armor over the Patch Drone shows armor up and repair lost, and the trial recalc keeps repair progress",
       "keys": "c e",
       "expect": {
         "status": "frames-complete",
         "memory": {
           "drv_slot": [
             1,
-            -1,
-            -1,
+            5,
+            7,
             -1
           ],
           "drv_pv": [
@@ -284,14 +284,125 @@
             0,
             0,
             0,
+            0,
+            3,
+            -7,
+            -3,
+            10,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            2,
+            -1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "st_slots": [
+            1,
+            20,
+            1,
+            10,
+            9,
+            15,
+            13,
+            12,
+            12,
+            15,
+            15,
+            9,
+            19,
+            30,
+            22,
+            10
+          ],
+          "st_repair_acc": 2,
+          "st_repair_turns": 3
+        },
+        "screen": {
+          "contains": [
+            "1→2 Stub Legs    same stats",
+            "2→6 Pulse Rifle  d+1.5 r-7 e-3 a+10",
+            "3→8 Patch Drone  ar+2 rp-",
+            "4 -"
+          ]
+        },
+        "colors": {
+          "lines": {
+            "20": "                                                                KkKw wwwwwwwwwww  GGGGG RRR GGG GGGG",
+            "21": "                                                                KkKw wwwwwwwwwww  GGGG RRR"
+          }
+        }
+      }
+    },
+    {
+      "name": "d: a weapon going into an empty weapon slot is measured against nothing",
+      "keys": "d e",
+      "expect": {
+        "status": "frames-complete",
+        "memory": {
+          "drv_slot": [
+            5,
+            -1,
+            -1,
+            -1
+          ],
+          "drv_pv": [
+            19,
+            9,
+            7,
+            65,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
             0
           ]
         },
         "screen": {
           "contains": [
-            "1→2 Stub Legs     same stats",
-            "2 -"
+            "1→6 empty        d+9.5 r+9 e+7 a+65"
           ]
+        },
+        "colors": {
+          "lines": {
+            "19": "                                                                KkKw KKKKK        GGGGG GGG RRR GGGG"
+          }
         }
       }
     }

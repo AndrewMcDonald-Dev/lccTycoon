@@ -971,7 +971,7 @@ ui_di_next:
 ; Deltas (prt_preview) are drawn in ui_pv_tbl order, nonzero only, A_GOOD when
 ; better and A_BAD when worse, until the next one would pass the panel edge.
         .define UI_EQ_NAME      4       ; offsets from PANEL_COL+1
-        .define UI_EQ_DELTA     18
+        .define UI_EQ_DELTA     17      ; names are <= PART_NAME_MAX (12): one gap
         .define UI_EQ_END       PANEL_COLS-1
         .define UI_PVF_LOW      1       ; ui_pv_tbl flags: lower is better
         .define UI_PVF_HALF     2       ; value is 2x: print n/2 with ".5"
@@ -985,7 +985,7 @@ ui_draw_equip:
         push lr
         push fp
         mov fp, sp
-        sub sp, sp, 3
+        sub sp, sp, 2
         add r0, r0, 1
         mov r2, UI_PR_STATUS-PR_TGT_HDR+1
         mov r3, PANEL_COLS-1
@@ -1024,7 +1024,6 @@ ui_deq_lp:
         bl prt_preview
         cmp r0, -1
         bre ui_deq_next
-        str r0, fp, -3          ; slot
         ldr r1, fp, -1
         mov r3, A_DIM>>8
         sll r3, 8
