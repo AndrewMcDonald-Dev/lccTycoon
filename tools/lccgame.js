@@ -27,7 +27,8 @@ COMMANDS
           --keys "<script>"   per-frame input, e.g. "d d _3 w q"  (see below)
           --frames N          stop after N frames (default: script length + --tail)
           --tail N            extra frames after the last key batch (default 1)
-          --show final|all|changed|N,M,...|none   which frames to print (default final)
+          --show final|all|changed|N,M,...|none   which frames to print (default final;
+                              changed = text changes, plus fg/bg color changes with --colors)
           --colors            also print fg/bg color maps of shown frames
           --watch "a,b:4,msg:s"  labeled memory (signed words; :N = N words; :s = string)
           --profile           instructions per routine & module (performance)
@@ -213,13 +214,13 @@ function printResult(r, opt) {
   const show = opt.show || 'final';
   let frames = [];
   if (show === 'all') frames = r.frames;
-  else if (show === 'changed') frames = r.frames.filter(f => f.changed);
+  else if (show === 'changed') frames = r.frames.filter(f => f.changed || (opt.colors && f.colorChanged));
   else if (/^[\d,]+$/.test(show)) {
     const want = new Set(show.split(',').map(Number));
     frames = r.frames.filter(f => want.has(f.frame));
   }
   const shown = frames.map(f => f.text).concat(show === 'final' ? [r.screen] : []);
-  const W = Math.max(10, ...shown.flatMap(t => t.split('\n').map(l => [...l].length)));
+  const W = shown.reduce((w, t) => t.split('\n').reduce((m, l) => Math.max(m, [...l].length), w), 10);  // no spread: thousands of frames overflow the stack
   const colorMaps = (fg, bg) => { console.log('    fg:'); console.log(formatScreen(fg, W)); console.log('    bg:'); console.log(formatScreen(bg, W)); };
   for (const f of frames) {
     const w = Object.keys(f.watch).length ? '  ' + Object.entries(f.watch).map(([k, v]) => `${k}=${JSON.stringify(v)}`).join(' ') : '';

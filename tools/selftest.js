@@ -73,6 +73,19 @@ const display = require('./lib/display');
   console.log('ok   far relaxation stops and reports genuine errors');
 })();
 
+// run --show changed --colors must include frames whose only change is a color (fg or bg).
+(function testColorOnlyChange() {
+  const run = (...a) => {
+    const r = require('child_process').spawnSync(process.execPath, [path.join(ROOT, 'tools', 'lccgame.js'), 'run',
+      path.join(ROOT, 'tools', 'tests', 'color_only.ap'), '--frames', '5', '--show', 'changed', ...a], { encoding: 'utf8' });
+    assert.strictEqual(r.status, 0, `color_only.ap run failed:\n${r.stderr}`);
+    return (r.stdout.match(/^=== frame \d+/gm) || []).map(l => +l.split(' ')[2]);
+  };
+  assert.deepStrictEqual(run('--colors'), [0, 1, 2, 3], 'changed + --colors lists fg-only, bg-only and text-only frames');
+  assert.deepStrictEqual(run(), [0, 3], 'plain changed still lists text changes only');
+  console.log('ok   run --show changed --colors includes color-only frames');
+})();
+
 const files = [];
 const demoDir = path.join(VENDOR, 'plusdemos');
 for (const f of fs.readdirSync(demoDir).sort()) if (f.endsWith('.ap')) files.push(path.join(demoDir, f));
