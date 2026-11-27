@@ -466,7 +466,7 @@
         .define CAUSE_NONE      0
 
 ; ---- messages: st_msg_text ring of MSG_COUNT strings of MSG_LEN words ------------
-        .define MSG_COUNT       16      ; ring slots (MSG_ROWS newest are shown)
+        .define MSG_COUNT       16      ; ring slots (MSG_ROWS newest runs are shown)
         .define MSG_LEN         64      ; incl. NUL (63 chars max)
         .define MSG_SHIFT       6
 

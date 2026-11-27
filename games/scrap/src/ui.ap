@@ -2223,13 +2223,8 @@ ui_dm_put:
         brz ui_dm_next
         lea r2, ui_s_xrep
         bl ui_put_str
-        mov r2, r0              ; keep dst across ui_fmt_num
-        mov r0, r1
-        bl ui_fmt_num
-        mov r1, r2
-        mov r2, r0
-        mov r0, r1
-        bl ui_put_str
+        mov r2, r1
+        bl ui_put_num
 ui_dm_next:
         ldr r0, fp, -4
         mov r1, SCR_COLS
