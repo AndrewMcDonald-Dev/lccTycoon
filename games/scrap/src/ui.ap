@@ -967,7 +967,7 @@ ui_di_next:
 
 ; ---- MODE_EQUIP preview over the target panel rows PR_TGT_HDR..UI_PR_STATUS
 ; (r0=&st_cells[PR_TGT_HDR*100+64]). Header, then one row per carried entry:
-; "<digit>" + G_ARROW_R + "<slot 1-8> <part it replaces | empty>  <deltas>".
+; "<digit>" + G_ARROW_R + "<slot 1-8> <part it replaces | empty> <deltas>".
 ; Deltas (prt_preview) are drawn in ui_pv_tbl order, nonzero only, A_GOOD when
 ; better and A_BAD when worse, until the next one would pass the panel edge.
         .define UI_EQ_NAME      4       ; offsets from PANEL_COL+1
