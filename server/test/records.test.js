@@ -292,19 +292,20 @@ test('a rematch of a daily race replays the daily seed but stays off the daily b
   const screen = () => out.join('');
   try {
     const m = room.join({ name: 'ann', fp: 'SHA256:ann', rows: 31, cols: 100, colorMode: 'truecolor', write: s => out.push(s), close() {} });
-    const race = async () => {
+    const race = async win => {
       const before = room.lastRace;
       room.input(m, Buffer.from('\r'));
       await until(() => room.phase === 'race' && m.game && m.game.stats().state === GAME.PLAY);
-      m.game.poke('st_game_state', GAME.WON);
+      if (win) m.game.poke('st_game_state', GAME.WON);
+      else room.input(m, Buffer.from('\x03'));     // give up: a ranked win later would replace this entry
       await until(() => room.phase === 'lobby' && room.lastRace !== before);
       return room.lastRace;
     };
     room.input(m, Buffer.from('d'));
-    const daily = await race();
+    const daily = await race(false);
     assert.strictEqual(daily.seed, seed);
     assert.strictEqual(daily.daily.date, date);
-    await until(() => screen().includes(`daily seed #${seed.toString(16).toUpperCase().padStart(4, '0')} (2026-11-25 UTC)`));
+    await until(() => screen().includes(`Last race -- daily seed #${seed.toString(16).toUpperCase().padStart(4, '0')} (2026-11-25 UTC)`));
     const board = JSON.stringify(store.board(date, room.buildId, seed).entries);
     assert.strictEqual(JSON.parse(board).length, 1);
     room.input(m, Buffer.from('\t'));            // off the lobby view, r does nothing
@@ -314,10 +315,10 @@ test('a rematch of a daily race replays the daily seed but stays off the daily b
     room.input(m, Buffer.from('\t'));            // back to the lobby
     room.input(m, Buffer.from('r'));
     assert.deepStrictEqual([room.daily, room.rematch], [false, true]);
-    const rematch = await race();
+    const rematch = await race(true);
     assert.strictEqual(rematch.seed, seed, 'the rematch replays the daily seed');
     assert.strictEqual(rematch.daily, null, 'the rematch is not a daily race');
     assert.strictEqual(JSON.stringify(store.board(date, room.buildId, seed).entries), board, 'the daily board is unchanged');
-    assert.strictEqual(store.profile('SHA256:ann').races, 2, 'the profile counts both races');
+    assert.deepStrictEqual([store.profile('SHA256:ann').races, store.profile('SHA256:ann').wins], [2, 1], 'the profile counts both races');
   } finally { room.close(); }
 });
