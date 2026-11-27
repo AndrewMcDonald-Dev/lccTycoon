@@ -1,7 +1,8 @@
 ; ---------------------------------------------------------------------
 ; Module: ui (prefix ui_) — owner WP4. Everything on screen except the map
 ; viewport: right panel (PANEL_*, rows PR_* in defs.ap), message log
-; (MSG_ROW..MSG_ROW+MSG_ROWS-1, oldest at top, newest at the bottom),
+; (MSG_ROW..MSG_ROW+MSG_ROWS-1, oldest at top, newest at the bottom; a run of
+; identical consecutive messages shares one row with an " xN" count),
 ; help row (HELP_ROW, text per st_mode), menu hints inside the panel
 ; (MODE_EQUIP/MODE_DROP/MODE_RECYCLE/MODE_BAY_PART highlight inventory digits 1-4, MODE_REMOVE
 ; and MODE_BAY_SLOT number the loadout rows 1-8, MODE_BAY_PART numbers only st_bay_slot, MODE_TOGGLE numbers weapon rows 1-3, highlighted
@@ -21,7 +22,7 @@
 ;; ui_draw        ()                -> -       draw panel (title + depth/Surface + turn, core and energy bars via ui_bar, move cost/sight/kills, 8 loadout rows "<kind letter> <name>
 ;;                   <bar>" with [HOLD] for held weapons, 4 inventory rows "<digit> <kind> <name> <stat> <hp>/<max>", target or MODE_LOOK cursor inspection,
 ;;                   floor alarm meter, row 22 status line for st_auto / visible hostiles, item under player "Here: <name> [<kind> <stat>]" or else a fixture
-;;                   "Here: <fixture name>"), message rows, help row;
+;;                   "Here: <fixture name>"), message rows (identical consecutive messages collapse to one row ending " xN"), help row;
 ;;                   menu highlights and MODE_HELP/MODE_LOG overlays by st_mode; MODE_QUIT help row reads "Quit? y = yes, any other key = no";
 ;;                   draws into st_cells (the game display, 100x30); st_screen must be the bound display
 ;; ui_end_screen  ()                -> r0=1 play again, 0 quit   death (cause = st_death_cause type name, depth) or win screen ("Surface" for depth 0) with st_kills, st_turn, st_depth_best and
@@ -2139,7 +2140,7 @@ ui_draw_messages:
         push lr
         push fp
         mov fp, sp
-        sub sp, sp, 4
+        sub sp, sp, 7
 
         ; Clear all MSG_ROWS x SCR_COLS contiguous cells in one ui_fill_run
         mov r1, (MSG_ROWS*SCR_COLS)>>2
@@ -2158,22 +2159,56 @@ ui_draw_messages:
         str r1, fp, -3
         lea r1, st_msg_text
         str r1, fp, -2
+        mov r0, 0
+        str r0, fp, -5          ; j = ring offset back from the head
 
-        mov r4, 0               ; k = 0..MSG_ROWS-1
+        ; Each row shows one run of identical consecutive messages,
+        ; newest run at the bottom; a run of n > 1 gets a " xn" suffix.
+        mov r4, 0               ; k = row 0..MSG_ROWS-1, bottom up
 ui_dm_lp:
-        ldr r1, fp, -1
-        sub r1, r1, r4
-        and r1, r1, MSG_COUNT-1
-        mov r2, r1
-        sll r2, MSG_SHIFT
+        ldr r1, fp, -5
+        mov r2, MSG_COUNT-1
+        sub r2, r2, r1
+        brn ui_dm_done          ; ring exhausted
+        ldr r0, fp, -1
+        sub r0, r0, r1
+        and r0, r0, MSG_COUNT-1
+        str r0, fp, -6          ; s = slot of this run's newest message
+        sll r0, MSG_SHIFT
         ldr r3, fp, -2
-        add r2, r2, r3
+        add r2, r0, r3          ; r2 = &text[s]
         ldr r0, r2, 0
         cmp r0, 0
-        brz ui_dm_next
+        brz ui_dm_done          ; empty slot: nothing older was written
+        ; n = run length: count older slots with the same text
+        mov r3, 1
+ui_dm_run:
+        ldr r1, fp, -5
+        add r1, r1, r3          ; j + n
+        mov r0, MSG_COUNT-1
+        sub r0, r0, r1
+        brn ui_dm_run_end
+        ldr r0, fp, -1
+        sub r0, r0, r1
+        and r0, r0, MSG_COUNT-1
+        sll r0, MSG_SHIFT
+        ldr r1, fp, -2
+        add r1, r1, r0          ; r1 = &text[s - n]
+        mov r0, r2
+        bl ui_msg_same
+        cmp r0, 0
+        brz ui_dm_run_end
+        add r3, r3, 1
+        br ui_dm_run
+ui_dm_run_end:
+        str r3, fp, -7          ; n
+        ldr r1, fp, -5
+        add r1, r1, r3
+        str r1, fp, -5          ; j += n
         cmp r4, 0
         brnz ui_dm_old
         ldr r3, fp, -3
+        ldr r1, fp, -6
         add r3, r3, r1
         ldr r3, r3, 0
         br ui_dm_put
@@ -2183,6 +2218,13 @@ ui_dm_old:
 ui_dm_put:
         ldr r0, fp, -4
         bl ui_put_str
+        ldr r1, fp, -7
+        cmp r1, 1
+        brz ui_dm_next
+        lea r2, ui_s_xrep
+        bl ui_put_str
+        mov r2, r1
+        bl ui_put_num
 ui_dm_next:
         ldr r0, fp, -4
         mov r1, SCR_COLS
@@ -2191,6 +2233,7 @@ ui_dm_next:
         add r4, r4, 1
         cmp r4, MSG_ROWS
         brlt ui_dm_lp
+ui_dm_done:
 
         mov sp, fp
         pop fp
@@ -2200,6 +2243,32 @@ ui_dm_next:
         pop r2
         pop r1
         pop r0
+        ret
+
+; ui_msg_same (r0=str a, r1=str b -> r0=1 if equal, else 0)
+ui_msg_same:
+        push r1
+        push r2
+        push r3
+ui_mss_lp:
+        ldr r2, r0, 0
+        ldr r3, r1, 0
+        cmp r2, r3
+        brnz ui_mss_no
+        cmp r2, 0
+        brz ui_mss_yes
+        add r0, r0, 1
+        add r1, r1, 1
+        br ui_mss_lp
+ui_mss_no:
+        mov r0, 0
+        br ui_mss_ret
+ui_mss_yes:
+        mov r0, 1
+ui_mss_ret:
+        pop r3
+        pop r2
+        pop r1
         ret
 
 ; ---- help row (r0=&st_cells[HELP_ROW*100], r1=st_game_state) --------
@@ -3238,6 +3307,7 @@ ui_db_row_done:
 ui_numbuf:      .zero 7
 ui_numend:      .word 0
 ui_s_min_i16:   .string "-32768"
+ui_s_xrep:      .string " x"
 
 ui_art_glyphs:
         .word G_SPACE

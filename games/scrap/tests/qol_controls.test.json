@@ -220,7 +220,7 @@
       "keys": "<enter> l*2 u k*4 y h*8 b j .*8 H g*16 z",
       "expect": {
         "memory": { "st_auto": 0 },
-        "screen": { "matches": ["Nothing here to pick up\\.\\s*\\n\\s*Hostile in view\\."] }
+        "screen": { "matches": ["Nothing here to pick up\\. x15\\s*\\n\\s*Hostile in view\\."] }
       }
     },
     {
@@ -229,7 +229,7 @@
       "keys": "a o _*27 ; f f F",
       "expect": {
         "memory": { "st_target": -1, "st_mode": 0 },
-        "screen": { "matches": ["Rivet Gun hits Tinker for 4\\.\\s*\\n\\s*Rivet Gun hits Tinker for 4\\.\\s*\\n\\s*Tinker destroyed\\."], "contains": ["1 hostile in view"], "notContains": ["hits Flit"] }
+        "screen": { "matches": ["Rivet Gun hits Tinker for 4\\. x2\\s*\\n\\s*Tinker destroyed\\."], "contains": ["1 hostile in view"], "notContains": ["hits Flit"] }
       }
     }
   ]
