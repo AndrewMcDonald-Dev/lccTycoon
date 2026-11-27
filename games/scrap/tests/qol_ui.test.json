@@ -237,6 +237,40 @@
           }
         ]
       }
+    },
+    {
+      "name": "repeated messages collapse into one row with a count; the log keeps each copy",
+      "clock": 1000,
+      "keys": "<enter> g g g m",
+      "expect": {
+        "status": "frames-complete",
+        "frames": [
+          {
+            "frame": 1,
+            "screen": {
+              "matches": ["Climb to the surface\\.\\s*\\n\\s*Nothing here to pick up\\. *\\n"]
+            }
+          },
+          {
+            "frame": 2,
+            "screen": {
+              "matches": ["Climb to the surface\\.\\s*\\n\\s*Nothing here to pick up\\. x2 *\\n"]
+            }
+          },
+          {
+            "frame": 3,
+            "screen": {
+              "matches": ["Climb to the surface\\.\\s*\\n\\s*Nothing here to pick up\\. x3 *\\n"]
+            }
+          },
+          {
+            "frame": 4,
+            "screen": {
+              "matches": ["(Nothing here to pick up\\. *║[^\\n]*\\n[^\\n]*){2}Nothing here to pick up\\. *║"]
+            }
+          }
+        ]
+      }
     }
   ]
 }
