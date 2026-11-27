@@ -126,6 +126,8 @@ class Session {
     this.frames = [];
     this.events = [];
     this.lastText = null;
+    this.lastColors = null;
+    this.lastBg = null;
     this.interp = new HeadlessInterpreter(this);
   }
 
@@ -141,18 +143,23 @@ class Session {
   snapshot(reason) {
     if (!this.keepFrames) return;
     const text = this.vt.text();
+    const colors = this.vt.colorText();
+    const bg = this.vt.colorText(true);
     this.frames.push({
       frame: this.frame,
       reason,
       timeMs: Math.round(this.clockMs()),
       step: this.interp.instructionsExecuted,
       text,
-      colors: this.vt.colorText(),
-      bg: this.vt.colorText(true),
+      colors,
+      bg,
       changed: text !== this.lastText,
+      colorChanged: colors !== this.lastColors || bg !== this.lastBg,
       watch: this.readWatch(),
     });
     this.lastText = text;
+    this.lastColors = colors;
+    this.lastBg = bg;
   }
 
   boundary(reason) {

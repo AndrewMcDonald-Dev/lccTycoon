@@ -1,0 +1,22 @@
+; Harness self-test: a frame whose only change is a color (green 'A' -> red 'A').
+; run --show changed --colors must list frame 1; plain --show changed must not.
+        .lccplus
+        .start main
+main:
+        lea r0, scr
+        present r0
+        mov r0, 1
+        sleep r0                ; frame 0: green A
+        ld r1, redA
+        st r1, scr_cells
+        lea r0, scr
+        present r0
+        mov r0, 1
+        sleep r0                ; frame 1: red A, same text
+        halt
+redA:   .word 'A'|(1<<8)
+scr:    .word 1
+        .word 1
+        .word 0
+        .word 0
+scr_cells: .word 'A'|(2<<8)
