@@ -31,7 +31,7 @@ class Room {
     this.store = opts.store || null;
     this.now = opts.now || Date.now;
     this.daily = false;               // next race runs on the daily seed (lobby 'd' toggles)
-    this.rematch = false;             // next race reuses the last race's seed, unranked (lobby 'r' toggles)
+    this.rematch = false;             // next race reuses the last race's seed, off the daily board (lobby 'r' toggles)
     this.shownDay = utcDate(this.now());   // UTC day the lobbies last showed
     this.countdownMs = opts.countdownMs === undefined ? 3000 : opts.countdownMs;
     this.pollMs = opts.pollMs || 250;

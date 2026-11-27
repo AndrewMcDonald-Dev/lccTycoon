@@ -212,7 +212,7 @@ test('the rival line keeps every rival readable with eight racers in 100 columns
   } finally { room.close(); }
 });
 
-test('[r] rematches the last race on the same seed (unranked) and the lobby shows that seed', async () => {
+test('[r] rematches the last race on the same seed (off the daily board) and the lobby shows that seed', async () => {
   let n = 0x1A2B;
   const out = [];
   const room = new Room({ build: game, seed: () => n++, pollMs: 20, countdownMs: 0, endScreenMs: 0 });
@@ -224,9 +224,9 @@ test('[r] rematches the last race on the same seed (unranked) and the lobby show
     const race = async () => {
       room.input(m, Buffer.from('\r'));
       await until(() => room.phase === 'race' && m.game && m.game.stats().state === GAME.PLAY);
-      const seed = room.race.seed;
+      const seed = room.race.seed, before = room.lastRace;
       room.input(m, Buffer.from('\x03'));            // give up: back to the lobby
-      await until(() => room.phase === 'lobby' && room.lastRace);
+      await until(() => room.phase === 'lobby' && room.lastRace !== before);
       return seed;
     };
     const first = await race();
@@ -236,7 +236,7 @@ test('[r] rematches the last race on the same seed (unranked) and the lobby show
     assert.strictEqual(room.rematch, true);
     await until(() => /rematch on seed #1A2B/.test(screen()));
     assert.strictEqual(await race(), 0x1A2B, 'rematch reuses the seed');
-    assert.strictEqual(room.lastRace.daily, null, 'a rematch is unranked');
+    assert.strictEqual(room.lastRace.daily, null, 'a rematch is not a daily race');
     room.input(m, Buffer.from('d'));                 // daily and rematch exclude each other
     assert.deepStrictEqual([room.daily, room.rematch], [true, false]);
     room.input(m, Buffer.from('r'));
