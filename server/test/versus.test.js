@@ -284,3 +284,20 @@ test('two or more ready players start without the rest after autoStartMs; droppi
     assert.strictEqual(room.autoStartAt, 0);
   } finally { room.close(); }
 });
+
+test('a join that cancels an all-ready countdown starts a full auto-start wait', async () => {
+  const room = new Room({ build: game, pollMs: 100, countdownMs: 60000, autoStartMs: 30000 });
+  const conn = name => ({ name, rows: 31, cols: 100, colorMode: 'truecolor', write() {}, close() {} });
+  try {
+    const [a, b] = ['ann', 'bob'].map(n => room.join(conn(n)));
+    room.input(a, Buffer.from('\r'));
+    room.input(b, Buffer.from('\r'));
+    assert.strictEqual(room.phase, 'countdown');
+    assert.strictEqual(room.autoStartAt, 0, 'no wait while everyone is ready');
+    await wait(300);
+    const t0 = Date.now();
+    room.join(conn('cat'));
+    assert.strictEqual(room.phase, 'lobby');
+    assert.ok(room.autoStartAt - t0 >= 29900, `wait is ${room.autoStartAt - t0} ms`);
+  } finally { room.close(); }
+});

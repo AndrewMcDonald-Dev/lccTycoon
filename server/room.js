@@ -74,7 +74,7 @@ class Room {
     const m = { conn, name: this.uniqueName(conn.name), fp: conn.fp || null, ready: false, game: null, result: null, lobbyText: null, view: 'lobby' };
     this.members.push(m);
     conn.write('\x1b[?1049h\x1b[?25l');
-    if (this.phase === 'countdown') this.cancelCountdown();
+    if (this.phase === 'countdown') { this.cancelCountdown(); this.syncAutoStart(); }
     this.requestLobbies();
     return m;
   }
@@ -175,12 +175,12 @@ class Room {
 
   // Two or more players ready for autoStartMs start without the ones who are not,
   // so one idle player cannot hold up the room. The wait starts when a second player
-  // readies and is dropped as soon as fewer than two are ready; a countdown that is
+  // readies in the lobby and is dropped as soon as fewer than two are ready; a countdown that is
   // cancelled leaves it running (toggling ready cannot hold the room forever).
   syncAutoStart() {
     const ready = this.phase !== 'race' && this.autoStartMs ? this.members.filter(m => m.ready).length : 0;
     if (ready < 2) { if (this.autoStartAt) { this.autoStartAt = 0; this.requestLobbies(); } return false; }
-    if (!this.autoStartAt) { this.autoStartAt = Date.now() + this.autoStartMs; this.requestLobbies(); }
+    if (!this.autoStartAt && this.phase === 'lobby') { this.autoStartAt = Date.now() + this.autoStartMs; this.requestLobbies(); }
     return true;
   }
 
