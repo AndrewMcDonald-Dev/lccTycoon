@@ -87,6 +87,7 @@ class Room {
     try { m.conn.write('\x1b[0m\x1b[?25h\x1b[?1049l'); m.conn.close(); } catch (_) { /* gone */ }
     this.maybeEndRace();
     this.maybeCountdown();
+    this.syncAutoStart();
     this.requestLobbies();
   }
 
@@ -97,7 +98,7 @@ class Room {
     m.conn.rows = rows;
     m.conn.cols = cols;
     if (m.game) { m.game.repaint(rows, cols); this.drawHud(m); return; }
-    if (m.ready && !bigEnough(m.conn)) { m.ready = false; this.cancelCountdown(); }
+    if (m.ready && !bigEnough(m.conn)) { m.ready = false; this.cancelCountdown(); this.syncAutoStart(); }
     this.requestLobbies();          // lobbyText includes the size, so this member redraws
   }
 
@@ -130,6 +131,7 @@ class Room {
       m.ready = !m.ready;
       if (!m.ready) this.cancelCountdown();
       this.maybeCountdown();
+      this.syncAutoStart();
       this.requestLobbies();
     }
   }
@@ -172,12 +174,20 @@ class Room {
   }
 
   // Two or more players ready for autoStartMs start without the ones who are not,
-  // so one idle player cannot hold up the room. Checked on every poll.
+  // so one idle player cannot hold up the room. The wait starts when a second player
+  // readies and is dropped as soon as fewer than two are ready; a countdown that is
+  // cancelled leaves it running (toggling ready cannot hold the room forever).
+  syncAutoStart() {
+    const ready = this.phase !== 'race' && this.autoStartMs ? this.members.filter(m => m.ready).length : 0;
+    if (ready < 2) { if (this.autoStartAt) { this.autoStartAt = 0; this.requestLobbies(); } return false; }
+    if (!this.autoStartAt) { this.autoStartAt = Date.now() + this.autoStartMs; this.requestLobbies(); }
+    return true;
+  }
+
+  // Poll: start the race once the wait runs out.
   autoStart() {
-    const ready = this.phase === 'lobby' && this.autoStartMs ? this.members.filter(m => m.ready).length : 0;
-    if (ready < 2) { this.autoStartAt = 0; return; }
-    if (!this.autoStartAt) this.autoStartAt = Date.now() + this.autoStartMs;
-    if (Date.now() >= this.autoStartAt) { this.autoStartAt = 0; this.startRace(); return; }
+    if (!this.syncAutoStart() || this.phase !== 'lobby') return;
+    if (Date.now() >= this.autoStartAt) { this.startRace(); return; }
     this.requestLobbies();          // the seconds left change; unchanged lobby text is not redrawn
   }
 
@@ -192,6 +202,7 @@ class Room {
     const racers = this.members.filter(m => m.ready);
     if (!racers.length) return;
     this.phase = 'race';
+    this.autoStartAt = 0;
     const date = utcDate(this.now());
     const daily = this.daily ? { date, build: this.buildId, seed: dailySeed(date) } : null;
     const seed = daily ? daily.seed : this.rematch && this.lastRace ? this.lastRace.seed : this.nextSeed();

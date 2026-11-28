@@ -247,25 +247,40 @@ test('[r] rematches the last race on the same seed (off the daily board) and the
 });
 
 test('two or more ready players start without the rest after autoStartMs; dropping below two resets the wait', async () => {
-  const room = new Room({ build: game, pollMs: 20, countdownMs: 0, autoStartMs: 300, endScreenMs: 0 });
-  const conn = name => ({ name, rows: 31, cols: 100, colorMode: 'truecolor', out: [], write(s) { this.out.push(s); }, close() {} });
+  // pollMs above the 30 ms redraw debounce, as in production: lobbies must redraw when the wait is dropped.
+  const room = new Room({ build: game, pollMs: 100, countdownMs: 60000, autoStartMs: 600, endScreenMs: 0 });
+  const conn = name => ({ name, rows: 31, cols: 100, colorMode: 'truecolor', write() {}, close() {} });
+  const waitLine = /starting with ready players in \d+s/;
   try {
     const [a, b, c] = ['ann', 'bob', 'cat'].map(n => room.join(conn(n)));
     room.input(a, Buffer.from('\r'));
-    await wait(400);
+    await wait(700);
     assert.strictEqual(room.phase, 'lobby', 'one ready player waits for the others');
     assert.strictEqual(room.autoStartAt, 0);
     room.input(b, Buffer.from('\r'));
-    await until(() => room.autoStartAt);
-    await until(() => /starting with ready players in \d+s/.test(c.conn.out.join('')));   // everyone sees the wait
-    room.input(b, Buffer.from('\r'));                  // bob unreadies: back to one ready, wait resets
-    await until(() => room.autoStartAt === 0);
-    assert.strictEqual(room.phase, 'lobby');
+    assert.ok(room.autoStartAt, 'the second ready player starts the wait at once');
+    await until(() => waitLine.test(c.lobbyText));                // everyone sees the wait
+    room.input(b, Buffer.from('\r'));                              // bob unreadies: one ready, wait dropped
+    assert.strictEqual(room.autoStartAt, 0);
+    await until(() => !waitLine.test(c.lobbyText) && /READY/.test(c.lobbyText));
+    await wait(150);
+    assert.ok(!waitLine.test(c.lobbyText), 'the lobby does not keep showing a dropped wait');
+    const first = (room.input(b, Buffer.from('\r')), room.autoStartAt);
+    await wait(150);
+    room.input(b, Buffer.from('\r'));                              // unready and ready again within one poll
     room.input(b, Buffer.from('\r'));
+    assert.ok(room.autoStartAt > first, 'dropping below two between polls still restarts the wait');
+    const deadline = room.autoStartAt;
+    room.input(c, Buffer.from('\r'));                              // all ready: the countdown takes over
+    assert.strictEqual(room.phase, 'countdown');
+    room.input(c, Buffer.from('\r'));                              // cancelled: the wait carries on
+    assert.strictEqual(room.phase, 'lobby');
+    assert.strictEqual(room.autoStartAt, deadline, 'toggling ready cannot restart the wait');
     const t0 = Date.now();
     await until(() => room.phase === 'race');
-    assert.ok(Date.now() - t0 >= 250, `waited ${Date.now() - t0} ms`);
+    assert.ok(Date.now() - t0 >= 300, `waited ${Date.now() - t0} ms`);
     assert.deepStrictEqual(room.race.racers.map(m => m.name), ['ann', 'bob'], 'only the ready players race');
     assert.strictEqual(c.game, null);
+    assert.strictEqual(room.autoStartAt, 0);
   } finally { room.close(); }
 });
