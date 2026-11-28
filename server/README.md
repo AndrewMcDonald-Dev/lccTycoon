@@ -64,6 +64,7 @@ When `SCRAP_PASSWORD` is set, an SSH key does **not** bypass the password: your 
 - **`Tab`** — cycle your own view: lobby → daily board & your record → last-race chronicle → lobby
 - **`q` or `Ctrl-C`** — disconnect from the lobby
 - When every player in the lobby is ready, a 3-second countdown starts and all ready players launch together.
+- If 2 or more players are ready but not everyone is, a 30-second wait starts; when it ends, the race starts immediately with only the ready players while not-ready players stay in the lobby and watch. If everyone becomes ready, the 3-second countdown takes over; if fewer than 2 remain ready, the wait is cancelled and restarts from 30 seconds the next time 2 or more are ready (a lone ready player still waits for everyone).
 - Players who connect mid-race wait in the lobby with live standings and join the next race.
 - In-game **`Ctrl-C`** forfeits the run and returns to the lobby. Reaching the Surface or being destroyed shows the normal end screen; pressing any key from it returns to the lobby.
 

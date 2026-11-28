@@ -90,7 +90,7 @@ function samePassword(given, want) {
 function startServer(opts) {
   const game = opts.build || buildGame();
   const store = opts.store !== undefined ? opts.store : (opts.dataDir ? new Store(opts.dataDir) : null);
-  const room = new Room({ build: game, store, now: opts.now, maxPlayers: opts.maxPlayers || 8, countdownMs: opts.countdownMs, endScreenMs: opts.endScreenMs, seed: opts.seed });
+  const room = new Room({ build: game, store, now: opts.now, maxPlayers: opts.maxPlayers || 8, countdownMs: opts.countdownMs, autoStartMs: opts.autoStartMs, endScreenMs: opts.endScreenMs, seed: opts.seed });
   const server = new Server({ hostKeys: [opts.hostKey || hostKey(opts.dataDir)], keepaliveInterval: 15000, keepaliveCountMax: 4 }, client => {
     let user = 'robot';
     let fp = null;                   // fingerprint of a key the client proved it holds

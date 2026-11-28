@@ -23,7 +23,7 @@ const VIEWS = ['lobby', 'board', 'chronicle'];
 const BOARD_ROWS = 10;
 
 class Room {
-  // opts: { build, countdownMs = 3000, endScreenMs = 20000, pollMs = 250, maxPlayers = 8, seed(),
+  // opts: { build, countdownMs = 3000, autoStartMs = 30000 (0: off), endScreenMs = 20000, pollMs = 250, maxPlayers = 8, seed(),
   //         store (a Store, or none: nothing is saved), now() = Date.now (picks the UTC day) }
   constructor(opts) {
     this.build = opts.build;
@@ -34,6 +34,7 @@ class Room {
     this.rematch = false;             // next race reuses the last race's seed, off the daily board (lobby 'r' toggles)
     this.shownDay = utcDate(this.now());   // UTC day the lobbies last showed
     this.countdownMs = opts.countdownMs === undefined ? 3000 : opts.countdownMs;
+    this.autoStartMs = opts.autoStartMs === undefined ? 30000 : opts.autoStartMs;
     this.pollMs = opts.pollMs || 250;
     this.endScreenMs = opts.endScreenMs === undefined ? 20000 : opts.endScreenMs;
     this.maxPlayers = opts.maxPlayers || 8;
@@ -45,6 +46,7 @@ class Room {
     this.lastRace = null;             // { seed, daily } of the race in lastResults
     this.countdownTimer = null;
     this.countdownEnds = 0;
+    this.autoStartAt = 0;             // with 2+ ready but not everyone: when the ready players start without the rest
     this.redrawTimer = null;
     this.poller = setInterval(() => this.tick(), this.pollMs);
     this.poller.unref();
@@ -169,6 +171,16 @@ class Room {
     step();
   }
 
+  // Two or more players ready for autoStartMs start without the ones who are not,
+  // so one idle player cannot hold up the room. Checked on every poll.
+  autoStart() {
+    const ready = this.phase === 'lobby' && this.autoStartMs ? this.members.filter(m => m.ready).length : 0;
+    if (ready < 2) { this.autoStartAt = 0; return; }
+    if (!this.autoStartAt) this.autoStartAt = Date.now() + this.autoStartMs;
+    if (Date.now() >= this.autoStartAt) { this.autoStartAt = 0; this.startRace(); return; }
+    this.requestLobbies();          // the seconds left change; unchanged lobby text is not redrawn
+  }
+
   cancelCountdown() {
     if (this.countdownTimer) clearTimeout(this.countdownTimer);
     this.countdownTimer = null;
@@ -268,6 +280,7 @@ class Room {
   tick() {
     const day = utcDate(this.now());
     if (day !== this.shownDay) { this.shownDay = day; this.requestLobbies(); }   // idle lobbies show the new day's seed and board
+    this.autoStart();
     if (this.phase !== 'race') return;
     for (const m of this.race.racers) this.recordResult(m);
     this.maybeEndRace();
@@ -340,6 +353,7 @@ class Room {
     lines.push('');
     if (!inRace) lines.push(this.daily ? T.seedDaily(utcDate(this.now())) : this.rematch && this.lastRace ? T.seedRematch(this.lastRace.seed) : T.seedRandom);
     if (this.phase === 'countdown') lines.push(T.countdown(Math.max(1, Math.ceil((this.countdownEnds - Date.now()) / 1000))));
+    else if (!inRace && this.autoStartAt) lines.push(T.autoStart(Math.max(1, Math.ceil((this.autoStartAt - Date.now()) / 1000))));
     else if (!inRace) lines.push(T.needAll);
     if (this.lastResults && !inRace) {
       lines.push('', T.lastHeader(this.lastRace));

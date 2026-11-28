@@ -89,7 +89,8 @@ module.exports = {
     return `Loadout: ${parts.map(p => p.slice(0, 1)).join(', ')}`;
   },
   countdown: s => `All ready -- starting in ${s}...`,
-  needAll: 'Race starts when everyone in the lobby is ready.',
+  autoStart: s => `2+ ready -- starting with ready players in ${s}s (ready up to join).`,
+  needAll: 'Race starts when everyone is ready, or after 2+ stay ready for 30s (ready players only).',
   liveHeader: 'Live standings',
   lastHeader: last => `Last race -- ${last.daily ? `daily seed ${hex(last.seed)} (${last.daily.date} UTC)` : `seed ${hex(last.seed)}`}`,
   tooSmall: (c, r) => `Window is ${c}x${r} -- resize to at least 100x31 to play.`,

@@ -245,3 +245,27 @@ test('[r] rematches the last race on the same seed (off the daily board) and the
     assert.strictEqual(await race(), 0x1A2C);
   } finally { room.close(); }
 });
+
+test('two or more ready players start without the rest after autoStartMs; dropping below two resets the wait', async () => {
+  const room = new Room({ build: game, pollMs: 20, countdownMs: 0, autoStartMs: 300, endScreenMs: 0 });
+  const conn = name => ({ name, rows: 31, cols: 100, colorMode: 'truecolor', out: [], write(s) { this.out.push(s); }, close() {} });
+  try {
+    const [a, b, c] = ['ann', 'bob', 'cat'].map(n => room.join(conn(n)));
+    room.input(a, Buffer.from('\r'));
+    await wait(400);
+    assert.strictEqual(room.phase, 'lobby', 'one ready player waits for the others');
+    assert.strictEqual(room.autoStartAt, 0);
+    room.input(b, Buffer.from('\r'));
+    await until(() => room.autoStartAt);
+    await until(() => /starting with ready players in \d+s/.test(c.conn.out.join('')));   // everyone sees the wait
+    room.input(b, Buffer.from('\r'));                  // bob unreadies: back to one ready, wait resets
+    await until(() => room.autoStartAt === 0);
+    assert.strictEqual(room.phase, 'lobby');
+    room.input(b, Buffer.from('\r'));
+    const t0 = Date.now();
+    await until(() => room.phase === 'race');
+    assert.ok(Date.now() - t0 >= 250, `waited ${Date.now() - t0} ms`);
+    assert.deepStrictEqual(room.race.racers.map(m => m.name), ['ann', 'bob'], 'only the ready players race');
+    assert.strictEqual(c.game, null);
+  } finally { room.close(); }
+});
